@@ -13,6 +13,7 @@
      3. a state in the set: marks, facing, what is held, what stands on a fixed object, what is missing
      4. who or what a person faces
      5. doors: open swings the set's own leaf; shut leaves it; a door with no leaf gets a plain one
+     5c-5g. a person at a shut door; a camera on the other side of it; what hangs; what sits on what; which way a leaf swings
      6. what hides a face, and where no camera can stand
      7. the planned camera, checked: kept, moved, its lens set, or left to the app
      8. the camera found by the app
@@ -219,6 +220,114 @@ test("5b. a door the plan tracks by its own key is the floor plan's opening; a d
 });
 
 /* ---- 6. what hides, and what is solid ---- */
+const placed=()=>V.stateScene(SET(),PLAN,STATE,CTX);
+const SHOT={beatN:1,moment:{n:1,of:2},size:"MS",angle:"eye",lens:"35",move:"static",subjects:["ann","bob"],startState:STATE,endState:STATE};
+/* ---- 5c. a person at a shut door (2026-11-23, after moment 2 of Scene 5: the plan had Pike "on the threshold",
+   "standing outside the shut door"; the mark is 10 cm inside the door, so he was drawn in the hall in front of a shut
+   door, and the image engine opened the door) ---- */
+const STEP_PLAN={...PLAN,marks:PLAN.marks.concat([{id:"m-step",set:"set1",name:"on the threshold",xy:[2,0.1]}])};
+const STEP_CTX={...CTX,plan:STEP_PLAN,outdoors:["yard"]};
+const atStep=(pose,open,ctx)=>V.stateScene(SET(),STEP_PLAN,{people:{ann:{where:"m-step",pose,holding:["mug"]},bob:{where:"m-b",pose:"standing",holding:[]}},
+  things:{mug:{heldBy:"ann"}},doors:[{id:"front-door",open:!!open}]},ctx||STEP_CTX);
+test("5c. nobody stands in a shut doorway: clear of the leaf on their own side, or out of doors when the plan's words say so",()=>{
+  const out=atStep("standing outside the shut door, a shape in the glass"), ann=out.people[0];
+  assert.ok(near(ann.xy[0],2)&&near(ann.xy[1],-0.4),"outside the shut front door, clear of its leaf");
+  assert.equal(ann.door.id,"front-door"); assert.equal(ann.door.name,"Front door");
+  assert.ok(near(ann.head[2],-0.1+1.7-0.115),"on the yard's own ground");
+  assert.ok(out.scene.objects.some(o=>o.id==="fig-ann-torso"),"still drawn: a camera in the yard sees them");
+  for(const pose of ["knocking","on the doorstep, waiting","rings the bell"]) assert.ok(atStep(pose).people[0].xy[1]<0,pose);
+  // the plan's words do not say outside: they stay on the side their mark is on, clear of the leaf
+  const inside=atStep("standing, one hand on the latch").people[0];
+  assert.ok(near(inside.xy[0],2)&&near(inside.xy[1],0.4)); assert.equal(inside.door.id,"front-door");
+  assert.ok(near(atStep("standing inside, not outside").people[0].xy[1],0.4),"'inside' wins");
+  // an inner door has no outdoor side: 'outside the bedroom door' is where the mark is
+  assert.ok(near(atStep("standing outside the shut door",false,{...STEP_CTX,outdoors:[]}).people[0].xy[1],0.4));
+  // an open door, and a mark away from it, change nothing
+  const open=atStep("standing outside the shut door",true).people[0];
+  assert.deepEqual(plain(open.xy),[2,0.1]); assert.equal(open.door,null);
+  const away=V.stateScene(SET(),PLAN,STATE,{...CTX,outdoors:["yard"]}).people[0];
+  assert.deepEqual(plain(away.xy),[2,1]); assert.equal(away.door,null);
+  // with no floor plan to tell the sides apart, nobody is moved
+  assert.deepEqual(plain(atStep("standing outside the shut door",false,{...STEP_CTX,spaces:[]}).people[0].xy),[2,0.1]);
+});
+test("5d. a camera on the other side of the shut door does not have to see them, and the picture's words leave them out",()=>{
+  const st=atStep("standing outside the shut door, a shape in the glass"), clear=clearOf(st.base);
+  assert.equal(clear([2.6,2.2,1.5],st.people[0].head),false,"the shut door and its wall are in the way");
+  const got=V.planCamera({at:[2.6,2.2],height:1.5,aim:["ann","bob"],lens:35},SHOT,st,st.base,STEP_PLAN,SPACES,{clear});
+  assert.equal(got.source,"plan","the planned camera is kept: nothing it could see is hidden"); assert.deepEqual(plain(got.notes),[]);
+  assert.deepEqual(plain(got.pose.position),[2.6,2.2,1.5]);
+  // the same camera with them inside the shut door must see them (the rule is the door's, not the person's)
+  const inn=atStep("standing, one hand on the latch");
+  assert.equal(V.planCamera({at:[2.6,2.2],height:1.5,aim:["ann","bob"],lens:35},SHOT,inn,inn.base,STEP_PLAN,SPACES,{clear:()=>false}).notes.length,1);
+  // a camera out in the yard is on their side of the door: it must see them
+  const yard=V.planCamera({at:[2,-2.5],height:1.5,aim:["ann"],lens:35},{...SHOT,subjects:["ann"]},st,st.base,STEP_PLAN,SPACES,{clear:()=>false});
+  assert.match(yard.notes[0],/hides someone it frames/);
+  // the app's own camera counts them as seen from inside
+  const found=V.camera(SHOT,st.people,SPACES,{clear,set:st.base,all:st.people});
+  assert.ok(found.fits&&!found.notes.some(n=>/Not everyone/.test(n)));
+  // the legend: pair marks who the door hides from its camera
+  st.people[0].unseen=true;
+  assert.deepEqual(plain(V.legend(st.people,st.things)),[
+    "Ann Lee is on the other side of the shut front door and is NOT in this picture: no block figure stands for them (standing outside the shut door, a shape in the glass).",
+    "The pink block figure is Bob Marsh (standing)."],"and what they hold is not in it either");
+  assert.match(src,/unseen\(first\.people\);[\s\S]{0,260}is on the other side of the shut "\+lowName\(p\.door\.name\)\+" as this shot starts, so the picture starts without them\./);
+  assert.match(src,/const outdoors=arr\(list\)\.concat\(\[location\]\)\.filter\(l=>l&&\/ext\/i\.test\(String\(l\.intExt\|\|""\)\)&&!\/int\/i\.test/,"which spaces are out of doors comes from the location cards");
+});
+/* ---- 5e. what hangs, and what sits on what (2026-11-23: moment 2 of Scene 5 came back with a stack of tubs on the
+   hall shelf; nothing had said what is on it) ---- */
+const DRESSED=()=>{ const set=SET(); set.objects.push(
+  {id:"dress-1",name:"Row of key hooks · 1",kind:"box",anchorId:"hooks",position:[0.07,2,1.45],rotation:[0,0,-Math.PI/2],size:[0.35,0.02,0.08],material:"d_brown"},
+  {id:"dress-2",name:"Row of key hooks · 2",kind:"box",anchorId:"hooks",position:[0.09,2.12,1.44],rotation:[0,0,-Math.PI/2],size:[0.02,0.03,0.02],material:"d_steel"},
+  {id:"dress-3",name:"Row of key hooks · 3",kind:"box",anchorId:"hooks",position:[0.09,2,1.44],rotation:[0,0,-Math.PI/2],size:[0.02,0.03,0.02],material:"d_steel"},
+  {id:"dress-4",name:"Row of key hooks · 4",kind:"box",anchorId:"hooks",position:[0.09,1.88,1.44],rotation:[0,0,-Math.PI/2],size:[0.02,0.03,0.02],material:"d_steel"},
+  {id:"extra-8",name:"table clutter · 1",kind:"box",position:[3.2,2.1,0.76],rotation:[0,0,0],size:[0.1,0.2,0.02],material:"d_paper"},
+  {id:"extra-9",name:"table clutter · 2",kind:"cylinder",position:[2.8,1.9,0.78],rotation:[0,0,0],size:[0.08,0.08,0.06],material:"d_brown"},
+  {id:"anchor-9",name:"Kettle · body",kind:"cylinder",anchorId:"kettle",position:[3.3,1.8,0.85],rotation:[0,0,0],size:[0.16,0.16,0.2],material:"kitchenOat"},
+  {id:"extra-10",name:"rug · 1",kind:"box",position:[2,1.5,0.01],rotation:[0,0,0],size:[1.5,1,0.02],material:"d_red"}); return set; };
+const DRESS_PLAN={...PLAN,fixed:PLAN.fixed.concat([{id:"hooks",set:"set1",kind:"object",name:"Row of key hooks"},{id:"kettle",set:"set1",kind:"object",name:"Kettle"}]),
+  things:PLAN.things.concat([{key:"keys",name:"Cab keys",kind:"prop"}])};
+test("5e. keys on a hook hang under it, flat to the wall, on the room's side",()=>{
+  const got=V.stateScene(DRESSED(),DRESS_PLAN,{people:{},things:{keys:{at:"hooks",state:"hanging"},parcel:{at:"table"}},doors:[]},{...CTX,plan:DRESS_PLAN});
+  const keys=got.things.find(t=>t.key==="keys"), box=got.scene.objects.find(o=>o.id==="prop-keys");
+  assert.ok(keys.hung&&keys.onId==="hooks"&&keys.on==="Row of key hooks");
+  assert.ok(near(box.position[1],2),"on the middle hook"); assert.ok(box.position[0]>0.1&&box.position[0]<0.2,"off the west wall, into the room");
+  assert.ok(near(box.position[2]+box.size[2]/2,1.44),"its top at the hook"); assert.ok(box.size[2]>=box.size[0]&&box.size[1]<=box.size[0],"it hangs long, its thin side to the wall");
+  const parcel=got.things.find(t=>t.key==="parcel");
+  assert.ok(!parcel.hung&&parcel.onId==="table"&&near(parcel.at[2],0.75),"a parcel on a table still stands on its top");
+  assert.match(V.legend([],got.things)[0],/^The red box hanging from the row of key hooks is the Cab keys\.$/);
+});
+test("5f. what sits on each fixed thing is read from the set and said, and that nothing else is on it",()=>{
+  const ctx={...CTX,plan:DRESS_PLAN};
+  const got=V.stateScene(DRESSED(),DRESS_PLAN,{people:{},things:{keys:{at:"hooks",state:"hanging"},parcel:{at:"table"}},doors:[]},ctx);
+  assert.deepEqual(plain(got.surfaces.map(s=>s.id)),["table","hooks"],"the rug on the floor holds the room, not a shelf; the kettle holds nothing");
+  const table=got.surfaces[0];
+  assert.deepEqual(plain(table.own),[{name:"table clutter",items:["a flat paper thing about 20 cm long","a round brown thing about 8 cm across"]},{name:"Kettle",fixture:true}]);
+  assert.deepEqual(plain(table.things),[{name:"Parcel",hung:false}]); assert.equal(got.surfaces[1].hooks,3);
+  assert.deepEqual(plain(V.dressingWords(got.surfaces)),[
+    "On the kitchen table sit only a flat paper thing about 20 cm long, a round brown thing about 8 cm across, the kettle and the red box that is the parcel: nothing else is on it.",
+    "On the row of key hooks (3 hooks) hangs only the red box that is the cab keys: every other hook is empty."]);
+  // the hook once the keys are gone: said empty (the story's last image)
+  const bare=V.stateScene(DRESSED(),DRESS_PLAN,{people:{},things:{},doors:[]},ctx);
+  assert.deepEqual(plain(V.dressingWords(bare.surfaces.filter(s=>s.id==="hooks"))),["Nothing hangs on the row of key hooks: all 3 hooks are empty."]);
+  // an open door's leaf is never something "on" the shelf it swings past
+  const open=V.stateScene(DRESSED(),DRESS_PLAN,{people:{},things:{},doors:[{id:"front-door",open:true}]},ctx);
+  assert.deepEqual(plain(open.surfaces),plain(bare.surfaces));
+  assert.deepEqual(plain(V.dressingWords([])),[]);
+  // only for a frame that is made (words), only what the camera has in frame, and it rides in the legend
+  assert.match(src,/if\(o\.words\)\{ out\.start\.words=frameWords\(found\.pose,await seenIn\(first\.scene,found\.pose\)\); out\.start\.dressing=dressingWords\(await inView\(first\.surfaces,found\.pose,first\.base\)\); \}/);
+  assert.match(src,/return hit\.sort\(\(a,b\)=>a\.d-b\.d\)\.slice\(0,4\)\.map\(x=>x\.s\);/);
+  assert.match(ui,/legend:SPv\.legend\(people, things\)\.concat\(pic\.dressing\|\|\[\]\)/);
+});
+test("5g. an open leaf is hung on the jamb where it passes through nothing; a wall beside it never counts",()=>{
+  // a shelf on the wall on one side: the leaf would swing through it, so it opens to the other side, against the short wall there
+  const set=SET(); set.objects.push({id:"dress-s",name:"Hall shelf · 1",kind:"box",anchorId:"shelf",position:[1.62,0.5,1.2],rotation:[0,0,-Math.PI/2],size:[0.6,0.18,0.03],material:"d_oak"},
+    wall("wall-stub",[2.5,0.4,1.2],[0.15,0.8,2.4]));
+  const leaf=V.stateScene(set,PLAN,{people:{},doors:[{id:"front-door",open:true}]},CTX).base.objects.find(o=>o.id==="extra-1");
+  assert.ok(near(leaf.position[0],2.4)&&near(leaf.position[1],0.4),"away from the shelf, flat against the wall stub");
+  // something low under the leaf's swing counts; something above the leaf does not
+  const high=SET(); high.objects.push({id:"lamp",name:"Lamp",kind:"box",position:[1.6,0.4,2.2],rotation:[0,0,0],size:[0.2,0.2,0.1],material:"wall"});
+  assert.ok(near(V.stateScene(high,PLAN,{people:{},doors:[{id:"front-door",open:true}]},CTX).base.objects.find(o=>o.id==="extra-1").position[0],1.6));
+});
 test("6. a person on the line hides a face; a point in a wall, a door or furniture is no place for a camera",()=>{
   const p={id:"ann",xy:[2,1],head:[2,1,1.585],height:1.7};
   assert.equal(V.hides([0.5,1,1.5],[3.2,1,1.6],p),true);
@@ -235,8 +344,6 @@ test("6. a person on the line hides a face; a point in a wall, a door or furnitu
 });
 
 /* ---- 7. the planned camera, checked ---- */
-const placed=()=>V.stateScene(SET(),PLAN,STATE,CTX);
-const SHOT={beatN:1,moment:{n:1,of:2},size:"MS",angle:"eye",lens:"35",move:"static",subjects:["ann","bob"],startState:STATE,endState:STATE};
 test("7. a planned camera that can stand there is kept as it is",()=>{
   const st=placed();
   const got=V.planCamera({at:[2.6,2.6],height:1.5,aim:["ann","bob"],lens:35},SHOT,st,st.base,PLAN,SPACES,{clear:clearOf(st.base)});
@@ -411,7 +518,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */

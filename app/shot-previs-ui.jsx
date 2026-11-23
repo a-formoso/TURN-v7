@@ -364,7 +364,8 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width, sceneShots){
   const end = which==="end";
   const pic = end ? (res.end || res.start) : res.start;
   const people = (end && res.end && res.end.people) || res.people, things = (end && res.end && res.end.things) || res.things;
-  return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end };
+  // who each stand-in is, then what sits on the shelves and hooks in frame (so the image engine dresses nothing itself)
+  return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things).concat(pic.dressing||[]), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end };
 }
 /* THE LOOK OF THE FRAME BEFORE, WITHOUT ITS LAYOUT (2026-11-23, after the first whole beat made from the strip: every
    frame came back framed like the one before it, because that frame rode along whole "for its look" and the image

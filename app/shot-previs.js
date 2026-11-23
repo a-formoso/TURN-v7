@@ -11,7 +11,10 @@
      heightOf(character)                     their height in metres (the card's own words, e.g. "168 cm tall")
      sizeOf(prop | thing)                    [w, d, h] in metres: its measured size, or read from its size text
      poseDoors(set, doors, ctx)              each door of a state swung open or left shut (the leaf the set already has)
-     stateScene(set, plan, state, ctx)       the set with the doors, the people and the things of one state put in
+     stateScene(set, plan, state, ctx)       the set with the doors, the people and the things of one state put in;
+                                             nobody stands in a shut doorway, and what hangs on a hook hangs under it
+     restsOn(set, plan, things)              what sits on each fixed thing of the set (its dressing, the tracked things)
+     dressingWords(surfaces)                 the same in sentences: what is on each, and that nothing else is
      planCamera(cam, shot, placed, …)        the camera the scene plan gave in numbers, CHECKED: it must stand in the
                                              room, outside every wall and piece of furniture, and see the people it
                                              frames; else it is moved to the spot that does and keeps the shot best, and the lens is
@@ -160,16 +163,25 @@
     return hit?String(hit.id):"";
   }
   const prefixOf=o=>String(o&&o.name||"").split(" · ")[0];
+  // a point of the floor inside a thing's footprint (its box turned about Z), m metres of margin round it
+  const footIn=(o,x,y,m)=>{ const rz=(o.rotation&&o.rotation[2])||0, c=Math.cos(-rz), s=Math.sin(-rz), dx=x-o.position[0], dy=y-o.position[1];
+    return Math.abs(dx*c-dy*s)<=o.size[0]/2+m&&Math.abs(dx*s+dy*c)<=o.size[1]/2+m; };
+  // a door of the set as a line on the floor: {J (its jambs), far (its width), c (its middle), u (along it), n (across it)}
+  function doorLine(scene,id){
+    const J=jambs(scene,id); let a=J[0],b=J[1],far=0;
+    J.forEach(p=>J.forEach(q=>{ const L=Math.hypot(p.position[0]-q.position[0],p.position[1]-q.position[1]); if(L>far){ far=L; a=p; b=q; } }));
+    if(far<0.5||far>1.7) return null;                                // a door, not a shop front
+    const c=[(a.position[0]+b.position[0])/2,(a.position[1]+b.position[1])/2], u=[(b.position[0]-a.position[0])/far,(b.position[1]-a.position[1])/far];
+    return {J,far,c,u,n:[-u[1],u[0]]};
+  }
   function poseDoors(scene,doors,ctx){
     ctx=ctx||{};
     const done=[];
     arr(doors).forEach(d=>{
       if(!d||typeof d.open!=="boolean") return;
       const id=openingId(scene,d.id,ctx.plan); if(!id||done.indexOf(id)>=0) return;
-      const J=jambs(scene,id); let a=J[0],b=J[1],far=0;
-      J.forEach(p=>J.forEach(q=>{ const L=Math.hypot(p.position[0]-q.position[0],p.position[1]-q.position[1]); if(L>far){ far=L; a=p; b=q; } }));
-      if(far<0.5||far>1.7) return;                                   // a door, not a shop front
-      const c=[(a.position[0]+b.position[0])/2,(a.position[1]+b.position[1])/2], u=[(b.position[0]-a.position[0])/far,(b.position[1]-a.position[1])/far], n=[-u[1],u[0]];
+      const line=doorLine(scene,id); if(!line) return;
+      const J=line.J, far=line.far, c=line.c, u=line.u, n=line.n;
       const floor=Math.min(...J.map(o=>o.position[2]-o.size[2]/2)), top=Math.max(...J.map(o=>o.position[2]+o.size[2]/2));
       const along=o=>(o.position[0]-c[0])*u[0]+(o.position[1]-c[1])*u[1], off=o=>(o.position[0]-c[0])*n[0]+(o.position[1]-c[1])*n[1];
       const isFrame=o=>String(o.anchorId||"")===id, own=o=>/^(fig|prop)-/.test(String(o.id||""));
@@ -199,16 +211,81 @@
       if(A&&B&&A!==B) k=area(A.footprint)<=area(B.footprint)?1:-1;
       else if(A&&!B) k=-1;
       const into=[n[0]*k,n[1]*k];
-      const meets=h=>{ const H=[lc[0]+u[0]*h*L/2,lc[1]+u[1]*h*L/2], mid=[H[0]+into[0]*L/2,H[1]+into[1]*L/2];
-        return scene.objects.filter(o=>o&&o.size&&o.position&&group.indexOf(o)<0&&!isFrame(o)&&Math.max(o.size[0],o.size[1])<=2.5
-          &&o.position[2]+o.size[2]/2>floor+0.1&&o.position[2]-o.size[2]/2<floor+2
-          &&Math.hypot(o.position[0]-mid[0],o.position[1]-mid[1])<L/2+Math.max(o.size[0],o.size[1])*0.3).length; };
+      /* how many things the open leaf would pass through on that jamb (2026-11-23: the front door of Scene 5 was drawn
+         swung through the hall shelf; things NEAR the leaf were counted, walls among them, and the two jambs tied).
+         The leaf is walked from hinge to tip; a thing counts when the leaf enters its footprint at its own height.
+         A wall never counts: a leaf folds back flat against it. */
+      const meets=h=>{ const H=[lc[0]+u[0]*h*L/2,lc[1]+u[1]*h*L/2], pts=[]; for(let t=0.06;t<=L+0.001;t+=0.04) pts.push([H[0]+into[0]*t,H[1]+into[1]*t]);
+        return scene.objects.filter(o=>o&&o.size&&o.position&&o.kind!=="cloth"&&group.indexOf(o)<0&&!isFrame(o)&&!own(o)&&!/^wall-/.test(String(o.id||""))
+          &&o.position[2]+o.size[2]/2>floor+0.1&&o.position[2]-o.size[2]/2<Math.min(ltop,floor+2)
+          &&pts.some(q=>footIn(o,q[0],q[1],0.02))).length; };
       const h=meets(-1)<=meets(1)?-1:1, H=[lc[0]+u[0]*h*L/2,lc[1]+u[1]*h*L/2];
       const from=[-u[0]*h,-u[1]*h], th=Math.atan2(from[0]*into[1]-from[1]*into[0],from[0]*into[0]+from[1]*into[1]), cs=Math.cos(th), sn=Math.sin(th);
       group.forEach(o=>{ const rx=o.position[0]-H[0], ry=o.position[1]-H[1], r=o.rotation||[0,0,0];
         o.position=[H[0]+rx*cs-ry*sn,H[1]+rx*sn+ry*cs,o.position[2]]; o.rotation=[r[0]||0,r[1]||0,(r[2]||0)+th]; });
     });
     return scene;
+  }
+
+  /* ---- what hangs, and what sits on what ---- */
+  const HOOKY=/\b(hooks?|pegs?)\b/i;
+  const volOf=o=>o.size[0]*o.size[1]*o.size[2];
+  // the hook of a fixed thing a tracked thing hangs from: {xy, z (the hook's height: the thing's top), out (off the wall, into the room), reach}
+  function hangOn(set,id,spaces){
+    const parts=partsOf(set,id); if(!parts.length) return null;
+    const c=fixedCentre(set,id), big=parts.reduce((a,o)=>volOf(o)>volOf(a)?o:a,parts[0]);
+    const small=parts.filter(o=>o!==big&&volOf(o)<volOf(big)*0.5), from=small.length?small:[big], near=o=>Math.hypot(o.position[0]-c[0],o.position[1]-c[1]);
+    const hook=from.reduce((a,o)=>near(o)<near(a)-1e-6?o:a,from[0]);
+    const rz=(big.rotation&&big.rotation[2])||0;
+    let out=big.size[1]<=big.size[0]?[-Math.sin(rz),Math.cos(rz)]:[Math.cos(rz),Math.sin(rz)];
+    const room=k=>{ const x=hook.position[0]+out[0]*k*0.25, y=hook.position[1]+out[1]*k*0.25, sp=spaceAt(spaces,x,y); return sp?edgeDistance(sp.footprint,x,y):-1; };
+    if(room(-1)>room(1)) out=[-out[0],-out[1]];
+    return {xy:[hook.position[0],hook.position[1]],z:hook.position[2],out,reach:Math.min(hook.size[0],hook.size[1])/2+0.005};
+  }
+  /* WHAT SITS ON EACH FIXED THING OF THE SET (2026-11-23, after moment 2 of Scene 5 came back with a stack of tubs on
+     the hall shelf that no drawing and no page has: nothing had told the image engine what is on the shelf, so it
+     dressed it itself). Read from the set: what its dressing put on each fixed thing the scene plan names (another
+     fixture by its name, loose dressing by its shape, colour and size), the tracked things that are on it or hang
+     from it now, and how many hooks a row of hooks has. Only fixed things that hold something, or are hooks. set = the
+     set as built (its doors as drawn: a leaf swung open is no dressing of the shelf it passes).
+     → [{id, name, centre:[x,y,z], hooks, own:[{name, fixture} | {name, items:[words]}], things:[{name, hung}]}] */
+  const PLAIN=/^(paper|card|brown|steel|black|blue|mustard|oak|red|green|white|grey|gray|cream|brass|glass|wood|pink|yellow|orange|purple|tan|silver|gold|copper|chrome|plastic|cloth|beige|navy|teal|olive|pine|tin|clay|wicker)$/;
+  function describe(o){
+    const m=String(o.material||"").replace(/^d_/,"").toLowerCase(), big=Math.max(o.size[0],o.size[1],o.size[2]), round=o.kind==="cylinder"||o.kind==="sphere";
+    const shape=round?"round":o.kind==="cushion"?"soft":o.size[2]<=0.03?"flat":"";
+    return ["a",shape,PLAIN.test(m)?m:"","thing"].filter(Boolean).join(" ")+" about "+Math.max(1,Math.round(big*100))+" cm "+(round&&o.size[2]<big?"across":o.size[2]>=big?"tall":"long");
+  }
+  function restsOn(set,plan,things){
+    const out=[], objs=arr(obj(set).objects).filter(o=>o&&o.size&&o.position&&!/^(fig|prop|wall|door)-/.test(String(o.id||"")));
+    arr(obj(plan).fixed).forEach(fx=>{ if(!fx||fx.kind==="opening") return;
+      const id=String(fx.id), parts=partsOf(set,id); if(!parts.length) return;
+      const mine=o=>String(o.anchorId||"")===id||String(o.id||"")==="anchor-"+id;
+      const rest=objs.filter(o=>!mine(o)&&parts.some(pt=>{ const top=pt.position[2]+pt.size[2]/2, gap=(o.position[2]-o.size[2]/2)-top;
+        if(top<0.1||gap<-0.02||gap>0.08) return false;                 // (a floor or a rug holds the whole room: not a shelf)
+        return footIn(pt,o.position[0],o.position[1],0.03); }));
+      const groups=new Map();
+      rest.forEach(o=>{ const k=o.anchorId?"a:"+o.anchorId:"l:"+prefixOf(o); if(!groups.has(k)) groups.set(k,o.anchorId?{name:prefixOf(o),fixture:true}:{name:prefixOf(o),items:[]});
+        if(!o.anchorId) groups.get(k).items.push(describe(o)); });
+      const hooks=HOOKY.test(String(fx.name||""))?Math.max(1,parts.length-1):0, on=arr(things).filter(t=>t.onId===id);
+      if(!groups.size&&!on.length&&!hooks) return;
+      const c=fixedCentre(set,id);
+      out.push({id,name:String(fx.name||id),centre:[c[0],c[1],Math.max(...parts.map(pt=>pt.position[2]+pt.size[2]/2))],hooks,own:Array.from(groups.values()),things:on.map(t=>({name:t.name,hung:!!t.hung}))});
+    });
+    return out;
+  }
+  const lowName=n=>String(n||"").replace(/\s+/g," ").trim().replace(/^the /i,"").replace(/^[A-Z](?=[a-z])/,c=>c.toLowerCase());
+  const listed=a=>a.length<3?a.join(" and "):a.slice(0,-1).join(", ")+" and "+a[a.length-1];
+  // the same, in sentences for the image engine and the check: what is on each, and that nothing else is
+  function dressingWords(surfaces){
+    return arr(surfaces).map(s=>{
+      const boxes=arr(s.things).map(t=>"the red box that is the "+lowName(t.name));
+      if(s.hooks) return boxes.length ? "On the "+lowName(s.name)+(s.hooks>1?" ("+s.hooks+" hooks)":"")+" hang"+(boxes.length===1?"s":"")+" only "+listed(boxes)+(s.hooks>boxes.length?": every other hook is empty.":".")
+        : "Nothing hangs on the "+lowName(s.name)+(s.hooks>1?": all "+s.hooks+" hooks are empty.":".");
+      const own=[]; arr(s.own).forEach(g=>{ if(g.fixture){ own.push("the "+lowName(g.name)); return; }
+        const it=arr(g.items); it.slice(0,4).forEach(x=>own.push(x)); if(it.length>4) own.push((it.length-4)+" more small things like them"); });
+      const all=own.concat(boxes);
+      return "On the "+lowName(s.name)+" "+(all.length===1?"sits":"sit")+" only "+listed(all)+": nothing else is on it.";
+    });
   }
 
   /* ctx: {cast:[{id,name,height}], props:[prop cards], spaces, plan, beat, faces:{person id → who or what they face},
@@ -234,6 +311,30 @@
       if(!xy){ missing.push((c.name||id)+" has no place on the floor plan"+(p.where?" ("+p.where+")":"")); return; }
       here.push({id,name:c.name||id,xy,pose:p.pose,card:c,holding:arr(p.holding).slice()});
     });
+    /* A PERSON AT A DOOR THAT IS SHUT (2026-11-23, after moment 2 of Scene 5: the plan put Pike "on the threshold",
+       "standing outside the shut door", and the floor plan has that mark 10 cm inside the door; he was drawn in the
+       hall, in front of a shut door, and the image engine opened the door to make sense of it). Nobody stands in a
+       shut doorway. Someone whose mark is on the line of a shut door stands clear of its leaf, on the side their mark
+       is on; when the door leads outdoors and the plan's own words put them out there (outside, on the step,
+       knocking), on the outdoor side. They keep the door (person.door) so a camera on the other side knows a shut
+       door is between them: it does not have to see them, and the picture's words say they are not in it. */
+    const outdoors=new Set(arr(ctx.outdoors).map(String)), out=sp=>!sp||outdoors.has(String(sp.id));
+    arr(st.doors).forEach(d=>{
+      if(!d||d.open!==false||!spaces.length) return;
+      const id=openingId(scene,d.id,plan), L=id?doorLine(scene,id):null; if(!L) return;
+      const A=spaceAt(spaces,L.c[0]+L.n[0]*0.4,L.c[1]+L.n[1]*0.4), B=spaceAt(spaces,L.c[0]-L.n[0]*0.4,L.c[1]-L.n[1]*0.4);
+      if(!A&&!B) return;
+      const fx=arr(obj(plan).fixed).find(f=>f&&String(f.id)===id), name=String((fx&&fx.name)||prefixOf(L.J[0])||"door");
+      here.forEach(me=>{
+        const dx=me.xy[0]-L.c[0], dy=me.xy[1]-L.c[1], along=dx*L.u[0]+dy*L.u[1], off=dx*L.n[0]+dy*L.n[1];
+        if(Math.abs(along)>L.far/2+0.1||Math.abs(off)>=0.3) return;
+        const said=String(me.pose||"").toLowerCase();
+        let k=off>=0?1:-1;
+        if(out(A)!==out(B)&&/\b(outside|outdoors|doorstep|on the step|on the porch|knock\w*|rings? the bell|ringing the bell)\b/.test(said)&&!/\b(inside|indoors)\b/.test(said)) k=out(A)?1:-1;
+        me.xy=[L.c[0]+L.u[0]*along+L.n[0]*k*0.4,L.c[1]+L.u[1]*along+L.n[1]*k*0.4];
+        me.door={id,name,c:L.c.slice(),n:L.n.slice(),k};
+      });
+    });
     // two people the plan put on ONE mark stand side by side on it (half a metre apart), never inside each other
     here.forEach((me,i)=>{ const same=here.filter(p=>Math.hypot(p.xy[0]-me.xy[0],p.xy[1]-me.xy[1])<0.05);
       if(same.length>1&&same[0]===me) same.forEach((p,k)=>{ p.xy=[p.xy[0]+(k-(same.length-1)/2)*0.5,p.xy[1]]; }); });
@@ -250,14 +351,18 @@
       const sp=spaceAt(spaces,me.xy[0],me.xy[1]), fig=figure(me.id,me.name,me.xy,sp?sp.floorZ:0,heightOf(me.card),me.pose,turn==null?0:turn,col&&col.rgb);
       fig.objects.forEach(o=>scene.objects.push(o)); scene.materials[fig.material[0]]=fig.material[1];
       people.push({id:me.id,name:me.name,xy:me.xy,head:fig.head,chest:fig.chest,height:fig.height,turn:fig.turn,front:fig.front,holding:me.holding,
-        pose:String(me.pose||""),colour:col?col.name:""});
+        pose:String(me.pose||""),colour:col?col.name:"",door:me.door||null});
     });
     const thingOf=key=>arr(obj(plan).things).find(t=>t&&String(t.key)===String(key))||{key};
     const propOf=t=>arr(ctx.props).find(c=>c&&((t.propId&&String(c.id)===String(t.propId))||String(c.name||"").toLowerCase()===String(t.name||"").toLowerCase()))||null;
-    const put=(key,centre,held,turn,on)=>{ const t=thingOf(key); if(t.kind&&t.kind!=="prop") return; if(things.some(x=>x.key===key)) return;
-      const card=propOf(t), known=sizeOf(card)||sizeOf(t), size=(typeof ctx.sizeFor==="function"&&ctx.sizeFor(key,t,card))||known||DEFAULT_SIZE.slice();
-      scene.objects.push({id:"prop-"+key,name:(t.name||String(key).replace(/-/g," "))+" (prop stand-in)",kind:"box",position:[centre[0],centre[1],centre[2]+size[2]/2],rotation:[0,0,turn||0],size,material:"prop-standin"});
-      things.push({key,name:t.name||String(key).replace(/-/g," "),at:[centre[0],centre[1],centre[2]],size,held:held||"",on:on||"",measured:!!known}); };
+    // on = {id, name} of the fixed thing it is on; hang = {xy, z, out, reach}: it hangs from that hook, long and flat to the wall
+    const put=(key,centre,held,turn,on,hang)=>{ const t=thingOf(key); if(t.kind&&t.kind!=="prop") return; if(things.some(x=>x.key===key)) return;
+      const card=propOf(t), known=sizeOf(card)||sizeOf(t); let size=(typeof ctx.sizeFor==="function"&&ctx.sizeFor(key,t,card))||known||DEFAULT_SIZE.slice();
+      let pos=[centre[0],centre[1],centre[2]+size[2]/2], rz=turn||0;
+      if(hang){ const d=size.slice().sort((a,b)=>a-b), far=hang.reach+d[0]/2; size=[d[1],d[0],d[2]];
+        pos=[hang.xy[0]+hang.out[0]*far,hang.xy[1]+hang.out[1]*far,hang.z-size[2]/2]; rz=Math.atan2(-hang.out[0],hang.out[1]); }
+      scene.objects.push({id:"prop-"+key,name:(t.name||String(key).replace(/-/g," "))+" (prop stand-in)",kind:"box",position:pos,rotation:[0,0,rz],size,material:"prop-standin"});
+      things.push({key,name:t.name||String(key).replace(/-/g," "),at:[pos[0],pos[1],pos[2]-size[2]/2],size,held:held||"",on:(on&&on.name)||"",onId:(on&&on.id)||"",hung:!!hang,measured:!!known}); };
     // what a person holds sits at their hands, in front of them; two things sit side by side
     const hands=(p,i,n)=>{ const r=[p.front[1],-p.front[0]], s=n>1?(i?0.09:-0.09):0; return [p.xy[0]+p.front[0]*0.22+r[0]*s,p.xy[1]+p.front[1]*0.22+r[1]*s,p.chest[2]-p.height*0.16]; };
     people.forEach(p=>p.holding.forEach((key,i)=>put(key,hands(p,i,p.holding.length),p.id,p.turn)));
@@ -267,10 +372,13 @@
       if(v.worn){ const p=people.find(x=>x.id===v.worn); if(p) worn.push({key,by:p.id,name:thingOf(key).name||String(key).replace(/-/g," ")}); return; }
       if(v.in) return;
       if(v.at){ const xy=markXY(plan,v.at); if(xy){ const sp=spaceAt(spaces,xy[0],xy[1]); put(key,[xy[0],xy[1],sp?sp.floorZ:0]); return; }
-        const top=fixedTop(set,v.at); if(top){ const fx=arr(obj(plan).fixed).find(f=>f&&String(f.id)===String(v.at)); put(key,top,"",0,(fx&&fx.name)||""); return; }
+        const top=fixedTop(set,v.at); if(top){ const fx=arr(obj(plan).fixed).find(f=>f&&String(f.id)===String(v.at)), on={id:String(v.at),name:(fx&&fx.name)||""};
+          // keys on a hook hang under it (2026-11-23: they sat on top of the hook board as a box on a shelf would)
+          const hangs=/\b(hang\w*|hung|hook\w*)\b/i.test(String(v.state||""))||HOOKY.test(on.name);
+          put(key,top,"",0,on,hangs?hangOn(set,v.at,spaces):null); return; }
         const t=thingOf(key); if(!t.kind||t.kind==="prop") missing.push((t.name||key)+" is somewhere the floor plan does not hold"); }
     });
-    return {scene,base,people,things,worn,missing};
+    return {scene,base,people,things,worn,missing,surfaces:restsOn(set,plan,things)};
   }
 
   /* ---- the camera ---- */
@@ -293,6 +401,8 @@
     if(Math.hypot(person.xy[0]-(from[0]+t*ax),person.xy[1]-(from[1]+t*ay))>=0.2) return false;
     return from[2]+t*(to[2]-from[2])<person.head[2]+0.13;
   }
+  // a person at a shut door, seen from the other side of it: the door is between them and the camera
+  const beyond=(p,x,y)=>!!(p&&p.door)&&((((x-p.door.c[0])*p.door.n[0]+(y-p.door.c[1])*p.door.n[1])>=0?1:-1)!==p.door.k);
   // a point inside a wall, a door or a piece of furniture of the set (each as its box, turned about Z)
   function solidAt(set,p,margin){
     const m=margin==null?0.08:margin;
@@ -329,7 +439,7 @@
     const everyone=arr(opts.all).length?arr(opts.all):who, look=point?[point]:who.map(p=>p.head);
     // how many of the faces a spot sees (a wall, a shut door, a piece of furniture or another person can hide one)
     const seen=(from)=>(opts.set&&solidAt(opts.set,from))?-1:point?((typeof opts.clear!=="function"||opts.clear(from,point))?1:0)
-      :who.filter(p=>(typeof opts.clear!=="function"||opts.clear(from,p.head))&&!everyone.some(q=>q.id!==p.id&&hides(from,p.head,q))).length;
+      :who.filter(p=>beyond(p,from[0],from[1])||((typeof opts.clear!=="function"||opts.clear(from,p.head))&&!everyone.some(q=>q.id!==p.id&&!beyond(q,from[0],from[1])&&hides(from,p.head,q)))).length;
     const all=point?1:who.length;
     const want=(frameH/2)/Math.tan(vfovOf(lensPlanned)/2);
     let best=null;
@@ -411,13 +521,14 @@
     const look=framed.length?framed.map(p=>p.head):[a.target];
     // over the shoulder: the person the camera stands behind is in the frame on purpose, and never counts as in the way
     const ots=angle==="ots", own=angle==="pov";
-    const nearest=(x,y)=>{ let b=null,bd=1.3; if(ots) P.forEach(q=>{ const d=Math.hypot(q.xy[0]-x,q.xy[1]-y); if(d<bd){ bd=d; b=q; } }); return b; };
+    const nearest=(x,y)=>{ let b=null,bd=1.3; if(ots) P.forEach(q=>{ if(beyond(q,x,y)) return; const d=Math.hypot(q.xy[0]-x,q.xy[1]-y); if(d<bd){ bd=d; b=q; } }); return b; };
     const why=(x,y)=>{ const sp=spaceAt(spaces,x,y); if(!sp) return "outside";
       const p=[x,y,sp.floorZ+h], over=nearest(x,y);
       if(edgeDistance(sp.footprint,x,y)<0.1||solidAt(set,p)) return "solid";
-      if(!own&&P.some(q=>Math.hypot(q.xy[0]-x,q.xy[1]-y)<(ots?0.22:0.3))) return "person";
-      if(typeof opts.clear==="function"&&!look.every((pt,i)=>(over&&framed[i]===over)||opts.clear(p,pt))) return "hidden";
-      if(framed.some(w=>w!==over&&P.some(q=>q.id!==w.id&&q!==over&&hides(p,w.head,q)))) return "behind";
+      // (someone behind a shut door from here is not in the picture: nothing to see, and nobody they could hide)
+      if(!own&&P.some(q=>!beyond(q,x,y)&&Math.hypot(q.xy[0]-x,q.xy[1]-y)<(ots?0.22:0.3))) return "person";
+      if(typeof opts.clear==="function"&&!look.every((pt,i)=>(over&&framed[i]===over)||beyond(framed[i],x,y)||opts.clear(p,pt))) return "hidden";
+      if(framed.some(w=>w!==over&&!beyond(w,x,y)&&P.some(q=>q.id!==w.id&&q!==over&&!beyond(q,x,y)&&hides(p,w.head,q)))) return "behind";
       return ""; };
     let x=at[0], y=at[1], source="plan";
     const bad=why(x,y);
@@ -459,16 +570,18 @@
     }
     // someone right in front of the lens fills the frame: said, never hidden (the plan may mean it, over a shoulder)
     P.forEach(q=>{ const d=[q.xy[0]-from[0],q.xy[1]-from[1]], l=Math.hypot(d[0],d[1]);
-      if(l>0.01&&l<0.5&&(d[0]*v[0]+d[1]*v[1])/(l*vl)>0.7&&!own) notes.push((q.name||"Someone")+" stands "+l.toFixed(1)+" m in front of the camera and fills much of the frame."); });
+      if(l>0.01&&l<0.5&&(d[0]*v[0]+d[1]*v[1])/(l*vl)>0.7&&!own&&!beyond(q,from[0],from[1])) notes.push((q.name||"Someone")+" stands "+l.toFixed(1)+" m in front of the camera and fills much of the frame."); });
     return {pose:aim(from,a.target,lens),lensPlanned,distance:Math.round(dist*100)/100,side:opts.side||1,notes,fits:true,source};
   }
   /* WHAT EACH STAND-IN IS, in plain sentences (for the image engine that renders over the previs, and for the check
      that compares the frame with it): who each coloured block figure is, and what each red box is and where. */
   function legend(people,things){
     const P=arr(people), lines=[];
-    P.forEach(p=>lines.push("The "+(p.colour||"coloured")+" block figure is "+p.name+(p.pose?" ("+p.pose+")":"")+"."));
-    arr(things).forEach(t=>{ const h=t.held&&P.find(p=>p.id===t.held);
-      lines.push("The red box "+(h?"in "+h.name+"\u2019s hands":t.on?"on the "+String(t.on).replace(/^the /i,"").replace(/^./,c=>c.toLowerCase()):"standing on its own")
+    // someone behind a shut door from this camera (p.unseen, set by pair) is not in the picture, and neither is what they hold
+    P.forEach(p=>lines.push(p.unseen ? p.name+" is on the other side of the shut "+lowName(obj(p.door).name||"door")+" and is NOT in this picture: no block figure stands for them"+(p.pose?" ("+p.pose+")":"")+"."
+      : "The "+(p.colour||"coloured")+" block figure is "+p.name+(p.pose?" ("+p.pose+")":"")+"."));
+    arr(things).forEach(t=>{ const h=t.held&&P.find(p=>p.id===t.held); if(h&&h.unseen) return;
+      lines.push("The red box "+(h?"in "+h.name+"\u2019s hands":t.on?(t.hung?"hanging from the ":"on the ")+String(t.on).replace(/^the /i,"").replace(/^./,c=>c.toLowerCase()):"standing on its own")
         +" is the "+String(t.name).replace(/^the /i,"")+"."); });
     return lines;
   }
@@ -525,6 +638,25 @@
       +(tilt<=-12?", looking down":tilt>=12?", looking up":"")+", "+lens+" mm lens ("+(lens<=22?"very wide":lens<=32?"wide":lens<=60?"normal":"long")+")."
       +(arr(list).length?" In its frame: "+list.map(v=>v.name+" ("+v.side+", "+v.depth+")").join("; ")+".":"");
   }
+  /* WHICH OF THE SET'S DRESSED SURFACES A CAMERA HAS IN ITS FRAME: inside the picture, within 8 m, and with no wall
+     between (the line is tried to a point just short of the surface, so the surface and what is on it never count as
+     in the way). The nearest four. Never throws: a frame that cannot be read holds none. */
+  async function inView(surfaces,pose,set){
+    if(!arr(surfaces).length) return [];
+    let lines=null;
+    try{
+      const A=root.KinolotAnglePreview, T=await A.load(), cam=A.cameraFor(T,pose); cam.updateMatrixWorld(true);
+      lines=await sight(set);
+      const from=pose.position, hit=[];
+      arr(surfaces).forEach(s=>{ const c=[s.centre[0],s.centre[1],s.centre[2]+0.08], d=Math.hypot(c[0]-from[0],c[1]-from[1],c[2]-from[2]); if(d>8) return;
+        const v=new T.Vector3(c[0],c[1],c[2]).project(cam); if(!(Math.abs(v.x)<=0.98&&Math.abs(v.y)<=0.98&&v.z>-1&&v.z<1)) return;
+        const k=Math.max(0,(d-0.35)/Math.max(d,0.01)), near=[from[0]+(c[0]-from[0])*k,from[1]+(c[1]-from[1])*k,from[2]+(c[2]-from[2])*k];
+        if(d>0.5&&!lines.clear(from,near)) return;
+        hit.push({s,d}); });
+      return hit.sort((a,b)=>a.d-b.d).slice(0,4).map(x=>x.s);
+    }catch(_){ return []; }
+    finally{ if(lines) lines.dispose(); }
+  }
   const sameState=(a,b)=>JSON.stringify(a||null)===JSON.stringify(b||null);
   /* A PLANNED SHOT, DRAWN: how it starts and how it ends, from ONE camera. o: {cam (the plan's camera for this shot,
      in numbers), cast, props, width, side}. The camera is worked out from how the shot STARTS and kept for how it
@@ -541,7 +673,9 @@
     // (a beat staged once hands in the whole room as the shot starts and ends: o.startState / o.endState; o.midState = a walk's middle)
     const sh=obj(shot), startState=o.startState||sh.startState||sh.endState||{}, endState=o.endState||sh.endState||null;
     const cam=o.cam&&typeof o.cam==="object"?o.cam:null;
-    const ctx={cast:o.cast,props:o.props,spaces,plan,beat:Number(sh.beatN!=null?sh.beatN:sh.beat)||0,faces:cam&&cam.faces,lookAt:cam&&arr(cam.at).length===2?cam.at:null};
+    // (which of the place's spaces are out of doors: a front door that is shut has an outdoor side)
+    const outdoors=arr(list).concat([location]).filter(l=>l&&/ext/i.test(String(l.intExt||""))&&!/int/i.test(String(l.intExt||""))).map(l=>String(l.id));
+    const ctx={cast:o.cast,props:o.props,spaces,plan,beat:Number(sh.beatN!=null?sh.beatN:sh.beat)||0,faces:cam&&cam.faces,lookAt:cam&&arr(cam.at).length===2?cam.at:null,outdoors};
     const first=stateScene(built.scene,plan,startState,ctx);
     let found=o.pose?{pose:o.pose,notes:[],fits:true,source:o.source||"plan",side:o.side||1}:null;
     if(!found){
@@ -559,18 +693,23 @@
     const out={start:null,end:null,width:0,height:0,pose:found.pose||null,source:found.source||"app",fits:!!found.fits,notes:arr(found.notes).slice(),
       missing:first.missing.slice(),rough,lensPlanned:found.lensPlanned,distance:found.distance,side:found.side,people:first.people,things:first.things};
     if(!found.pose) return out;
+    // who a shut door hides from this camera: said, and left out of what the picture is told it holds
+    const at=found.pose.position, unseen=list=>arr(list).forEach(p=>{ p.unseen=beyond(p,at[0],at[1]); });
+    unseen(first.people);
+    first.people.filter(p=>p.unseen).forEach(p=>out.notes.push(p.name+" is on the other side of the shut "+lowName(p.door.name)+" as this shot starts, so the picture starts without them."));
     const width=Math.max(320,Math.min(1920,Math.round(o.width||1280))), height=Math.round(width*9/16);
     out.width=width; out.height=height;
     const draw=async(scene)=>{ const view=await P.viewer(scene,built.light), canvas=root.document.createElement("canvas");
       try{ view.render(canvas,found.pose,width,height); }finally{ view.dispose(); }
       return canvas.toDataURL("image/jpeg",0.9); };
     out.start={dataUrl:await draw(first.scene)};
-    if(o.words) out.start.words=frameWords(found.pose,await seenIn(first.scene,found.pose));
+    if(o.words){ out.start.words=frameWords(found.pose,await seenIn(first.scene,found.pose)); out.start.dressing=dressingWords(await inView(first.surfaces,found.pose,first.base)); }
     out.mid=o.midState?{dataUrl:await draw(stateScene(built.scene,plan,o.midState,ctx).scene)}:null;
     if(endState&&!sameState(startState,endState)){
       const last=stateScene(built.scene,plan,endState,ctx);
+      unseen(last.people);
       out.end={dataUrl:await draw(last.scene),people:last.people,things:last.things};
-      if(o.words) out.end.words=frameWords(found.pose,await seenIn(last.scene,found.pose));
+      if(o.words){ out.end.words=frameWords(found.pose,await seenIn(last.scene,found.pose)); out.end.dressing=dressingWords(await inView(last.surfaces,found.pose,last.base)); }
       last.missing.forEach(m=>{ if(out.missing.indexOf(m)<0) out.missing.push(m); });
       last.things.filter(t=>!t.measured).forEach(t=>{ if(out.rough.indexOf(t.name)<0) out.rough.push(t.name); });
     }
@@ -670,5 +809,5 @@
   }
 
   root.ShotPrevis={DEFAULT_HEIGHT,DEFAULT_SIZE,FRAME,PALETTE,paletteFor,heightOf,colourOf,figure,turnTo,sizeFromText,sizeOf,inside,edgeDistance,spacesOf,spaceAt,markXY,fixedTop,fixedCentre,
-    faceTarget,openingId,poseDoors,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,seenIn,frameWords,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
+    faceTarget,openingId,doorLine,poseDoors,hangOn,restsOn,dressingWords,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,seenIn,frameWords,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
 })(typeof window!=="undefined"?window:globalThis);
