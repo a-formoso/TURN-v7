@@ -45,10 +45,68 @@ function usePrevisRun(alive,writable){
   };
   return {busy,phase,notice,fail,since,now,setNotice,setFail,run,step,cancel};
 }
+/* DRESSING RUNS BY ITSELF (owner 2026-11-23: "go with options 1 and 2 combined": no invented objects, and no
+   button). A set that can be drawn and has never been dressed is dressed the first time it is drawn, by one writing
+   pass: its objects get their real shape and colour, its fixed parts (doors, windows, fronts) are added, and its
+   light is set. It is asked for by whatever draws the set (the set card at the top of a location card, or Previs),
+   once for a location in a session: a pass that fails is said, with Try again, and is never repeated by itself.
+   One location at a time for the whole tab. The result is saved with the location as soon as it comes back, even if
+   the card has left the page: the pass is paid for. A viewer who cannot change the Art Room starts nothing. */
+const previsAuto={state:{},line:Promise.resolve()};
+const previsAutoState=id=>previsAuto.state[id]||null;
+function previsAutoSet(id,patch){
+  if(patch===null)delete previsAuto.state[id];else previsAuto.state[id]={...(previsAuto.state[id]||{}),...patch};
+  try{window.dispatchEvent(new CustomEvent("kinolot-auto-dress",{detail:id}));}catch(_){}
+}
+function previsAutoDress(l,project,onUpdate,readOnly){
+  const D=window.KinolotSetDressing,id=l&&l.id;
+  if(!id||l.previs||previsAuto.state[id])return previsAutoState(id);
+  const writable=()=>!readOnly&&typeof onUpdate==="function"&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
+  if(!D||!writable()||!window.claude||typeof window.claude.complete!=="function")return null;
+  previsAutoSet(id,{phase:"waiting",since:0,error:"",name:l.name||"this place"});
+  const run=async()=>{
+    const now=(((window.turnContinuity||{}).locations)||[]).find(x=>x.id===id)||l;
+    // dressed meanwhile (another tab, another card of the place): nothing to do
+    if(now.previs){previsAutoSet(id,null);return;}
+    const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
+    previsAutoSet(id,{phase:"dressing",since:Date.now()});
+    try{
+      const r=await D.draft(now,{project});
+      if(!writable()||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch)throw new Error("The open film changed. Nothing was saved.");
+      onUpdate(id,{previs:D.pack(r.dressing,{engine:D.MODEL})});
+      previsAutoSet(id,{phase:"done",parts:r.report.parts,left:r.report.left||[]});
+    }catch(e){previsAutoSet(id,{phase:"failed",error:(e&&e.message)||"The set could not be dressed."});}
+  };
+  previsAuto.line=previsAuto.line.then(run,run);
+  return previsAutoState(id);
+}
+// Try again, after a pass that failed (the one press dressing still has)
+function previsAutoRetry(l,project,onUpdate,readOnly){previsAutoSet(l.id,null);return previsAutoDress(l,project,onUpdate,readOnly);}
+// the state of a location's own dressing pass, read again whenever it changes
+function usePrevisAuto(id){
+  const [,again]=React.useReducer(n=>n+1,0);
+  React.useEffect(()=>{const h=e=>{if(!e||e.detail===id)again();};window.addEventListener("kinolot-auto-dress",h);return ()=>window.removeEventListener("kinolot-auto-dress",h);},[id]);
+  return previsAutoState(id);
+}
+/* WHAT THE PASS IS DOING, where the set is shown: the bar against the time a dressing usually takes, the clock and the
+   engine's name while it runs; what went wrong and Try again when it failed; nothing once the set is dressed. */
+function PrevisAutoLine({location:l,project,onUpdate,readOnly=false}){
+  const E=React.createElement,st=usePrevisAuto(l.id);
+  if(!st||l.previs||st.phase==="done")return null;
+  if(st.phase==="failed")return E("div",{className:"previs-auto failed","data-testid":"previs-auto-failed",role:"alert"},
+    E("span",null,"The set could not be dressed: "+st.error),
+    !readOnly&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>previsAutoRetry(l,project,onUpdate,readOnly)},"Try again"));
+  // the engine doing it, by its name in the engine list (never its id)
+  const engine=(()=>{try{const m=(window.WRITING_MODELS||[]).find(x=>x&&x.id===window.KinolotSetDressing.MODEL);return (m&&m.label)||"";}catch(_){return "";}})();
+  return E("div",{className:"previs-auto","data-testid":"previs-auto",role:"status"},
+    E("span",{className:"previs-auto-text"},st.phase==="waiting"?"Waiting to dress this set\u2026":"Dressing the set: its shapes, colours and light\u2026"),
+    st.phase==="dressing"&&window.LocationRunProgress&&E(window.LocationRunProgress,{work:{text:"Dressing the set",since:st.since,est:90,engine}}));
+}
+Object.assign(window,{previsAutoDress,previsAutoRetry,previsAutoState,usePrevisAuto,PrevisAutoLine});
 function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard,styleRow=null}){
   const E=React.createElement,D=window.KinolotSetDressing,P=window.KinolotPrevis,api=window.KinolotCloudRender;
   const [sheet,setSheet]=React.useState(""),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false);
-  const [info,setInfo]=React.useState(null),[left,setLeft]=React.useState([]);
+  const [info,setInfo]=React.useState(null);
   const [tick,setTick]=React.useState(0),alive=React.useRef(true),tries=React.useRef(0);
   const R=usePrevisRun(alive,()=>writable()),{busy,phase,notice,fail,setNotice,setFail,run}=R;
   // the drafts kept for this card, what the set and the look are now, and the open comparison
@@ -126,19 +184,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     if(window.goToLocationStep)window.goToLocationStep(l,step);
   };
   const writable=()=>!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
-  const dress=()=>run("dress",async live=>{
-    setLeft([]);
-    const r=await D.draft(l,{project});
-    // saved with the location even if this section was closed meanwhile: the call is paid for
-    onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})});
-    if(live()){setLeft(r.report.left);setNotice("The set is dressed: "+r.report.parts+" shapes, from this card and its scenes.");}
-  },"The set could not be dressed.");
-  function undress(){
-    if(busy||!writable()||!l.previs)return;
-    const was=l.previs;
-    onUpdate(l.id,{previs:null});setLeft([]);setNotice("");setFail("");
-    if(typeof window.appToast==="function")window.appToast("The dressing was removed.","info",{action:{label:"Undo",onClick:()=>onUpdate(l.id,{previs:was})}});
-  }
+  // a set that is drawn here and was never dressed is dressed by itself (previsAutoDress)
+  React.useEffect(()=>{if(sheet&&!l.previs)previsAutoDress(l,project,onUpdate,readOnly);},[!!sheet,!!l.previs,l.id]);
   const make=()=>run("render",async live=>{
     R.step(live,"drawing");
     await P.render(target,{project,location:l,settings:choice||undefined,onPhase:p=>R.step(live,p)});
@@ -193,8 +240,6 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     }catch(e){if(alive.current)setFail((e&&e.message)||"The cameras could not be fixed.");}
     finally{if(alive.current)setFixing(false);}
   }
-  // about what dressing this set costs, in writing credits (re-read when the set or the price table changes)
-  const dressCost=React.useMemo(()=>{try{return error?null:D.estimate(l,{project});}catch(_){return null;}},[drawnFrom,error,tick]);
   const pend=P.pending(target),cancelling=pend.running&&pend.cancelled&&busy!=="render",working=busy==="render"||(pend.running&&!busy&&!pend.cancelled);
   let whole=null;try{whole=typeof P.look==="function"?P.look(l):null;}catch(_){whole=null;}
   let choice=null;try{choice=P.settings(engine||undefined,whole?2:1);}catch(_){choice=null;}
@@ -269,25 +314,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         E("select",{className:"prop-select",value:atKey,disabled:!!busy||working,onChange:e=>api.setBuildMoment(l.id,e.target.value)},
           moments.map(m=>E("option",{key:m.key,value:m.key},m.label))),
         E("small",null,"The moving parts are drawn as they are at that moment. An image made at a moment becomes that state\u2019s own image, which shots at those moments use; the usual state makes the location image."))),
-    /* DRESSING IS NOT AN OPTION ANY MORE (owner 2026-11-23: "in Previs section, remove the option to dress the set").
-       A set that is dressed shows no dressing controls. A set that is NOT dressed yet keeps the one button that
-       furnishes it: nothing else can, and the image engine keeps to a dressed set far better than to plain blocks. */
-    !l.previs&&E("div",{className:"loc-sub","data-testid":"previs-dress"},
-      E("h4",{className:"loc-step-sub"},"Dress the set"),
-      E("p",{className:"loc-layer-note"},"Furnishes the set from this card, the film and the scenes set here, so that it belongs to this story. The floor plan and the cameras stay as saved."),
-      !readOnly&&E("div",{className:"loc-step-actions previs-dress-row"},
-        E("button",{type:"button",className:"art-draftall",disabled:!!busy||working,onClick:dress,
-          title:"One writing call reads this card, the film and this location's scenes, and draws the set's dressing in 3D."},
-          busy==="dress"?"Dressing the set\u2026 about a minute":l.previs?"Dress it again":"Dress the set",
-          // about how many writing credits: the same chip as an image's price, with the credit mark
-          busy!=="dress"&&dressCost&&E("span",{className:"nb-cost","data-testid":"previs-dress-cost",
-            title:"About "+dressCost.credits+" writing credits. An estimate: a writing call is charged by its length."},
-            typeof window.nbCreditMark==="function"?window.nbCreditMark():null,String(dressCost.credits))),
-        l.previs&&E("button",{type:"button",className:"art-draftall ghost",disabled:!!busy||working,onClick:undress,
-          title:"Back to the floor plan's plain blocks for this card. The floor plan itself is not changed."},"Remove dressing")),
-      left.length>0&&E("details",{className:"loc-nested-section","data-testid":"previs-adjusted"},
-        E("summary",null,"Fitted or left out ("+left.length+")"),
-        E("ul",{className:"previs-left"},left.map((line,i)=>E("li",{key:i},line))))),
+    // (dressing runs by itself, previsAutoDress: here only what it is doing, or what went wrong)
+    !l.previs&&E(PrevisAutoLine,{location:l,project,onUpdate,readOnly}),
     E("div",{className:"loc-sub","data-testid":"previs-render"},
       // the heading, with what the step does behind the (i) beside it (owner 2026-11-16)
       E("h4",{className:"loc-step-sub loc-control-heading"},part?"Make the \u201c"+part.label+"\u201d image":isRoom?"Make this room\u2019s image":"Make the location image",
@@ -296,7 +324,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
           +(whole?" It also gets "+whole.name+"\u2019s finished image, for the look only, so that the room and its place belong together.":"")
           +" The result is a draft, shown here at once: "+becomes+" changes only when you choose to use it."})),
       // plain blocks give the engine little to keep to: say so before an image is paid for
-      info&&!info.dressed&&E("p",{className:"loc-layer-note","data-testid":"previs-undressed-hint"},"This set is not dressed yet. The image engine keeps to a dressed set much more closely than to plain blocks: dress the set first."),
+      info&&!info.dressed&&E("p",{className:"loc-layer-note","data-testid":"previs-undressed-hint"},"This set is not dressed yet: it is plain blocks. The image engine keeps to a dressed set much more closely, so make the image once the dressing above has finished."),
       isRoom&&!whole&&E("p",{className:"loc-layer-note","data-testid":"previs-place-first"},"Make the image of the whole place first: this room then takes its look from it."),
       // the card's render style, beside the engine that draws it (owner 2026-11-23)
       styleRow&&E("div",{className:"previs-style","data-testid":"previs-style"},styleRow),
@@ -397,66 +425,6 @@ function LocationPrevisOverview({location:l}){
       E("button",{type:"button",className:"art-draftall ghost",disabled:drawing,onClick:()=>setTurn(t=>((t==null?30:t)+90)%360),title:"See the place from its next side"},"Turn the view"),
       E("span",{className:"loc-layer-note"},shot.dressed?"Dressed: "+shot.parts+" shapes across the place.":"Not dressed yet: plain blocks.")));
 }
-/* DRESS THE WHOLE PLACE (owner 2026-11-16, the whole place first: "one press furnishes the house and each room in turn,
-   with the total price shown first"). Every space of the place that stands on the floor plan and is not dressed yet is
-   dressed by its own writing call, one after the other (one call a space keeps each well inside the time a writing
-   call is given). The total is an estimate shown on the button and asked about before anything is sent; each space is
-   saved as soon as it is dressed, so stopping, or a call that fails, loses nothing already done. A space that is
-   already dressed is never dressed again from here: that is done on the space itself. */
-function LocationPrevisDressAll({location:l,rooms=[],project,readOnly=false,onUpdate}){
-  const E=React.createElement,D=window.KinolotSetDressing;
-  const [run,setRun]=React.useState(null),[note,setNote]=React.useState(""),[fail,setFail]=React.useState("");
-  const alive=React.useRef(true),stop=React.useRef(false);
-  React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
-  let on=[];try{on=D.place(l).spaces.map(s=>s.id);}catch(_){on=[];}
-  const cards=[l].concat(rooms||[]).filter(c=>c&&on.indexOf(c.id)>=0);
-  const todo=cards.filter(c=>!c.previs),done=cards.filter(c=>c.previs);
-  let cost=0;try{cost=todo.reduce((n,c)=>n+D.estimate(c,{project}).credits,0);}catch(_){cost=0;}
-  const writable=()=>!readOnly&&typeof onUpdate==="function"&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
-  if(!cards.length)return null;
-  async function dressAll(){
-    if(run||!writable()||!todo.length)return;
-    const names=todo.map(c=>c.name||"Room");
-    const ok=typeof window.appConfirm!=="function"||await window.appConfirm({title:todo.length===1?"Dress "+names[0]+"?":"Dress these "+todo.length+" spaces?",
-      body:"One writing call a space, one after the other: "+names.join(", ")+"."+(cost?" About "+cost+" writing credits in all. It is an estimate: a writing call is charged by its length.":"")
-        +" Each space is saved as soon as it is dressed, and you can stop between two spaces.",confirmLabel:todo.length===1?"Dress it":"Dress them",cancelLabel:"Not now"});
-    if(!ok||!alive.current)return;
-    stop.current=false;setFail("");setNote("");
-    const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0,finished=[];let at="";
-    try{
-      for(let i=0;i<todo.length;i++){
-        if(stop.current)break;
-        const card=(((window.turnContinuity||{}).locations)||[]).find(x=>x.id===todo[i].id)||todo[i];
-        at=card.name||"Room";
-        if(alive.current)setRun({i:i+1,n:todo.length,name:at});
-        const r=await D.draft(card,{project});
-        if(!writable()||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch)throw new Error("The open film changed. Nothing more was saved.");
-        // saved at once, even if this section was closed meanwhile: the call is paid for
-        onUpdate(card.id,{previs:D.pack(r.dressing,{engine:D.MODEL})});
-        finished.push(at+" ("+r.report.parts+" shapes)");
-      }
-      if(alive.current)setNote((finished.length?"Dressed: "+finished.join(", ")+".":"Nothing was dressed.")+(stop.current&&finished.length<todo.length?" Stopped before "+todo.slice(finished.length).map(c=>c.name||"Room").join(", ")+".":""));
-    }catch(e){
-      if(alive.current)setFail((finished.length?"Dressed and saved: "+finished.join(", ")+". ":"")+"Stopped at "+(at||"the first space")+": "+((e&&e.message)||"the set could not be dressed."));
-    }finally{if(alive.current)setRun(null);}
-  }
-  return E("div",{className:"loc-sub previs-dress","data-testid":"previs-dress-all"},
-    E("h4",{className:"loc-step-sub"},"Dress the whole place"),
-    E("p",{className:"loc-layer-note"},"Furnishes every space of "+(l.name||"this place")+" for this film, one after the other, each from its own card and its scenes. The floor plan and the cameras stay as saved."),
-    E("p",{className:"loc-layer-note","data-testid":"previs-dress-all-state"},
-      [done.length?"Dressed: "+done.map(c=>c.name||"Room").join(", ")+".":"",todo.length?"Not dressed yet: "+todo.map(c=>c.name||"Room").join(", ")+".":"Every space is dressed. To dress one again, open that space above."].filter(Boolean).join(" ")),
-    todo.length>0&&!readOnly&&E("div",{className:"loc-step-actions previs-dress-row"},
-      E("button",{type:"button",className:"art-draftall",disabled:!!run,onClick:dressAll,"data-testid":"previs-dress-all-go",
-        title:"One writing call a space, one after the other. You are asked first, with the total."},
-        run?"Dressing "+run.name+" ("+run.i+" of "+run.n+")\u2026":done.length?"Dress the rest of the place":"Dress the whole place",
-        !run&&cost>0&&E("span",{className:"nb-cost","data-testid":"previs-dress-all-cost",title:"About "+cost+" writing credits for "+todo.length+(todo.length===1?" space":" spaces")+". An estimate: a writing call is charged by its length."},
-          typeof nbCreditMark==="function"?nbCreditMark():null,String(cost))),
-      run&&run.i<run.n&&E("button",{type:"button",className:"art-draftall ghost",disabled:stop.current,onClick:()=>{stop.current=true;setRun(r=>r?{...r}:r);},
-        title:"The space being dressed now is finished and saved; the ones after it are left for later."},stop.current?"Stopping after this space\u2026":"Stop after this space")),
-    note&&E("p",{className:"loc-layer-note",role:"status"},note),
-    fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail));
-}
-window.LocationPrevisDressAll=LocationPrevisDressAll;
 /* ONE PLACE, ALL ITS ROOMS, ON ONE CARD (owner 2026-11-16: "the main location has to house those subspaces ... all on
    the same card"). On a place that has rooms, Previs opens with a row of its spaces: the whole place from above, the
    place itself, and each room. A room shown here is the room's own Previs (its four cameras, its dressing, its image
@@ -519,7 +487,8 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
       E("p",{className:"loc-step-fixes-head"},"Not on the floor plan yet: "+outside.map(r=>r.name).join(", ")+"."),
       E("p",{style:{margin:"0 0 8px"}},"A room is drawn here once it stands on "+(l.name||"this place")+"\u2019s floor plan."),
       E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Add it in Floor plan")),
-    view==="all"?E(React.Fragment,null,E(LocationPrevisOverview,{location:l}),E(LocationPrevisDressAll,{location:l,rooms:list,project,readOnly,onUpdate}))
+    // (2026-11-23: no button to dress the whole place: each space is dressed by itself when its own set is drawn)
+    view==="all"?E(LocationPrevisOverview,{location:l})
       :room?E(LocationPrevisStep,{key:room.id,location:room,project,readOnly,onUpdate,hasImage:!!got(room.id),imageMeta:got(room.id)?metaOf(room.id):null,asRoom:true,
         onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
       :own);

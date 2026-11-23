@@ -1859,6 +1859,7 @@ function LocationRunProgress({work}){
       st.clock&&E("span",{className:"loc-work-clock"},st.clock),
       work&&work.engine&&E("span",{className:"loc-work-engine","data-testid":"location-work-engine",title:"The engine doing this step"},work.engine)));
 }
+window.LocationRunProgress=LocationRunProgress;
 function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft, drafting, onView, batchActiveId, onBatchDone, onChipClick, onDraftStaging, draftingStage, sluglineUnits, onUpdateUnit, onRemoveUnit, readOnly=false, workspaceMembers=[],onSelectLocation,initialSection="",embedded=false,
   samePlace=[], mergeChoices=[], onMergeLocations, onPlaceDecision,
   // ONE CARD (owner 2026-11-21): roomBlocks = how the place's card opens its rooms inside itself (LocationWorkspace);
@@ -2421,7 +2422,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           React.createElement("span",{className:"char-style-name char-style-locked",title:"Your saved style \u2014 reusable everywhere. Click to unlock.",onClick:unlockCurrent},"\ud83d\udd12 saved \u00b7 unlock"));
   return React.createElement("div",{ref:sheetRef,className:(asSection?"loc-room-sheet":embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id,
       "data-room-section":asSection?"1":undefined},
-    setFace&&React.createElement(window.LocationSetCard,{place:facePlace,rooms:faceGroup.rooms,space:l.id,onSpace:faceGroup.select,project,scenes,readOnly,slots:faceSlots,
+    setFace&&React.createElement(window.LocationSetCard,{place:facePlace,rooms:faceGroup.rooms,space:l.id,onSpace:faceGroup.select,project,scenes,readOnly,onUpdate,slots:faceSlots,
       planOpen:initialSection==="layout",planReady:!!spatialState.ready,hasImage:!!gen.genUrl}),
     /* THE HEAD SHOWS THE IMAGE; NOTHING IS GENERATED FROM IT (owner 2026-11-17: the Generate button, its reference
        strip and "Edit a panel" were a second road beside Previs). The quick image, from the description

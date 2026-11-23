@@ -135,7 +135,7 @@ function LocationSetPlan({ model, label, onMove }){
 // what a place's card was last looking at (the look, and where the stand-ins were put): kept while the tab is open,
 // so that pressing a room's chip, which brings that room's own card, does not start over
 const lscKept = {};
-function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project, scenes, readOnly=false, slots=null, planOpen=false, planReady=false }){
+function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project, scenes, readOnly=false, slots=null, planOpen=false, planReady=false, onUpdate=null }){
   const K = window.KinolotSetCard;
   const ref = React.useRef(null), onScreen = useLscOnScreen(ref);
   const all = K.spaces(place, rooms);
@@ -194,6 +194,10 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
     }, e=>{ if(live) setPics(p=>({ ...p, hero:"", heroOf:heroKey, space:space.id, drawing:false, error:(e&&e.message)||"The set could not be drawn." })); });
     return ()=>{ live = false; };
   },[onScreen, heroKey, thumbKey]);
+  /* A SET THAT WAS NEVER DRESSED IS DRESSED BY ITSELF, the first time it is drawn here (owner 2026-11-23): one
+     writing pass gives its objects their shape and colour, its fixed parts and its light (previsAutoDress, in Previs). */
+  const drewIt = pics.space===space.id && !!pics.hero, undressed = !space.location.previs;
+  React.useEffect(()=>{ if(drewIt && undressed && typeof window.previsAutoDress==="function") window.previsAutoDress(space.location, project, onUpdate, readOnly); },[drewIt, undressed, space.id]);
   const sameSpace = pics.space===space.id;
   const heroNow = sameSpace ? pics.hero : "", thumbsNow = sameSpace ? pics.thumbs : null;
 
@@ -247,6 +251,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
       LSC_E("div",{ className:"lsc-seg", role:"group", "aria-label":"How the view is drawn" },
         K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot,
           onClick:()=>setPick(p=>({ ...p, look:x.id })) }, x.name))),
+
+      // the set being dressed by itself: what it is doing, or what went wrong
+      undressed && window.PrevisAutoLine && LSC_E(window.PrevisAutoLine,{ location:space.location, project, onUpdate, readOnly }),
 
       LSC_E("div",{ className:"lsc-folds" },
         LSC_E(LscFold,{ label:"Location sheet", defaultOpen:true, testid:"set-card-fold-sheet", count:views.length ? views.length+(views.length===1?" view":" views") : "" },

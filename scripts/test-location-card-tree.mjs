@@ -462,12 +462,13 @@ test("15 Previs: in The set in 3D on every card; optional; the camera check, the
   for(const src of [ui,angle,ideas]) assert.ok(!/Build the set|Style it|Rebuild in step|step 6|cloud Build set/.test(src.replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/[^\n]*/g,"")),"no wording of the removed steps is left on the card");
   // the section itself
   const step_ui=read("app/set-previs-ui.jsx");
-  for(const t of ['"data-testid":"previs-sheet"','"data-testid":"previs-dress"','"data-testid":"previs-render"','"data-testid":"previs-not-ready"','"data-testid":"previs-unsaved"',
+  for(const t of ['"data-testid":"previs-sheet"','"data-testid":"previs-auto"','"data-testid":"previs-render"','"data-testid":"previs-not-ready"','"data-testid":"previs-unsaved"',
       '"data-testid":"previs-draft"','"data-testid":"previs-drafts-earlier"','"data-testid":"previs-compare-drafts"','"data-testid":"previs-review"','"data-testid":"previs-moment"',
       '"data-testid":"camera-check"','"data-testid":"camera-check-fix"',
-      '"Dress the set"','"Remove dressing"','"Make the location image"','"Make another draft"','"data-testid":"previs-dress-cost"','window.nbCostChip(1,choice.cost)',
+      // (2026-11-23: no dress button any more: dressing runs by itself, previsAutoDress)
+      'previsAutoDress(l,project,onUpdate,readOnly)','"Make the location image"','"Make another draft"','window.nbCostChip(1,choice.cost)',
       '"Use as location image"','"Compare with the 3D set"','"Delete"','"Delete this draft"','"Delete the earlier draft"','"data-testid":"previs-draft-delete"','"Compare drafts"','"Make this the current draft"','"Fix cameras"',
-      '"Go to Floor plan"','onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})})','onUpdate(l.id,{previs:null})'])
+      '"Go to Floor plan"','onUpdate(id,{previs:D.pack(r.dressing,{engine:D.MODEL})});'])
     assert.ok(step_ui.includes(t),t);
   assert.ok(step_ui.includes("window.LocationPrevisStep=LocationPrevisStep;"));
   // the draft sits right under the button that makes it, inside the same box (owner 2026-11-15)
@@ -475,9 +476,8 @@ test("15 Previs: in The set in 3D on every card; optional; the camera check, the
   assert.ok(step_ui.indexOf('"data-testid":"previs-render"')<make&&make<draft&&draft<earlier&&earlier<compare&&compare<step_ui.indexOf("notice&&E("));
   // no confirmation step and no tick box before using a draft: the image before it always stays in the versions.
   // The one question the section asks is before a draft is deleted for good (owner 2026-11-16).
-  assert.ok(!step_ui.includes('type:"checkbox"')&&(step_ui.match(/window\.appConfirm\(\{title:"Delete this draft\?"/g)||[]).length===2&&(step_ui.match(/appConfirm\(/g)||[]).length===3
-    // (2026-11-16) the third question is Dress the whole place: several writing calls, asked first with the total
-    &&step_ui.includes('await window.appConfirm({title:todo.length===1?"Dress "+names[0]+"?":"Dress these "+todo.length+" spaces?",'));
+  assert.ok(!step_ui.includes('type:"checkbox"')&&(step_ui.match(/window\.appConfirm\(\{title:"Delete this draft\?"/g)||[]).length===2&&(step_ui.match(/appConfirm\(/g)||[]).length===2);
+  // (2026-11-23) the third question, before Dress the whole place, went with that button: dressing runs by itself
   assert.ok(!step_ui.includes('"Discard"')&&step_ui.includes("await P.remove(target,d.meta.iso);")&&step_ui.includes("setReview(null);\n    const theirs="),"the comparison closes before the question is asked");
   assert.ok(read("app/blender-preview.css").includes(".loc-style-dialog{margin:auto}")&&read("app/blender-preview.css").includes(".loc-style-dialog .loc-cloud-render-actions{margin-top:14px}"));
   // ONE RULE, in the same words everywhere: the draft must still match the set and the look it was made from
@@ -492,7 +492,8 @@ test("15 Previs: in The set in 3D on every card; optional; the camera check, the
   assert.ok(!/nbClearAsset|nbDeleteHistoryEntry|nbDeleteCurrentAndPromoteAsset/.test(api.replace(removal,"")),"nothing else in Previs deletes, and never anything but a draft's own slot");
   // three boxed subsections, like every other section of the card (and two more on the whole-place view: the place
   // from above, and Dress the whole place, 2026-11-16)
-  assert.equal((step_ui.match(/className:"loc-sub/g)||[]).length,5);
+  // (2026-11-23: two boxes fewer, Dress the set and Dress the whole place: dressing runs by itself)
+  assert.equal((step_ui.match(/className:"loc-sub/g)||[]).length,3);
   // 2026-11-16: the engine is picked in the section, what the step does sits behind the (i) beside its heading, and a
   // place with rooms shows the whole place and each room in the same section
   for(const t of ['"data-testid":"previs-engine"','E("span",null,"Image engine")','label:"About making the image"','"data-testid":"previs-undressed-hint"',

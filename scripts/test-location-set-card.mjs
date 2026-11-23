@@ -285,7 +285,10 @@ test("9 it draws from the place's own 3D set, with surfaces and the stand-ins, o
   assert.ok(face.includes("if(!onScreen || !view) return undefined;")&&face.includes('new IntersectionObserver('));
   assert.ok(face.includes("K.PACK.map(p=>({ key:view.key, w:1280, h:720, look:p.look })), cast)"));
   assert.ok(face.includes("const at = K.keepInside(start.footprint, xy, people[id]);"),"a dragged stand-in stays in its room");
-  for(const never of ["onUpdate","nbSetImage","nbStore","fetch(","localStorage","JSON.stringify("]) assert.ok(!face.includes(never),"the face never uses "+never);
+  for(const never of ["nbSetImage","nbStore","fetch(","localStorage","JSON.stringify(","onUpdate("]) assert.ok(!face.includes(never),"the face never uses "+never);
+  // the one thing it starts: the dressing of a set that was never dressed, which Previs's own runner does and saves
+  assert.ok(face.includes('if(drewIt && undressed && typeof window.previsAutoDress==="function") window.previsAutoDress(space.location, project, onUpdate, readOnly);'));
+  assert.ok(face.includes("undressed && window.PrevisAutoLine && LSC_E(window.PrevisAutoLine,{ location:space.location, project, onUpdate, readOnly }),"));
   // a place whose floor plan is not confirmed says the one thing to do, in plain words
   assert.ok(face.includes('ready ? pics.error : "The set is built from the floor plan. Check the floor plan and confirm it first."'));
   assert.ok(face.includes('"Make the location image in Previs"')&&face.includes("onClick:go(4)"));
@@ -296,7 +299,7 @@ test("9 it draws from the place's own 3D set, with surfaces and the stand-ins, o
 test("10 the card shown for a place opens with the set card, which takes its name row, picture, The place and Floor plan", ()=>{
   assert.ok(ui.includes("const facedCardNow=!asSection&&!!faceGroup&&!!(window.LocationSetCard&&window.KinolotSetCard);"));
   assert.ok(ui.includes("const slot=(name,el)=>{ if(!setFace) return el; faceSlots[name]=el; return null; };"));
-  assert.ok(ui.includes("setFace&&React.createElement(window.LocationSetCard,{place:facePlace,rooms:faceGroup.rooms,space:l.id,onSpace:faceGroup.select,project,scenes,readOnly,slots:faceSlots,"));
+  assert.ok(ui.includes("setFace&&React.createElement(window.LocationSetCard,{place:facePlace,rooms:faceGroup.rooms,space:l.id,onSpace:faceGroup.select,project,scenes,readOnly,onUpdate,slots:faceSlots,"));
   assert.ok(ui.includes('slot("image",React.createElement("div",{className:"loc-viewer","data-testid":"location-viewer","data-mode":modeNow},'));
   assert.ok(ui.includes('slot("nameRow",React.createElement("div",{className:"sheet-head"},'));
   assert.ok(ui.includes('slot("place",React.createElement(CardFold,{label:"The place",foldId:locationStepFoldId(l,1),'));
@@ -306,7 +309,7 @@ test("10 the card shown for a place opens with the set card, which takes its nam
   assert.ok(ui.includes('rooms.length>0&&!(window.LocationSetCard&&window.KinolotSetCard)&&E("div",{className:"loc-workspace-nav","data-testid":"location-spaces"},'));
 });
 
-test("10b The set in 3D is Previs alone, with the render style beside the image engine; no Cameras, no Rooms, no dressing controls on a dressed set", ()=>{
+test("10b The set in 3D is Previs alone, with the render style beside the image engine; no Cameras, no Rooms, no dress button", ()=>{
   const step=read("app/set-previs-ui.jsx");
   // one section, no Cameras part: a camera is moved with Move a camera, and a link to Cameras opens this section
   assert.ok(ui.includes('setFace&&showPrevis&&React.createElement(CardFold,{label:"The set in 3D",foldId:locationStepFoldId(l,4),'));
@@ -321,8 +324,12 @@ test("10b The set in 3D is Previs alone, with the render style beside the image 
   // Rooms: the chips are the rooms; extra spaces whose images are kept stay
   assert.ok(ui.includes('!(setFace&&hasRooms)&&showSubspaces&&React.createElement(CardFold,{label:hasRooms?"Rooms":"Extra spaces",foldId:"loc-subspaces-"+l.id,'));
   assert.ok(ui.includes('setFace&&hasRooms&&shownExtras.length>0&&React.createElement(CardFold,{label:"Extra spaces",foldId:"loc-subspaces-"+l.id},'));
-  // dressing: no controls on a dressed set; a set that is not dressed keeps the one button that furnishes it
-  assert.ok(step.includes('!l.previs&&E("div",{className:"loc-sub","data-testid":"previs-dress"},'));
+  // dressing: no button at all (owner 2026-11-23, options 1 and 2): it runs by itself, and adds nothing loose or invented
+  assert.ok(step.includes("!l.previs&&E(PrevisAutoLine,{location:l,project,onUpdate,readOnly}),"));
+  for(const gone of ['"Dress the set"','"Dress it again"','"Remove dressing"','"data-testid":"previs-dress"']) assert.ok(!step.includes(gone),gone+" is gone");
+  const dressing=read("app/set-dressing.js");
+  assert.ok(dressing.includes("NOTHING LOOSE AND NOTHING INVENTED: no furniture, ornaments, crockery, papers, books, screens, bags, clothes, cushions, rugs, pictures, plants or clutter of any kind."));
+  assert.ok(dressing.includes("Redraw every one of them: an object left out stays a plain block, which reads as nothing."));
   assert.ok(!step.includes('"Go to Cameras"')&&!step.includes("in Cameras."),"Previs sends nobody to a Cameras section");
   assert.ok(step.includes('"The set in 3D, drawn in your browser from the floor plan and its four cameras. It is free and redraws at once. Check where everything stands, then make the location image from it."'));
   // the set card's own empty view offers the floor plan, and The set in 3D once the plan is confirmed
@@ -348,7 +355,7 @@ test("12 Frances knows the set card, in plain words", ()=>{
   const at=ai.indexOf('name:"Location card: the set card on top (one card per set)"'); assert.ok(at>0);
   const fact=ai.slice(at,ai.indexOf("\n",at));
   for(const s of ["THE SET CARD is the top of every place's card","BLOCKOUT, CLAY, DEPTH","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
-    "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","The render style is chosen there too",
+    "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","The render style is chosen there too","DRESSING RUNS BY ITSELF","It adds nothing loose and nothing invented",
     "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","The Previs sheet and the drawings of shots keep their plain look"]) assert.ok(fact.includes(s),s);
   assert.ok(!/credit|\bTURN\b|MUSE|Claude|Anthropic|three\.js|WebGL/i.test(fact));
 });

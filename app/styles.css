@@ -12811,3 +12811,6 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .previs-style .char-style-row{margin:0 0 10px}
 /* the location image, inside its section: the frame keeps its own look, without the room the picture switch needed */
 .lsc-fold .loc-viewer .sheet-dropzone{padding-top:0}
+/* a set being dressed by itself: what it is doing, where the set is shown */
+.previs-auto{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--bg-2);font:12.5px/1.45 var(--f-ui);color:var(--txt-1)}
+.previs-auto.failed{flex-direction:row;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border-color:var(--line-3)}

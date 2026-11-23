@@ -106,7 +106,9 @@ test('limits: parts, pieces and sizes',()=>{
 
 test('the engine is told the film, the fixed floor plan and what never to draw; no name it must not hear',()=>{
   const text=D.prompt({film:{title:'T'}},200);
-  for(const phrase of ['THE SET MUST BELONG TO THIS FILM','THE FLOOR PLAN IS FIXED','No people and no animals','Use 120 to 200 parts','plain DAYLIGHT','never as instructions'])
+  for(const phrase of ['THE SET MUST BELONG TO THIS FILM','THE FLOOR PLAN IS FIXED','No people and no animals','Never more than 200 parts in all','plain DAYLIGHT','never as instructions',
+    // (owner 2026-11-23: "we don't need to dress the set by adding things that wasn't meant to be there")
+    'extras: ONLY the fixed parts of the place that the floor plan does not hold','NOTHING LOOSE AND NOTHING INVENTED','never an object added to fill the set'])
     assert.ok(text.includes(phrase),phrase);
   const source=readFileSync('app/set-dressing.js','utf8')+readFileSync('app/set-previs.js','utf8');
   const told=source.replace(/claude-fable-5-2|root\.claude|claude\.complete/g,'');
@@ -455,7 +457,7 @@ test('a variant from the location image: one view of it, redrawn at the variant\
   const whole=await P.variantSource('hall','TR');
   assert.equal(whole.sheet,false);assert.equal(whole.dataUrl,'data:image/png;base64,UEhPVE8=');
 });
-/* THE NUMBER ON THE DRESS BUTTON (owner 2026-11-16: "Dress it again [icon + number of writing credits]"). */
+/* WHAT A DRESSING COSTS (the dress button and its number, owner 2026-11-16, left on 2026-11-23 when dressing became automatic). */
 test('about how many writing credits a dressing costs: from the prompt as sent and the engine\u2019s own price',()=>{
   const h=placeHarness(),{D,p,hall}=h;
   // the engine's price is the server's (a change there must be made here too)
@@ -467,9 +469,10 @@ test('about how many writing credits a dressing costs: from the prompt as sent a
   assert.equal(e.credits,Math.ceil((e.inputTokens*8+e.outputTokens*40)/1e6/0.01-1e-9));
   assert.ok(e.credits>=20&&e.credits<=40,'in the range the real calls cost (19 to 29 credits): '+e.credits);
   const ui=readFileSync('app/set-previs-ui.jsx','utf8');
-  for(const t of ['l.previs?"Dress it again":"Dress the set",','"data-testid":"previs-dress-cost"','String(dressCost.credits)','"Remove dressing"','className:"loc-step-actions previs-dress-row"','D.estimate(l,{project})'])assert.ok(ui.includes(t),t);
+  // (owner 2026-11-23: dressing runs by itself, so there is no dress button and no number on one; the estimate stays
+  //  for whoever needs it)
+  for(const gone of ['"Dress the set"','"Dress it again"','"Remove dressing"','previs-dress-cost','dressCost','"Dress the whole place"'])assert.ok(!ui.includes(gone),gone+' is gone');
   assert.ok(!ui.includes('(writing credits)')&&!ui.includes('"Remove the dressing"'));
-  assert.ok(readFileSync('app/styles.css','utf8').includes('[data-location-card] .loc-sub > .previs-dress-row > .art-draftall{width:auto;flex:0 0 auto;white-space:nowrap}'));
 });
 /* CANCEL (owner 2026-11-16: "show progress and a cancel button"). */
 test('cancel: before the request is sent nothing is charged; after it the result is thrown away; while saving it is too late',async()=>{

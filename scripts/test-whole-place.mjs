@@ -272,48 +272,68 @@ await test("7 the camera tool draws the set as Previs does, lit and dressed; Pre
   assert.ok(step.includes('"data-testid":"previs-move-camera"')&&step.includes('E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,inline:true,label:"Move a camera"})'));
 });
 
-/* ---- dress the whole place: the component itself, with a stand-in React and a stand-in writing call ---- */
+/* ---- dressing runs by itself (owner 2026-11-23: no button): the runner itself, with a stand-in writing call ---- */
 function dressHarness({fail}={}){
   const E=(type,props,...children)=>({type,props:props||{},children:children.flat(Infinity).filter(c=>c!==null&&c!==false&&c!==undefined)});
-  const box={console,setTimeout,location:{hostname:"localhost"},React:{createElement:E,Fragment:"fragment",useState:v=>[typeof v==="function"?v():v,()=>{}],useRef:v=>({current:v}),useEffect:()=>{},useMemo:f=>f()},
-    nbEpoch:()=>1,nbCreditMark:()=>"*"};box.window=box;vm.createContext(box);
-  const calls=[],saved=[],asked=[];
-  box.KinolotSetDressing={MODEL:"engine",place:()=>({spaces:[{id:"house"},{id:"hall"},{id:"kitchen"}]}),estimate:c=>({credits:c.id==="hall"?20:30}),
-    pack:(d,x)=>({packed:d,engine:x.engine}),
-    draft:async c=>{calls.push(c.id);if(fail===c.id)throw new Error("The writing call took too long.");return {dressing:{of:c.id},report:{parts:c.id==="hall"?40:90}};}};
-  box.appConfirm=async q=>{asked.push(q);return box.answer!==false;};
+  const box={console,setTimeout,location:{hostname:"localhost"},React:{createElement:E,Fragment:"fragment",useState:v=>[typeof v==="function"?v():v,()=>{}],useRef:v=>({current:v}),useEffect:()=>{},useMemo:f=>f(),useReducer:()=>[0,()=>{}]},
+    nbEpoch:()=>1,nbCreditMark:()=>"*",claude:{complete:async()=>""},WRITING_MODELS:[{id:"engine",label:"Engine One"}]};box.window=box;vm.createContext(box);
+  const calls=[],saved=[],events=[];
+  box.dispatchEvent=e=>{events.push(e.detail);};box.CustomEvent=function(type,init){this.type=type;this.detail=init&&init.detail;};
+  box.KinolotSetDressing={MODEL:"engine",pack:(d,x)=>({packed:d,engine:x.engine}),
+    draft:async c=>{calls.push(c.id);if(fail===c.id)throw new Error("The writing call took too long.");return {dressing:{of:c.id},report:{parts:c.id==="hall"?40:90,left:[]}};}};
   vm.runInContext(read("app/set-previs-ui.jsx"),box,{filename:"set-previs-ui.jsx"});
-  const house={id:"house",name:"Ellis House",previs:{iso:"x"}},hall={id:"hall",name:"Hallway"},kitchen={id:"kitchen",name:"Kitchen"},attic={id:"attic",name:"Attic"};
-  box.turnContinuity={locations:[house,hall,kitchen,attic]};
-  const find=(node,id)=>{if(!node||typeof node!=="object")return null;if(node.props&&node.props["data-testid"]===id)return node;for(const c of node.children||[]){const hit=find(c,id);if(hit)return hit;}return null;};
+  const house={id:"house",name:"Ellis House",previs:{iso:"x"}},hall={id:"hall",name:"Hallway"},kitchen={id:"kitchen",name:"Kitchen"};
+  box.turnContinuity={locations:[house,hall,kitchen]};
+  const save=(id,patch)=>saved.push([id,patch]);
   const text=node=>typeof node==="string"?node:!node||typeof node!=="object"?"":(node.children||[]).map(text).join("");
-  const render=(over={})=>box.LocationPrevisDressAll({location:house,rooms:[hall,kitchen,attic],project:{title:"F"},onUpdate:(id,patch)=>saved.push([id,patch]),...over});
-  return {box,calls,saved,asked,find,text,render,house,hall,kitchen,attic};
+  return {box,calls,saved,events,save,text,house,hall,kitchen,settle:()=>new Promise(r=>setTimeout(r,20))};
 }
-await test("8 dress the whole place: only the spaces on the plan that are not dressed, one call each in turn, asked first with the total, saved one by one",async()=>{
-  const h=dressHarness(),tree=h.render();
-  assert.equal(h.text(h.find(tree,"previs-dress-all-state")),"Dressed: Ellis House. Not dressed yet: Hallway, Kitchen.","the attic is not on the floor plan, so it is not offered");
-  const go=h.find(tree,"previs-dress-all-go");
-  assert.ok(h.text(go).startsWith("Dress the rest of the place"));assert.equal(h.text(h.find(tree,"previs-dress-all-cost")),"*50");
-  await go.props.onClick();
-  assert.equal(h.asked.length,1);assert.equal(h.asked[0].title,"Dress these 2 spaces?");
-  assert.ok(h.asked[0].body.includes("One writing call a space, one after the other: Hallway, Kitchen.")&&h.asked[0].body.includes("About 50 writing credits in all. It is an estimate"));
+await test("8 a set that was never dressed is dressed by itself: once, one at a time, saved as soon as it comes back; a failure is said and not repeated",async()=>{
+  const h=dressHarness(),A=h.box;
+  // a dressed set starts nothing; a viewer who cannot write starts nothing; nobody signed in starts nothing
+  assert.equal(A.previsAutoDress(h.house,{title:"F"},h.save,false),null);
+  assert.equal(A.previsAutoDress(h.hall,{title:"F"},h.save,true),null);
+  assert.equal(A.previsAutoDress(h.hall,{title:"F"},null,false),null);
+  assert.equal(h.calls.length,0);
+  // two sets asked for at once: one writing pass each, one after the other, each saved
+  const st=A.previsAutoDress(h.hall,{title:"F"},h.save,false);
+  assert.equal(st.phase,"waiting");
+  A.previsAutoDress(h.kitchen,{title:"F"},h.save,false);
+  A.previsAutoDress(h.hall,{title:"F"},h.save,false);   // asked again while it runs: nothing more
+  await h.settle();
   assert.equal(h.calls.join(),"hall,kitchen");
   assert.deepEqual(copy(h.saved),[["hall",{previs:{packed:{of:"hall"},engine:"engine"}}],["kitchen",{previs:{packed:{of:"kitchen"},engine:"engine"}}]]);
-  // "Not now": nothing is sent
-  const no=dressHarness();no.box.answer=false;await no.find(no.render(),"previs-dress-all-go").props.onClick();
-  assert.equal(no.calls.length,0);assert.equal(no.saved.length,0);
-  // a call that fails stops the run; what was dressed before it stays saved
-  const bad=dressHarness({fail:"kitchen"});await bad.find(bad.render(),"previs-dress-all-go").props.onClick();
-  assert.equal(bad.calls.join(),"hall,kitchen");assert.deepEqual(bad.saved.map(x=>x[0]),["hall"]);
-  // nothing dressed yet: "Dress the whole place"; everything dressed: no button; read-only: no button
-  const fresh=dressHarness();
-  assert.ok(fresh.text(fresh.find(fresh.render({location:{id:"house",name:"Ellis House"}}),"previs-dress-all-go")).startsWith("Dress the whole place"));
-  const all=dressHarness(),full=all.render({rooms:[{...all.hall,previs:{}},{...all.kitchen,previs:{}}]});
-  assert.equal(all.find(full,"previs-dress-all-go"),null);assert.ok(all.text(all.find(full,"previs-dress-all-state")).endsWith("Every space is dressed. To dress one again, open that space above."));
-  assert.equal(fresh.find(fresh.render({readOnly:true}),"previs-dress-all-go"),null);
-  // it sits under the whole-place view
-  assert.ok(read("app/set-previs-ui.jsx").includes('view==="all"?E(React.Fragment,null,E(LocationPrevisOverview,{location:l}),E(LocationPrevisDressAll,{location:l,rooms:list,project,readOnly,onUpdate}))'));
+  assert.equal(A.previsAutoState("hall").phase,"done");assert.equal(A.previsAutoState("hall").parts,40);
+  assert.ok(h.events.includes("hall")&&h.events.includes("kitchen"),"whoever shows the set hears of each change");
+  // asked again later in the session (the card came back on screen): never a second pass
+  A.previsAutoDress(h.hall,{title:"F"},h.save,false);await h.settle();
+  assert.equal(h.calls.join(),"hall,kitchen");
+  // a pass that fails: said, not repeated by itself; Try again runs it once more
+  const bad=dressHarness({fail:"kitchen"}),B=bad.box;
+  B.previsAutoDress(bad.kitchen,{title:"F"},bad.save,false);await bad.settle();
+  assert.equal(B.previsAutoState("kitchen").phase,"failed");assert.equal(B.previsAutoState("kitchen").error,"The writing call took too long.");
+  B.previsAutoDress(bad.kitchen,{title:"F"},bad.save,false);await bad.settle();
+  assert.equal(bad.calls.join(),"kitchen");assert.equal(bad.saved.length,0);
+  const line=B.PrevisAutoLine({location:bad.kitchen,project:{title:"F"},onUpdate:bad.save});
+  assert.equal(line.props["data-testid"],"previs-auto-failed");assert.ok(bad.text(line).includes("The set could not be dressed: The writing call took too long.")&&bad.text(line).includes("Try again"));
+  B.previsAutoRetry(bad.kitchen,{title:"F"},bad.save,false);await bad.settle();
+  assert.equal(bad.calls.join(),"kitchen,kitchen");
+  // dressed meanwhile (another card of the place, another tab): nothing is sent
+  const late=dressHarness(),C=late.box;
+  C.previsAutoDress(late.hall,{title:"F"},late.save,false);
+  C.turnContinuity.locations=[late.house,{...late.hall,previs:{iso:"y"}},late.kitchen];
+  await late.settle();
+  assert.equal(late.calls.length,0);assert.equal(C.previsAutoState("hall"),null);
+  // while it runs the line says what it is doing, with the engine by its name in the engine list, never its id
+  const src=read("app/set-previs-ui.jsx");
+  assert.ok(src.includes('st.phase==="waiting"?"Waiting to dress this set\\u2026":"Dressing the set: its shapes, colours and light\\u2026"'));
+  assert.ok(src.includes('const m=(window.WRITING_MODELS||[]).find(x=>x&&x.id===window.KinolotSetDressing.MODEL);return (m&&m.label)||"";'));
+  // no button dresses a set any more, on a card, in Previs or for the whole place
+  for(const gone of ["LocationPrevisDressAll",'"Dress the set"','"Dress it again"','"Remove dressing"',"previs-dress-all"])assert.ok(!src.includes(gone),gone+" is gone");
+  assert.ok(src.includes('view==="all"?E(LocationPrevisOverview,{location:l})'));
+  // Previs and the set card both ask for it once the set is drawn
+  assert.ok(src.includes("React.useEffect(()=>{if(sheet&&!l.previs)previsAutoDress(l,project,onUpdate,readOnly);},[!!sheet,!!l.previs,l.id]);"));
+  assert.ok(read("app/location-set-card-ui.jsx").includes('if(drewIt && undressed && typeof window.previsAutoDress==="function") window.previsAutoDress(space.location, project, onUpdate, readOnly);'));
 });
 
 await test("9 a room's card points to its place at Floor plan, Cameras and Previs; the place's own card says nothing",()=>{
