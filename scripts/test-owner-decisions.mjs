@@ -70,7 +70,7 @@ await test("every shot prompt treats a character sheet as identity only",()=>{
   const s=read("app/shots.jsx");
   assert.ok(s.includes('const SHOT_SHEET_IDENTITY_ONLY = " (identity only: take the face, build, hair and wardrobe from it; never copy its background, pose, lighting or panel layout; its face is neutral by design, so the expression comes from this beat)";'));
   assert.ok(s.includes("canonical scale: \"+scale+SHOT_SHEET_IDENTITY_ONLY;"),"the unresolved image map");
-  assert.ok(s.includes('+(r.referenceKind==="character" ? SHOT_SHEET_IDENTITY_ONLY : ""));'),"the resolved image map");
+  assert.ok(s.includes('+(r.referenceKind==="character" ? SHOT_SHEET_IDENTITY_ONLY : "")'),"the resolved image map");
   // an edit keeps the frame's own expression, so its sheets get edit wording (no "from this beat")
   assert.ok(read("app/shots-ui.jsx").includes('+(r.referenceKind==="character" ? " (identity only: take the face, build, hair and wardrobe from it; never copy its background, pose, lighting or panel layout)" : "")'),"the edit path's reference order");
 });

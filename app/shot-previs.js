@@ -401,7 +401,12 @@
     const notes=[], angle=String(sh.angle||"eye").toLowerCase();
     const lensPlanned=clampLens(c.lens||String(sh.lens||"").replace(/[^\d.]/g,""));
     const h=Math.max(0.12,Math.min(3.2,Number(c.height)>0?Number(c.height):(EYE[angle]||EYE.eye)));
-    const look=a.who.length?a.who.map(p=>p.head):[a.target], P=arr(placed.people);
+    const P=arr(placed.people);
+    /* EVERY FACE THE SHOT FRAMES MUST BE SEEN, not only the one the camera is centred on (2026-11-23: the first frame
+       made from a previs had Pike hidden behind Liaqat; the camera was aimed at Liaqat alone, and the image engine
+       moved Liaqat aside to show Pike). framed = who the camera aims at and who the shot says is in frame. */
+    const framed=a.who.concat(P.filter(p=>arr(sh.subjects).indexOf(p.id)>=0&&a.who.indexOf(p)<0));
+    const look=framed.length?framed.map(p=>p.head):[a.target];
     // over the shoulder: the person the camera stands behind is in the frame on purpose, and never counts as in the way
     const ots=angle==="ots", own=angle==="pov";
     const nearest=(x,y)=>{ let b=null,bd=1.3; if(ots) P.forEach(q=>{ const d=Math.hypot(q.xy[0]-x,q.xy[1]-y); if(d<bd){ bd=d; b=q; } }); return b; };
@@ -409,8 +414,8 @@
       const p=[x,y,sp.floorZ+h], over=nearest(x,y);
       if(edgeDistance(sp.footprint,x,y)<0.1||solidAt(set,p)) return "solid";
       if(!own&&P.some(q=>Math.hypot(q.xy[0]-x,q.xy[1]-y)<(ots?0.22:0.3))) return "person";
-      if(typeof opts.clear==="function"&&!look.every((pt,i)=>(over&&a.who[i]===over)||opts.clear(p,pt))) return "hidden";
-      if(a.who.some(w=>w!==over&&P.some(q=>q.id!==w.id&&q!==over&&hides(p,w.head,q)))) return "behind";
+      if(typeof opts.clear==="function"&&!look.every((pt,i)=>(over&&framed[i]===over)||opts.clear(p,pt))) return "hidden";
+      if(framed.some(w=>w!==over&&P.some(q=>q.id!==w.id&&q!==over&&hides(p,w.head,q)))) return "behind";
       return ""; };
     let x=at[0], y=at[1], source="plan";
     const bad=why(x,y);
@@ -426,7 +431,7 @@
         notes.push(bad==="hidden"?"As this shot starts, something in the set hides someone it frames (a wall or a shut door), from the planned camera and from every spot near it."
           :"As this shot starts, one person hides another from the planned camera and from every spot near it.");
       }else if(!best){
-        const found=camera(sh,a.who,spaces,{clear:opts.clear,set,all:P,point:a.who.length?null:a.target,side:opts.side});
+        const found=camera(sh,framed,spaces,{clear:opts.clear,set,all:P,point:framed.length?null:a.target,side:opts.side});
         return {...found,source:"app",notes:[WHY[bad]+" No spot near it works, so the app placed the camera."].concat(found.notes||[])};
       }else{
         notes.push(WHY[bad]+" It was moved "+best.r.toFixed(2).replace(/0$/,"")+" m, to the nearest spot that works.");
@@ -479,11 +484,45 @@
         ray.set(a,d.normalize()); ray.near=0.02; ray.far=len-0.06; return ray.intersectObjects(meshes,false).length===0; },
       dispose(){ bin.forEach(g=>g.dispose()); } };
   }
+  /* WHAT A CAMERA'S FRAME HOLDS, read from the set with its stand-ins in (2026-11-23: the first frame made from a
+     previs did not follow it; nothing had told the image engine which plain shape is which thing, as the location
+     card's own previs does). Rays through the frame name what is seen, where in the frame and how near:
+     [{name, side, depth, share}], largest first. Never throws: a frame that cannot be read is an empty list. */
+  const SIDES=["far left","left","centre","right","far right"], COMPASS=["north","north-east","east","south-east","south","south-west","west","north-west"];
+  async function seenIn(scene,pose){
+    try{
+      const A=root.KinolotAnglePreview, T=await A.load(), meshes=[], bin=[];
+      arr(scene.objects).forEach(item=>{ if(!item||!item.size||!item.position) return;
+        const g=A.geometry(T,item), m=new T.Mesh(g,new T.MeshBasicMaterial({side:T.DoubleSide})); bin.push(g); bin.push(m.material);
+        m.position.set(...item.position); m.scale.set(...item.size);
+        const [x,y,z]=item.rotation||[0,0,0];
+        m.quaternion.setFromRotationMatrix(new T.Matrix4().makeRotationZ(z).multiply(new T.Matrix4().makeRotationY(y)).multiply(new T.Matrix4().makeRotationX(x)));
+        m.updateMatrixWorld(true); m.userData.name=String(item.name||""); meshes.push(m); });
+      const cam=A.cameraFor(T,pose); cam.updateMatrixWorld(true);
+      const ray=new T.Raycaster(), hits=new Map(), COLS=16, ROWS=9;
+      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
+        ray.setFromCamera(new T.Vector2((c+0.5)/COLS*2-1,1-(r+0.5)/ROWS*2),cam);
+        const hit=ray.intersectObjects(meshes,false)[0]; if(!hit) continue;
+        const name=String(hit.object.userData.name||"").split(/ \u00b7 | - part /)[0].replace(/ \((?:prop |door )?stand-in\)$/,"").replace(/\s+/g," ").trim().slice(0,70); if(!name) continue;
+        const e=hits.get(name)||{name,n:0,x:0,d:Infinity}; e.n++; e.x+=(c+0.5)/COLS; e.d=Math.min(e.d,hit.distance); hits.set(name,e); }
+      bin.forEach(g=>g.dispose());
+      return Array.from(hits.values()).sort((a,b)=>b.n-a.n).slice(0,10).map(e=>({name:e.name,share:Math.round(e.n/(COLS*ROWS)*100),
+        side:SIDES[Math.min(4,Math.floor(e.x/e.n*5))],depth:e.d<1.2?"very close":e.d<2.5?"close":e.d<8?"middle distance":"far"}));
+    }catch(_){ return []; }
+  }
+  // the camera and its frame in words: "camera 1.5 m high, facing south-west, 24 mm lens (wide). In its frame: …"
+  function frameWords(pose,list){
+    const p=obj(pose), lens=Number(p.lensMm)||35, tilt=Number(p.pitch)||0;
+    return "camera "+(Math.round(arr(p.position)[2]*10)/10)+" m high, facing "+COMPASS[Math.round((((Number(p.yaw)||0)%360)+360)%360/45)%8]
+      +(tilt<=-12?", looking down":tilt>=12?", looking up":"")+", "+lens+" mm lens ("+(lens<=22?"very wide":lens<=32?"wide":lens<=60?"normal":"long")+")."
+      +(arr(list).length?" In its frame: "+list.map(v=>v.name+" ("+v.side+", "+v.depth+")").join("; ")+".":"");
+  }
   const sameState=(a,b)=>JSON.stringify(a||null)===JSON.stringify(b||null);
   /* A PLANNED SHOT, DRAWN: how it starts and how it ends, from ONE camera. o: {cam (the plan's camera for this shot,
      in numbers), cast, props, width, side}. The camera is worked out from how the shot STARTS and kept for how it
      ends, so the two pictures differ only by what moved. Returns {start:{dataUrl}, end:{dataUrl}|null (null when the
-     shot ends as it starts), width, height, pose, source ("plan" | "moved" | "app"), fits, notes[], missing[],
+     shot ends as it starts; with o.words each also has words: the camera and what its frame holds, read from the
+     set), width, height, pose, source ("plan" | "moved" | "app"), fits, notes[], missing[],
      rough[] (things drawn at a guessed size), lensPlanned, distance, people, things}. Throws the set builder's own
      sentence when the place has no floor plan or the 3D view cannot start. */
   async function pair(location,list,plan,shot,o){
@@ -517,9 +556,11 @@
       try{ view.render(canvas,found.pose,width,height); }finally{ view.dispose(); }
       return canvas.toDataURL("image/jpeg",0.9); };
     out.start={dataUrl:await draw(first.scene)};
+    if(o.words) out.start.words=frameWords(found.pose,await seenIn(first.scene,found.pose));
     if(endState&&!sameState(startState,endState)){
       const last=stateScene(built.scene,plan,endState,ctx);
       out.end={dataUrl:await draw(last.scene),people:last.people,things:last.things};
+      if(o.words) out.end.words=frameWords(found.pose,await seenIn(last.scene,found.pose));
       last.missing.forEach(m=>{ if(out.missing.indexOf(m)<0) out.missing.push(m); });
       last.things.filter(t=>!t.measured).forEach(t=>{ if(out.rough.indexOf(t.name)<0) out.rough.push(t.name); });
     }
@@ -533,5 +574,5 @@
   }
 
   root.ShotPrevis={DEFAULT_HEIGHT,DEFAULT_SIZE,FRAME,PALETTE,paletteFor,heightOf,colourOf,figure,turnTo,sizeFromText,sizeOf,inside,edgeDistance,spacesOf,spaceAt,markXY,fixedTop,fixedCentre,
-    faceTarget,openingId,poseDoors,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,aim,vfovOf,lensFor,sight,pair,frame};
+    faceTarget,openingId,poseDoors,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,seenIn,frameWords,aim,vfovOf,lensFor,sight,pair,frame};
 })(typeof window!=="undefined"?window:globalThis);

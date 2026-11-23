@@ -126,7 +126,8 @@ function ShotPrevisFold({ sh, ctx, onView, beatLabel, onMake, makeDisabled }){
    which = "start" (the shot's frame) or "end" (its end frame); pose = a camera to reuse (the end frame and the check
    use the camera the shot's frame was made with). Returns null when the shot has no previs to give (no plan with
    marks, no floor plan); throws the drawing's own sentence when the 3D view cannot start.
-   → {url, which, legend:[sentences], pose, source, moves (the shot ends differently from how it starts)} */
+   → {url, which, legend:[sentences], words (the camera and what its frame holds, read from the set), pose, source,
+      moves (the shot ends differently from how it starts)} */
 async function shotPrevisForFrame(sh, ctx, which, pose, width){
   const SP = window.ScenePlan, SPv = window.ShotPrevis;
   if(!sh || !sh.planned || !sh.startState || !SP || !SPv || !window.KinolotPrevis) return null;
@@ -136,7 +137,7 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width){
   if(!loc) return null;
   const cam = shotPrevisCamera(sh, plan);
   const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
-  const run = ()=> SPv.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:width||1536, ...(pose ? { pose } : {}) });
+  const run = ()=> SPv.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:width||1536, words:true, ...(pose ? { pose } : {}) });
   const turn = shotPrevisLine.then(run, run);
   shotPrevisLine = turn.then(()=>{}, ()=>{});
   const res = await turn;
@@ -144,7 +145,7 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width){
   const end = which==="end";
   const pic = end ? (res.end || res.start) : res.start;
   const people = (end && res.end && res.end.people) || res.people, things = (end && res.end && res.end.things) || res.things;
-  return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things), pose:res.pose, source:res.source||"", moves:!!res.end };
+  return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end };
 }
 // a frame "made from its previs": the next Generate of this shot takes it (set by the Previs fold's button, read once by the card)
 // (the mark lasts ten minutes: a run the person then cancels must not turn a later, ordinary Generate into this one)

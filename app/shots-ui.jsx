@@ -348,7 +348,12 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
       const base = { ...promptCtx, resolvedRefs:refs,
         sceneContext:(renderPlan&&renderPlan.sceneContext)||null, ...(runModel?{model:runModel}:{}) };
       // made from its previs: Image 1 is the layout (never the chained frame, which rides last for its look)
-      if(mode==="base" && gopts && gopts.previs && gopts.previs.url) return buildShotPrompt(sh,{...base,previs:gopts.previs});
+      /* (its first QA check, 2026-11-23, named the words that fought the drawing: the plan's lens and its line on who
+         is where in the frame. The drawing IS the composition, so those two go, and the lens is the drawing's own.) */
+      if(mode==="base" && gopts && gopts.previs && gopts.previs.url){
+        const lensMm = Number(gopts.previs.pose && gopts.previs.pose.lensMm);
+        return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}) },{...base,previs:gopts.previs});
+      }
       return (mode==="base" ? buildShotPrompt(sh,{...base,prevFrameRole:true}) : combinedShotPrompt(sh,base));
     },
     /* Art Room skips its normal beforeGenerate gate for edits, batches, and

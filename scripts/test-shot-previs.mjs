@@ -292,6 +292,10 @@ test("7d. the lens is the one that shows the planned shot size from where the ca
   const ots=V.planCamera({at:[1.5,1.05],height:1.55,aim:["bob"],lens:35},{...SHOT,angle:"ots",subjects:["ann","bob"]},st,st.base,PLAN,SPACES,{clear});
   assert.equal(ots.source,"plan"); assert.deepEqual(plain(ots.pose.position),[1.5,1.05,1.55]);
   assert.equal(V.planCamera({at:[1.5,1.05],height:1.55,aim:["bob"],lens:35},{...SHOT,angle:"eye",subjects:["bob"]},st,st.base,PLAN,SPACES,{clear}).source,"moved","the same spot is in the way for any other shot");
+  // everyone the shot frames must be seen, not only who the camera is centred on
+  const both=V.planCamera({at:[1.3,1],height:1.5,aim:["ann"],lens:35},{...SHOT,subjects:["ann","bob"]},st,st.base,PLAN,SPACES,{clear});
+  assert.equal(both.source,"moved"); assert.match(both.notes[0],/^From the planned camera one person hid another\./);
+  assert.equal(V.planCamera({at:[1.3,1],height:1.5,aim:["ann"],lens:35},{...SHOT,subjects:["ann"]},st,st.base,PLAN,SPACES,{clear}).source,"plan","Bob is not in this frame: Ann in front of him is no fault");
   // someone right in front of the lens is said
   const close=V.planCamera({at:[1.72,1.02],height:1.55,aim:["bob"],lens:35},{...SHOT,angle:"ots",subjects:["ann","bob"]},st,st.base,PLAN,SPACES,{clear});
   assert.ok(close.notes.some(n=>/^Ann Lee stands 0\.3 m in front of the camera and fills much of the frame\.$/.test(n)),close.notes.join(" | "));
@@ -444,8 +448,13 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
   const ctx={scene,location:null,project:{id:"f"},charById:{amira:chars[0]},propById:{},drafts:{s5:{version:"v1",blocks}},scenes:[scene]};
   const sh={id:"b1",sceneId:"s5",beatN:1,order:1,keyframeMode:"beat-opening",moment:{n:1,of:1},planned:true,subjectsByPlan:true,subjects:["amira"],size:"MS",angle:"eye",lens:"35",move:"static",action:"Amira packs rice."};
   const legend=["The blue block figure is AMIRA HUSSAIN (standing).","The red box in AMIRA HUSSAIN’s hands is the Tupperware."];
-  const refs=[{note:"AMIRA HUSSAIN's character sheet",referenceKind:"character"},{note:"the finished frame of the shot before this one — take ONLY its look from it"}];
-  const p=shotsBox.buildShotPrompt(sh,{...ctx,resolvedRefs:refs,previs:{url:"data:x",legend}});
+  const refs=[{note:"AMIRA HUSSAIN's character sheet",referenceKind:"character"},{note:"the finished frame of the shot before this one — take ONLY its look from it"},{note:"Hussain kitchen location image",locationId:"loc1"}];
+  const words="camera 1.5 m high, facing south-west, 24 mm lens (wide). In its frame: AMIRA HUSSAIN (centre, close); Counter (right, close).";
+  const p=shotsBox.buildShotPrompt(sh,{...ctx,resolvedRefs:refs,previs:{url:"data:x",legend,words}});
+  assert.ok(p.includes("Image 4 is Hussain kitchen location image — for materials, surfaces, colour and light ONLY: take no layout, no camera, no viewpoint and no position of anything from it."),"the place's own image gives the look, never the layout");
+  assert.ok(p.includes("WHAT IMAGE 1 SHOWS, read from the 3D set: camera 1.5 m high, facing south-west, 24 mm lens (wide). In its frame: AMIRA HUSSAIN (centre, close); Counter (right, close). Image 1 is built from plain shapes:"));
+  assert.ok(p.includes("Never a different or more flattering view of the place: not a wider one, not one turned to look down a corridor, not one from another spot."));
+  assert.ok(p.includes("Where a word below says where the camera stands, what it looks at or how the room is laid out, it describes Image 1 and never changes it."));
   assert.ok(p.startsWith("Render Image 1 as the finished cinematic still. Image 1 is a 3D PREVIS of this exact shot, drawn to scale from the set's own model through this shot's real camera"),p.slice(0,160));
   assert.ok(p.includes("Image 2 is AMIRA HUSSAIN's character sheet")&&p.includes("Image 3 is the finished frame of the shot before this one"),"the sheets and the look reference follow, numbered after it");
   for(const t of ["THE LAYOUT IS IMAGE 1 (binding: where Image 1 and any other image or any word below disagree about where something is, how big it is or which way it faces, Image 1 is right).",
@@ -461,6 +470,11 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
   // the same shot made the ordinary way is untouched
   const q=shotsBox.buildShotPrompt(sh,{...ctx,resolvedRefs:refs.slice(0,1)});
   assert.ok(q.startsWith("Compose a new cinematic still. Image 1 is AMIRA HUSSAIN's character sheet")&&!/PREVIS|THE LAYOUT IS IMAGE 1/.test(q));
+  assert.ok(!shotsBox.buildShotPrompt(sh,{...ctx,resolvedRefs:refs}).includes("for materials, surfaces, colour and light ONLY"),"an ordinary frame reads its location image as before");
+  // the camera and its frame in words
+  assert.equal(V.frameWords({position:[1,1.3,1.5],yaw:-128.29,pitch:-12,lensMm:24},[{name:"Hall shelf",side:"right",depth:"close"}]),
+    "camera 1.5 m high, facing south-west, looking down, 24 mm lens (wide). In its frame: Hall shelf (right, close).");
+  assert.equal(V.frameWords({position:[0,0,1.6],yaw:0,pitch:0,lensMm:50},[]),"camera 1.6 m high, facing north, 50 mm lens (normal).");
   // an end frame never takes this road (it is an edit of its shot's frame, guided by the end drawing)
   assert.ok(shotsSrc.includes('const _previs = (ctx.previs && typeof ctx.previs==="object" && !_isEndFrame) ? ctx.previs : null;'));
   assert.ok(shotsSrc.includes('" Take the set\'s materials, surfaces and light direction from the location view and its geometry from Image 1 alone;'));
@@ -474,7 +488,8 @@ test("14. the card: the Previs fold's button sends the drawing with the shot's o
   assert.ok(body.includes('try{ pv = await window.shotPrevisForFrame(sh, ctx, "start"); }')&&body.includes('g = { ...g, previs:pv, baseMaxDim:1536 };'));
   assert.ok(body.includes('"The previs could not be drawn. No frame was made."')&&body.includes('"This shot has no previs to make a frame from. No frame was made."'),"asked for a frame from the previs, never another kind");
   assert.ok(shotsUi.includes("if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction) return gopts.previs.url;"),"the drawing is Image 1");
-  assert.ok(shotsUi.includes('if(mode==="base" && gopts && gopts.previs && gopts.previs.url) return buildShotPrompt(sh,{...base,previs:gopts.previs});'));
+  assert.ok(shotsUi.includes('return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}) },{...base,previs:gopts.previs});'),
+    "the drawing is the composition: the plan's own line on it and its lens do not ride along");
   assert.ok(shotsUi.includes('if(seedU) return ranked.concat([{ url:seedU, kind:"frame", refId:prevShot.id, maxDim:640,'),"the frame before it rides last, for its look only");
   assert.ok(shotsUi.includes("_previsUsed = (pv && pv.pose) ? { which:pv.which||\"start\", pose:pv.pose, source:pv.source||\"\" } : null; }")&&shotsUi.includes("...(_previsUsed ? { previs:_previsUsed } : {})"),"the camera it was drawn through is kept with the frame");
   assert.ok(art.includes("else if(refImage && Number(gopts.baseMaxDim)>0) genOpts.baseMaxDim = Math.min(1536, Number(gopts.baseMaxDim));"));

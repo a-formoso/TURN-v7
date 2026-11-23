@@ -2805,7 +2805,9 @@ function buildShotPrompt(sh, ctx){
          imgs.push("ephemeral SCREENPLAY PAGE REFERENCE — full-scene screenplay text only; do not copy its style, composition, or layout");
        }else{
          imgs.push((r.note || r.assetRoleLabel || ("reference image "+(ri+1)))
-           +(r.referenceKind==="character" ? SHOT_SHEET_IDENTITY_ONLY : ""));
+           +(r.referenceKind==="character" ? SHOT_SHEET_IDENTITY_ONLY : "")
+           // beside a previs, a view of the place gives what things are made of and the light, and nothing of where they are
+           +((_previs && r.locationId) ? " \u2014 for materials, surfaces, colour and light ONLY: take no layout, no camera, no viewpoint and no position of anything from it" : ""));
        }
      });
    }
@@ -2817,7 +2819,11 @@ function buildShotPrompt(sh, ctx){
     : "Compose a new cinematic still.";
   if(_previs && !ctx.simpleMode){
     const _legend = (Array.isArray(_previs.legend) ? _previs.legend : []).map(clean).filter(Boolean).slice(0,16).map(x=>x+".");
+    const _seen = clean(_previs.words);
     MAP += "\n\nTHE LAYOUT IS IMAGE 1 (binding: where Image 1 and any other image or any word below disagree about where something is, how big it is or which way it faces, Image 1 is right). "
+      +"This is the SAME picture, finished: every large shape of Image 1 stays where it is in the frame, at its size, and what is in front of what stays so. Never a different or more flattering view of the place: not a wider one, not one turned to look down a corridor, not one from another spot. "
+      +(_seen ? "WHAT IMAGE 1 SHOWS, read from the 3D set: "+_seen+". Image 1 is built from plain shapes: read each as the real thing it stands for and give it its real surface, detail, edges and wear. " : "")
+      +"Where a word below says where the camera stands, what it looks at or how the room is laid out, it describes Image 1 and never changes it. "
       +(_legend.length ? "ITS STAND-INS: "+_legend.join(" ")+" " : "")
       +"The pale panel on a figure's head is its face: the person looks that way. "
       +"Draw each person as themselves from their character sheet, a real body in a natural pose for this moment, on the same spot, as tall in the frame as their block and facing the same way. "
