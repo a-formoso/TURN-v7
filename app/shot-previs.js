@@ -14,7 +14,7 @@
      stateScene(set, plan, state, ctx)       the set with the doors, the people and the things of one state put in
      planCamera(cam, shot, placed, …)        the camera the scene plan gave in numbers, CHECKED: it must stand in the
                                              room, outside every wall and piece of furniture, and see the people it
-                                             frames; else it is moved to the nearest spot that does, and the lens is
+                                             frames; else it is moved to the spot that does and keeps the shot best, and the lens is
                                              set to the one that shows the planned shot size from there
      camera(shot, people, spaces, o)         with no planned camera: a spot found by the app that fits and sees them
      pair(location, list, plan, shot, o)     the shot DRAWN: how it starts and how it ends, from one camera
@@ -228,7 +228,9 @@
     const spaces=arr(ctx.spaces);
     const here=[];
     Object.keys(obj(st.people)).forEach(id=>{
-      const p=obj(st.people[id]), xy=markXY(plan,p.where), c=castOf(id);
+      const p=obj(st.people[id]), c=castOf(id);
+      // (a state may put someone between two marks: the middle picture of a walk across the room)
+      const off=arr(p.xy).map(Number), xy=(off.length===2&&off.every(Number.isFinite))?off:markXY(plan,p.where);
       if(!xy){ missing.push((c.name||id)+" has no place on the floor plan"+(p.where?" ("+p.where+")":"")); return; }
       here.push({id,name:c.name||id,xy,pose:p.pose,card:c,holding:arr(p.holding).slice()});
     });
@@ -386,7 +388,7 @@
   /* THE CAMERA THE SCENE PLAN GAVE IN NUMBERS, CHECKED. cam = {at:[x,y], height, aim:[ids], lens}; placed = the shot's
      start state in the set (stateScene); set = that set with nobody in it. The camera must stand on the floor plan,
      outside every wall and piece of furniture, clear of the people, and see every face it frames (no wall, no other
-     person in the way). When it does not, it goes to the nearest spot that does (rings of 15 cm, the one that keeps
+     person in the way). When it does not, it goes to the spot within 2 m that does and keeps the shot best (the one that keeps
      the planned direction best), and the note says why and how far. The lens is then checked against the shot size:
      when it would show much more or much less than planned from there, it is set to the lens that shows it.
      Returns {pose, lensPlanned, distance, notes[], fits, source:"plan"|"moved"|"app"} or null when cam has no numbers. */
@@ -420,21 +422,27 @@
     let x=at[0], y=at[1], source="plan";
     const bad=why(x,y);
     if(bad){
+      /* THE SPOT THAT KEEPS THE SHOT, not only the nearest one (2026-11-23: the nearest spot that saw both men stood
+         0.4 m from one of them). Every spot within 2 m that works is weighed: it looks from much the same direction,
+         stands about as far from what it frames as the planned camera did, and is not moved further than it must be. */
       const d0=[a.target[0]-x,a.target[1]-y], l0=Math.hypot(d0[0],d0[1])||1; let best=null;
-      for(let r=0.15;r<=2.01&&!best;r+=0.15){
+      for(let r=0.15;r<=2.01;r+=0.15){
         for(let i=0;i<16;i++){ const an=i/16*Math.PI*2, nx=x+Math.sin(an)*r, ny=y+Math.cos(an)*r; if(why(nx,ny)) continue;
-          const d=[a.target[0]-nx,a.target[1]-ny], l=Math.hypot(d[0],d[1])||1, score=(d[0]*d0[0]+d[1]*d0[1])/(l*l0);
+          const d=[a.target[0]-nx,a.target[1]-ny], l=Math.hypot(d[0],d[1])||1;
+          // a spot that would stand at well under two thirds of the planned distance, or nearly twice as far, is another shot
+          if((bad==="hidden"||bad==="behind")&&(l/l0<0.62||l/l0>1.8)) continue;
+          const score=(d[0]*d0[0]+d[1]*d0[1])/(l*l0)-Math.abs(l-l0)/l0-r*0.3;
           if(!best||score>best.score) best={x:nx,y:ny,score,r}; }
       }
       if(!best&&(bad==="hidden"||bad==="behind")){
         // it can stand there, and nowhere near sees more (a person behind a shut door as the shot starts): it stays
-        notes.push(bad==="hidden"?"As this shot starts, something in the set hides someone it frames (a wall or a shut door), from the planned camera and from every spot near it."
-          :"As this shot starts, one person hides another from the planned camera and from every spot near it.");
+        notes.push(bad==="hidden"?"As this shot starts, something in the set hides someone it frames (a wall or a shut door), from the planned camera and from every spot near it that keeps the shot."
+          :"As this shot starts, one person hides another from the planned camera and from every spot near it that keeps the shot.");
       }else if(!best){
         const found=camera(sh,framed,spaces,{clear:opts.clear,set,all:P,point:framed.length?null:a.target,side:opts.side});
         return {...found,source:"app",notes:[WHY[bad]+" No spot near it works, so the app placed the camera."].concat(found.notes||[])};
       }else{
-        notes.push(WHY[bad]+" It was moved "+best.r.toFixed(2).replace(/0$/,"")+" m, to the nearest spot that works.");
+        notes.push(WHY[bad]+" It was moved "+best.r.toFixed(2).replace(/0$/,"")+" m, to the spot that works and keeps the shot best.");
         x=best.x; y=best.y; source="moved";
       }
     }
@@ -530,7 +538,8 @@
     const P=root.KinolotPrevis; if(!P) throw new Error("The 3D view did not load. Refresh this page.");
     if(typeof root.locationSpatialContract!=="function") throw new Error("The floor plan reader did not load. Refresh this page.");
     const built=P.scene(location,list), spaces=spacesOf(root.locationSpatialContract(location));
-    const sh=obj(shot), startState=sh.startState||sh.endState||{}, endState=sh.endState||null;
+    // (a beat staged once hands in the whole room as the shot starts and ends: o.startState / o.endState; o.midState = a walk's middle)
+    const sh=obj(shot), startState=o.startState||sh.startState||sh.endState||{}, endState=o.endState||sh.endState||null;
     const cam=o.cam&&typeof o.cam==="object"?o.cam:null;
     const ctx={cast:o.cast,props:o.props,spaces,plan,beat:Number(sh.beatN!=null?sh.beatN:sh.beat)||0,faces:cam&&cam.faces,lookAt:cam&&arr(cam.at).length===2?cam.at:null};
     const first=stateScene(built.scene,plan,startState,ctx);
@@ -557,12 +566,99 @@
       return canvas.toDataURL("image/jpeg",0.9); };
     out.start={dataUrl:await draw(first.scene)};
     if(o.words) out.start.words=frameWords(found.pose,await seenIn(first.scene,found.pose));
+    out.mid=o.midState?{dataUrl:await draw(stateScene(built.scene,plan,o.midState,ctx).scene)}:null;
     if(endState&&!sameState(startState,endState)){
       const last=stateScene(built.scene,plan,endState,ctx);
       out.end={dataUrl:await draw(last.scene),people:last.people,things:last.things};
       if(o.words) out.end.words=frameWords(found.pose,await seenIn(last.scene,found.pose));
       last.missing.forEach(m=>{ if(out.missing.indexOf(m)<0) out.missing.push(m); });
       last.things.filter(t=>!t.measured).forEach(t=>{ if(out.rough.indexOf(t.name)<0) out.rough.push(t.name); });
+    }
+    return out;
+  }
+  /* ---- A WHOLE BEAT, STAGED ONCE (owner 2026-11-23: "render an entire beat in code and then extract shots from
+     that beat ... it is important to show each shot inside each scene beat") ----
+     The scene plan writes each shot's start and end by who is IN ITS FRAME. A beat staged once is one room that goes
+     on: everyone a shot of the beat has named is still there in the next shot, where they were last left, and so is
+     every thing and every door. beatStates walks the beat's shots in order and gives each its start and end as that
+     whole room. A shot starts EXACTLY where the one before it ended (the same instant, by construction); the plan's own
+     start counts only for who and what appears for the first time, or after a time-cut or a change of set, where the
+     plan's start is the new truth. Where the plan wrote a different start for someone already placed, `differs` says
+     so. Pure. shots: [{id, startState, endState, handoff, planSet}] in order.
+     → [{id, start, end, joins (starts where the last one ended), cut ("" | "time-cut" | "set"), differs:[ids]}] */
+  const stateCopy=s=>{ const o=obj(s); return JSON.parse(JSON.stringify({people:obj(o.people),things:obj(o.things),doors:arr(o.doors)})); };
+  const samePlace=(a,b)=>String(obj(a).where||"")===String(obj(b).where||"")&&JSON.stringify(arr(obj(a).holding).slice().sort())===JSON.stringify(arr(obj(b).holding).slice().sort());
+  function layer(world,state,keep){
+    // the state's own people, things and doors laid over the room as it stands; keep = what the room's own version wins for
+    const w=stateCopy(world), st=stateCopy(state), kept=new Set(arr(keep)), newPeople=[], newThings=[];
+    Object.keys(st.people).forEach(id=>{ if(kept.has(id)&&w.people[id]) return; w.people[id]=st.people[id]; newPeople.push(id); });
+    Object.keys(st.things).forEach(k=>{ if(kept.has("thing:"+k)&&w.things[k]) return; w.things[k]=st.things[k]; newThings.push(k); });
+    st.doors.forEach(d=>{ if(!d||!d.id) return; const i=w.doors.findIndex(x=>x&&x.id===d.id);
+      if(i<0) w.doors.push(d); else if(!kept.has("door:"+d.id)) w.doors[i]=d; });
+    // ONE FACT, SAID ONCE: the newer word about who holds what is the truth, and the room's older word gives way
+    const drop=(k,but)=>Object.keys(w.people).forEach(id=>{ if(id!==but) w.people[id].holding=arr(w.people[id].holding).filter(x=>x!==k); });
+    newPeople.forEach(id=>{ const mine=arr(w.people[id].holding);
+      // what they held before and no longer do is out of their hands (where it went is the state's to say, or nobody's)
+      Object.keys(w.things).forEach(k=>{ if(obj(w.things[k]).heldBy===id&&mine.indexOf(k)<0&&newThings.indexOf(k)<0) delete w.things[k]; });
+      mine.forEach(k=>{ if(newThings.indexOf(k)>=0&&obj(w.things[k]).heldBy!==id) return;   // the state's own word on the thing wins
+        w.things[k]={heldBy:id,...(obj(w.things[k]).state?{state:w.things[k].state}:{})}; drop(k,id); }); });
+    newThings.forEach(k=>{ const h=obj(w.things[k]).heldBy;
+      if(h&&w.people[h]){ if(arr(w.people[h].holding).indexOf(k)<0) w.people[h].holding=arr(w.people[h].holding).concat([k]); drop(k,h); }
+      else drop(k,""); });
+    Object.keys(w.people).forEach(id=>{ w.people[id].holding=arr(w.people[id].holding).filter(k=>!w.things[k]||w.things[k].heldBy===id); });
+    return w;
+  }
+  function beatStates(shots){
+    const out=[]; let world=null, prev=null;
+    arr(shots).forEach(sh=>{
+      sh=obj(sh);
+      const planned=stateCopy(sh.startState||sh.endState), last=stateCopy(sh.endState||sh.startState);
+      const cut=!prev?"":(String(obj(prev.handoff).type||"")==="time-cut"?"time-cut":(String(prev.planSet||"")!==String(sh.planSet||"")?"set":""));
+      let start, differs=[];
+      if(!world||cut==="set") start=planned;                           // the first shot, or another place: the plan's own start
+      else if(cut==="time-cut") start=layer(world,planned,[]);        // time passed: the plan's start is the new truth for whom it names
+      else{
+        differs=Object.keys(planned.people).filter(id=>world.people[id]&&!samePlace(world.people[id],planned.people[id]));
+        start=layer(world,planned,Object.keys(world.people).concat(Object.keys(world.things).map(k=>"thing:"+k),world.doors.map(d=>"door:"+d.id)));
+      }
+      const end=layer(start,last,[]);
+      out.push({id:sh.id,start,end,joins:!!world&&!cut,cut,differs});
+      world=end; prev=sh;
+    });
+    return out;
+  }
+  /* THE MIDDLE OF A SHOT, when someone crosses the room in it (more than about a metre between two marks): everything
+     as the shot ends, with whoever walks drawn halfway. null when nobody does: start and end say it all. */
+  function midState(start,end,plan){
+    const a=stateCopy(start), b=stateCopy(end); let moved=false;
+    Object.keys(b.people).forEach(id=>{ const from=a.people[id]&&markXY(plan,a.people[id].where), to=markXY(plan,b.people[id].where);
+      if(!from||!to||Math.hypot(to[0]-from[0],to[1]-from[1])<1.2) return;
+      moved=true; b.people[id]={...b.people[id],xy:[(from[0]+to[0])/2,(from[1]+to[1])/2],pose:"walking",holding:arr(a.people[id].holding).slice()}; });
+    if(!moved) return null;
+    // what a walker still carries has not been put down yet
+    Object.keys(b.people).forEach(id=>arr(b.people[id].holding).forEach(k=>{ b.things[k]={heldBy:id}; }));
+    return b;
+  }
+  /* THE BEAT DRAWN: each of its shots through its own camera, as that one room goes on. o: {list (the film's
+     locations), locationOf(shot) → its place, cameraOf(shot) → the plan's camera, cast, props, width, states}.
+     → [{id, start:{dataUrl}, mid:{dataUrl}|null, end:{dataUrl}|null, pose, source, fits, notes[], missing[], rough[],
+         joins, cut, differs:[names], people, error (a shot that could not be drawn says why; the others still are)}] */
+  async function beat(plan,shots,o){
+    o=o||{};
+    // (o.states: the room as each shot starts and ends, by shot id, when the WHOLE SCENE was staged once; else this beat alone)
+    const own=o.states?null:beatStates(shots), states=arr(shots).map((sh,i)=>own?own[i]:(obj(o.states)[sh.id]||beatStates([sh])[0])), out=[];
+    for(let i=0;i<arr(shots).length;i++){
+      const sh=shots[i], st=states[i], row={id:sh.id,joins:st.joins,cut:st.cut,differs:[],notes:[],missing:[],rough:[]};
+      try{
+        const loc=typeof o.locationOf==="function"?o.locationOf(sh):null;
+        if(!loc) throw new Error("This shot has no location card yet.");
+        const mid=midState(st.start,st.end,plan);
+        const got=await pair(loc,o.list||[],plan,sh,{cam:typeof o.cameraOf==="function"?o.cameraOf(sh):null,cast:o.cast,props:o.props,width:o.width||640,
+          startState:st.start,endState:st.end,midState:mid});
+        Object.assign(row,got);
+        row.differs=st.differs.map(id=>((arr(o.cast).find(c=>c&&String(c.id)===String(id))||{}).name)||id);
+      }catch(e){ row.error=String((e&&e.message)||"This shot could not be drawn."); }
+      out.push(row);
     }
     return out;
   }
@@ -574,5 +670,5 @@
   }
 
   root.ShotPrevis={DEFAULT_HEIGHT,DEFAULT_SIZE,FRAME,PALETTE,paletteFor,heightOf,colourOf,figure,turnTo,sizeFromText,sizeOf,inside,edgeDistance,spacesOf,spaceAt,markXY,fixedTop,fixedCentre,
-    faceTarget,openingId,poseDoors,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,seenIn,frameWords,aim,vfovOf,lensFor,sight,pair,frame};
+    faceTarget,openingId,poseDoors,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,seenIn,frameWords,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
 })(typeof window!=="undefined"?window:globalThis);

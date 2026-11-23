@@ -29,8 +29,13 @@ const read=f=>readFileSync(f,"utf8");
 const src=read("app/shot-previs.js"), ui=read("app/shot-previs-ui.jsx"), shotsUi=read("app/shots-ui.jsx"), ai=read("app/ai.jsx"),
   app=read("app/app.jsx"), html=read("TURN.html"), css=read("app/styles.css");
 let pass=0, fail=0;
-const test=(name,fn)=>{ try{ fn(); pass++; console.log("PASS "+name); }
-  catch(e){ fail++; console.log("FAIL "+name+"\n    "+(process.env.FULL?String(e&&e.stack||e):String(e&&e.message||e).split("\n")[0])); } };
+const pending=[];
+const bad=(name,e)=>{ fail++; console.log("FAIL "+name+"\n    "+(process.env.FULL?String(e&&e.stack||e):String(e&&e.message||e).split("\n")[0])); };
+// a test that returns a promise is waited for before the count is printed
+const test=(name,fn)=>{ try{ const r=fn();
+    if(r&&typeof r.then==="function"){ pending.push(r.then(()=>{ pass++; console.log("PASS "+name); },e=>bad(name,e))); return; }
+    pass++; console.log("PASS "+name); }
+  catch(e){ bad(name,e); } };
 const plain=v=>JSON.parse(JSON.stringify(v));
 const near=(a,b,eps)=>Math.abs(a-b)<=(eps==null?0.011:eps);
 
@@ -243,11 +248,11 @@ test("7. a planned camera that can stand there is kept as it is",()=>{
   assert.equal(V.planCamera({at:[2.6]},SHOT,st,st.base,PLAN,SPACES,{}),null,"no numbers is no planned camera");
   assert.equal(V.planCamera(null,SHOT,st,st.base,PLAN,SPACES,{}),null);
 });
-test("7b. in a wall, off the floor plan, or behind someone: it goes to the nearest spot that works, and says why",()=>{
+test("7b. in a wall, off the floor plan, or behind someone: it goes to the spot that works and keeps the shot best, and says why",()=>{
   const st=placed(), clear=clearOf(st.base);
   const inWall=V.planCamera({at:[1,1.5],height:1.5,aim:["ann"]},{...SHOT,subjects:["ann"]},st,st.base,PLAN,SPACES,{clear});
   assert.equal(inWall.source,"moved");
-  assert.match(inWall.notes[0],/^The planned camera stood inside a wall or a piece of furniture\. It was moved 0\.\d+ m, to the nearest spot that works\.$/);
+  assert.match(inWall.notes[0],/^The planned camera stood inside a wall or a piece of furniture\. It was moved 0\.\d+ m, to the spot that works and keeps the shot best\.$/);
   assert.ok(!V.solidAt(st.base,inWall.pose.position)&&V.spaceAt(SPACES,inWall.pose.position[0],inWall.pose.position[1]).id==="room");
   const off=V.planCamera({at:[2.6,3.4],height:1.5,aim:["ann","bob"]},SHOT,st,st.base,PLAN,SPACES,{clear});
   assert.equal(off.source,"moved");
@@ -269,7 +274,7 @@ test("7c. far off the floor plan the app places the camera; hidden from everywhe
   const blind=V.planCamera({at:[2.6,2.6],height:1.5,aim:["ann","bob"]},SHOT,st,st.base,PLAN,SPACES,{clear:()=>false});
   assert.equal(blind.source,"plan");
   assert.deepEqual(plain(blind.pose.position),[2.6,2.6,1.5]);
-  assert.match(blind.notes[0],/something in the set hides someone it frames \(a wall or a shut door\)/);
+  assert.match(blind.notes[0],/something in the set hides someone it frames \(a wall or a shut door\), from the planned camera and from every spot near it that keeps the shot\./);
 });
 test("7d. the lens is the one that shows the planned shot size from where the camera stands",()=>{
   const st=placed(), clear=clearOf(st.base);
@@ -369,7 +374,7 @@ test("10. the shot card has a Previs fold: two pictures from one camera, the cam
   assert.ok(ui.includes('if(!sh || !sh.planned || !sh.startState || !SP || !SPv || !window.KinolotPrevis) return null;'),"planned shots only");
   assert.ok(ui.includes('if(!plan || !SP.exact(plan)) return null;'),"a plan with marks only");
   assert.ok(ui.includes('SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id}'));
-  assert.ok(ui.includes('window.ShotPrevis.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:960 })'));
+  assert.ok(ui.includes('window.ShotPrevis.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:960,')&&ui.includes("...(staged ? { startState:staged.start, endState:staged.end } : {}) }) : null;"),"the card's previs is the strip's own panel");
   assert.ok(ui.includes("const turn = shotPrevisLine.then(run, run);"),"one drawing at a time");
   assert.ok(ui.includes('pic(res.start, res.end ? "How it starts" : "Start and end"')&&ui.includes('res.end && pic(res.end, "How it ends"'));
   assert.ok(ui.includes('"Nothing moves in this shot: it ends as it starts."'));
@@ -406,7 +411,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -414,7 +419,7 @@ test("11. Frances is told about the previs and the cameras, with no vendor and n
   const at=ai.indexOf('APP_FEATURES.push({ name:"Shots: the previs of a shot, and its camera on the floor plan"');
   assert.ok(at>0,"the fact is there");
   const fact=ai.slice(at,ai.indexOf("\n",at));
-  for(const t of ["Previs","how it starts","how it ends","Place the cameras","floor plan","moves it to the nearest spot","Make the frame from this previs","the layout it must follow","start with Layout","END FRAME"]) assert.ok(fact.includes(t),t);
+  for(const t of ["Previs","how it starts","how it ends","Place the cameras","floor plan","moves it to the spot that works and keeps the shot best","Make the frame from this previs","the layout it must follow","start with Layout","END FRAME"]) assert.ok(fact.includes(t),t);
   assert.ok(!fact.includes("NOT YET"));
   assert.ok(!/credit|\$|claude|anthropic|fable|opus|gemini|gpt|TURN|MUSE/i.test(fact.replace(/APP_FEATURES/,"")),"no price, no engine, no internal name");
 });
@@ -482,10 +487,10 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
 
 test("14. the card: the Previs fold's button sends the drawing with the shot's own Generate, as the base image, large",()=>{
   assert.ok(ui.includes('"data-testid":"shot-previs-make"')&&ui.includes('"Make the frame from this previs"'));
-  assert.ok(shotsUi.includes('onMake:readOnly ? null : ()=>{ if(typeof window.shotPrevisAskNext==="function") window.shotPrevisAskNext(sh.id); return genGuarded.generate(); },'),"through the scene's runner, as every Generate");
+  assert.ok(shotsUi.includes('const makeFromPrevis = ()=>{ if(typeof window.shotPrevisAskNext==="function") window.shotPrevisAskNext(sh.id); return genGuarded.generate(); };')&&shotsUi.includes("onMake:readOnly ? null : makeFromPrevis,"),"through the scene's runner, as every Generate");
   const at=shotsUi.indexOf("const generateWithProps = async (gopts)=>{"), body=shotsUi.slice(at,shotsUi.indexOf("const guardedGenerate = async (gopts)=>{",at));
   assert.ok(body.includes('if(!(g.editInstruction || g.simple) && typeof window.shotPrevisTakeNext==="function" && window.shotPrevisTakeNext(sh.id)){'));
-  assert.ok(body.includes('try{ pv = await window.shotPrevisForFrame(sh, ctx, "start"); }')&&body.includes('g = { ...g, previs:pv, baseMaxDim:1536 };'));
+  assert.ok(body.includes('try{ pv = await window.shotPrevisForFrame(sh, ctx, "start", null, 0, sceneShots); }')&&body.includes('g = { ...g, previs:pv, baseMaxDim:1536 };'));
   assert.ok(body.includes('"The previs could not be drawn. No frame was made."')&&body.includes('"This shot has no previs to make a frame from. No frame was made."'),"asked for a frame from the previs, never another kind");
   assert.ok(shotsUi.includes("if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction) return gopts.previs.url;"),"the drawing is Image 1");
   assert.ok(shotsUi.includes('return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}) },{...base,previs:gopts.previs});'),
@@ -509,7 +514,7 @@ test("14b. a shot with no plan, no marks or no floor plan has no previs to give"
 
 test("15. the QA check of a frame made from its previs reads it beside the drawing: added, removed, moved, wrong size",()=>{
   assert.ok(shotsUi.includes('layout:(gen.genMeta && gen.genMeta.previs && gen.genMeta.previs.pose && typeof window.shotPrevisForFrame==="function")')
-    &&shotsUi.includes('? ()=>window.shotPrevisForFrame(sh, ctx, gen.genMeta.previs.which||"start", gen.genMeta.previs.pose, 896) : null,'),"only a frame made from one, through the camera it was made with");
+    &&shotsUi.includes('? ()=>window.shotPrevisForFrame(sh, ctx, gen.genMeta.previs.which||"start", gen.genMeta.previs.pose, 896, sceneShots) : null,'),"only a frame made from one, through the camera it was made with");
   assert.ok(art.includes('let lay = null; if(typeof layout==="function"){ try{ lay = await layout(); }catch(e){ lay = null; } }')
     &&art.includes("...((lay && lay.url) ? { layout:{ url:lay.url, legend:Array.isArray(lay.legend) ? lay.legend : [] } } : {}),"));
   const at=ai.indexOf("async function aiImageQA(item){"), body=ai.slice(at,ai.indexOf("\n}\n",at));
@@ -524,7 +529,7 @@ test("15. the QA check of a frame made from its previs reads it beside the drawi
 
 test("16. an end frame is guided by the drawing of how its shot ends, when the shot's frame was made from its previs",()=>{
   const comp=shotsUi.slice(shotsUi.indexOf("function ShotEndFrame("),shotsUi.indexOf('const CONF_LABELS = ["Inner","Personal","Extra-personal"];'));
-  assert.ok(comp.includes('const pv = await window.shotPrevisForFrame(sh, ctx, "end", pm.previs.pose, 1280);'),"through the same camera");
+  assert.ok(comp.includes('const pv = await window.shotPrevisForFrame(sh, ctx, "end", pm.previs.pose, 1280, sceneShots);'),"through the same camera");
   assert.ok(comp.includes("if(pv && pv.moves) return { ...base, endPrevis:pv, editRefImages:[pv.url] }; }catch(e){}"),"a shot that ends as it starts is left to the words");
   assert.ok(comp.includes("if(pm && pm.previs && pm.previs.pose && typeof window.shotPrevisForFrame===\"function\"){"));
   assert.ok(shotsUi.includes('if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs,runModel,gopts) : "";'));
@@ -533,5 +538,110 @@ test("16. an end frame is guided by the drawing of how its shot ends, when the s
     assert.ok(shotsUi.includes(t),t);
 });
 
+/* ================= THE BEAT, STAGED ONCE (2026-11-23) ================= */
+test("17. a beat staged once is one room that goes on: a shot starts exactly where the one before it ended",()=>{
+  const shots=[
+    {id:"a",planSet:"set1",startState:{people:{ann:{where:"m-a",holding:["mug"]}},things:{mug:{heldBy:"ann"}},doors:[{id:"front-door",open:false}]},
+      endState:{people:{ann:{where:"m-a",holding:[]}},things:{mug:{at:"table"}},doors:[{id:"front-door",open:true}]},handoff:{type:"cut"}},
+    // the plan wrote Ann somewhere else for this start, and forgot the mug and the door: the room remembers
+    {id:"b",planSet:"set1",startState:{people:{bob:{where:"m-b",holding:[]},ann:{where:"m-c",holding:["mug"]}},things:{},doors:[]},
+      endState:{people:{bob:{where:"m-c",holding:["mug"]}},things:{mug:{heldBy:"bob"}}},handoff:{type:"time-cut"}},
+    {id:"c",planSet:"set1",startState:{people:{ann:{where:"m-b",holding:[]}}},endState:{people:{ann:{where:"m-b",holding:[]}}},handoff:{type:"cut"}},
+    {id:"d",planSet:"set2",startState:{people:{cy:{where:"m-c",holding:[]}}},endState:{people:{cy:{where:"m-c",holding:[]}}},handoff:{type:"cut"}}];
+  const before=JSON.stringify(shots), st=plain(V.beatStates(shots));
+  assert.equal(JSON.stringify(shots),before,"the shots are never changed");
+  assert.deepEqual(st.map(x=>[x.id,x.joins,x.cut]),[["a",false,""],["b",true,""],["c",false,"time-cut"],["d",false,"set"]]);
+  assert.deepEqual(st[1].start,{people:{ann:{where:"m-a",holding:[]},bob:{where:"m-b",holding:[]}},things:{mug:{at:"table"}},doors:[{id:"front-door",open:true}]},
+    "Ann is where shot a left her, the mug is on the table, the door is open; Bob comes in as the plan says");
+  assert.deepEqual(st[1].differs,["ann"],"and it says the plan wrote another start for her");
+  assert.deepEqual(st[1].end.people,{ann:{where:"m-a",holding:[]},bob:{where:"m-c",holding:["mug"]}});
+  assert.deepEqual(st[1].end.things,{mug:{heldBy:"bob"}});
+  // time has passed: the plan's start is the new truth for whom it names; the others stay
+  assert.deepEqual(st[2].start.people,{ann:{where:"m-b",holding:[]},bob:{where:"m-c",holding:["mug"]}}); assert.deepEqual(st[2].differs,[]);
+  // another place: nobody is carried over
+  assert.deepEqual(st[3].start,{people:{cy:{where:"m-c",holding:[]}},things:{},doors:[]});
+  assert.deepEqual(plain(V.beatStates([])),[]);
+  // someone who puts a thing down unseen no longer holds it
+  const put=plain(V.beatStates([{id:"x",startState:{people:{ann:{where:"m-a",holding:["mug"]}}},endState:{people:{ann:{where:"m-a",holding:[]}}}}]));
+  assert.deepEqual(put[0].end,{people:{ann:{where:"m-a",holding:[]}},things:{},doors:[]});
+});
+test("17b. a middle picture only when someone crosses the room; a person may stand between two marks",()=>{
+  const mid=plain(V.midState({people:{bob:{where:"m-b",holding:["mug"]},ann:{where:"m-a",holding:[]}}},{people:{bob:{where:"m-c",holding:[]},ann:{where:"m-a",holding:[]}},things:{mug:{at:"table"}}},PLAN));
+  assert.deepEqual(mid.people.bob,{where:"m-c",holding:["mug"],xy:[1.85,1.25],pose:"walking"},"halfway, still carrying what he had");
+  assert.deepEqual(mid.people.ann,{where:"m-a",holding:[]}); assert.deepEqual(mid.things,{mug:{heldBy:"bob"}});
+  assert.equal(V.midState({people:{ann:{where:"m-a"}}},{people:{ann:{where:"m-a"}}},PLAN),null,"nobody moves: start and end say it all");
+  assert.equal(V.midState({people:{ann:{where:"m-a"}}},{people:{ann:{where:"m-b"}}},{marks:[{id:"m-a",xy:[2,1]},{id:"m-b",xy:[2.6,1]}]}),null,"a step aside is no crossing");
+  const drawn=V.stateScene(SET(),PLAN,mid,CTX);
+  assert.deepEqual(plain(drawn.people.find(p=>p.id==="bob").xy),[1.85,1.25]);
+});
+test("17c. the beat strip: above each beat's cards, every planned shot of the beat, drawn from the one staged beat",()=>{
+  assert.ok(shotsUi.includes('window.BeatStrip && _el(window.BeatStrip,{key:"strip"+L.n,scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly}),'));
+  assert.ok(shotsUi.indexOf("window.BeatStrip && _el(")<shotsUi.indexOf("_el(OpeningBeatCard,{L:Lopen"),"before the beat's own cards");
+  for(const t of ['className:"sheet-card beat-strip"+(open?" open":"")','"Beat "+beatN+" in code"','list.length+" shot"+(list.length!==1?"s":"")+", start to end"',
+    "window.ShotPrevis.beat(plan, list, { list:ctx.locations||[], cast, props, width:640, states:staged,",'pic(r.start, r.end ? "Starts" : "Starts and ends"','r.mid && pic(r.mid, "Midway"','r.end && pic(r.end, "Ends"',
+    'r.joins ? "\\u2192" : r.cut==="set" ? "new place" : "time passes"',"This shot starts at the instant the one before it ends: everyone and everything is where that shot left them.",
+    '"The plan wrote another start for "+r.differs.join(" and ")+"; the strip keeps them where the shot before left them."','"Go to this shot\\u2019s card"',"It costs nothing and changes nothing."])
+    assert.ok(ui.includes(t),t);
+  assert.ok(ui.includes("if(!plan || !SP.exact(plan)) return null;")&&ui.includes("if(!list.length) return null;"),"only a planned beat of a plan with marks");
+  const at=src.indexOf("async function beat(plan,shots,o){"), body=src.slice(at,src.indexOf("// one drawn frame of a planned shot",at));
+  assert.ok(body.includes("const own=o.states?null:beatStates(shots), states=arr(shots).map((sh,i)=>own?own[i]:(obj(o.states)[sh.id]||beatStates([sh])[0])), out=[];")&&body.includes("startState:st.start,endState:st.end,midState:mid});"));
+  assert.ok(body.includes('}catch(e){ row.error=String((e&&e.message)||"This shot could not be drawn."); }'),"one shot that cannot be drawn does not stop the others");
+  const fa=ai.indexOf('APP_FEATURES.push({ name:"Shots: the beat in code (the beat strip)"'); assert.ok(fa>0,"Frances is told");
+  const fact=ai.slice(fa,ai.indexOf("\n",fa));
+  for(const t of ["Beat N in code","staged once","one room that goes on","time passes","which colour is which person","MAKE FRAME","MAKE THIS BEAT'S FRAMES","made from the strip or another way"]) assert.ok(fact.includes(t),t);
+  assert.ok(!/credit|\$|claude|anthropic|fable|opus|gemini|gpt|TURN|MUSE/i.test(fact.replace(/APP_FEATURES/,"")));
+  for(const c of [".beat-strip{grid-column:1/-1;",".beat-strip-row{display:flex;align-items:flex-start;gap:8px;overflow-x:auto;",".beat-strip-join.cut{"]) assert.ok(css.includes(c),c);
+});
+
+/* ================= FRAMES MADE FROM THE STRIP (2026-11-23) ================= */
+const uiBox=()=>{ const b={console,Date,Map,Set,Promise,Object,Array,JSON,Math,Number,String,setTimeout,clearTimeout,setInterval,clearInterval,React:{createElement:()=>null},Icon:{}};
+  b.window=b; b.globalThis=b; vm.createContext(b); vm.runInContext(read("app/scene-plan.js"),b); vm.runInContext(src,b); vm.runInContext(ui,b,{filename:"app/shot-previs-ui.jsx"}); return b; };
+test("18. the whole scene is staged once: a beat's first shot starts where the beat before it ended, unless time has passed",()=>{
+  const b=uiBox();
+  const mk=(id,beatN,n,mode,start,end,handoff)=>({id,sceneId:"s",beatN,keyframeMode:mode,moment:{n,of:2},planned:true,planSet:"set1",startState:start,endState:end,handoff:{type:handoff||"cut"}});
+  const shots=[
+    mk("b2",2,1,"beat-opening",{people:{bob:{where:"m-b",holding:[]}}},{people:{bob:{where:"m-b",holding:[]}}}),
+    mk("a2",1,2,"moment",{people:{ann:{where:"m-a",holding:[]}}},{people:{ann:{where:"m-c",holding:[]}}}),
+    mk("a1",1,1,"beat-opening",{people:{ann:{where:"m-a",holding:[]}}},{people:{ann:{where:"m-a",holding:[]}}}),
+    {id:"loose",sceneId:"s",beatN:1,planned:false,startState:{people:{}}}];
+  const st=plain(b.shotPrevisStaged(shots));
+  assert.deepEqual(Object.keys(st),["a1","a2","b2"],"in story order: beat, then moment; only planned key shots");
+  assert.deepEqual(st.b2.start.people,{ann:{where:"m-c",holding:[]},bob:{where:"m-b",holding:[]}},"beat 2 opens with Ann where beat 1 left her");
+  assert.equal(st.b2.joins,true);
+  const cut=plain(b.shotPrevisStaged(shots.map(x=>x.id==="a2"?{...x,handoff:{type:"time-cut"}}:x)));
+  assert.equal(cut.b2.joins,false); assert.equal(cut.b2.cut,"time-cut");
+  assert.deepEqual(plain(b.shotPrevisStaged([])),{});
+  // one staging for everything that reads a shot's previs
+  for(const t of ["const st = shotPrevisStaged(sceneShots||[sh])[sh.id] || null;","...(st ? { startState:st.start, endState:st.end } : {}) });","const staged = open ? shotPrevisStaged(sceneShots||shots) : {};"]) assert.ok(ui.includes(t),t);
+});
+test("18b. a frame is made by its own card: the strip finds the card's own press by the shot's id",()=>{
+  assert.ok(shotsUi.includes("window.__shotPrevisMake[sh.id] = makeFromPrevis;")&&shotsUi.includes("window.__shotPrevisMake[end.id] = press;"),"the shot's frame and the beat's end frame");
+  assert.ok(shotsUi.includes("return ()=>{ if(window.__shotPrevisMake && window.__shotPrevisMake[sh.id]===makeFromPrevis) delete window.__shotPrevisMake[sh.id]; };"),"gone with its card");
+  const b=uiBox();
+  assert.equal(b.shotPrevisMaker("x"),null);
+  let pressed=0; b.__shotPrevisMake={x:()=>{ pressed++; }}; b.shotPrevisMaker("x")(); assert.equal(pressed,1);
+  for(const t of ['"data-testid":"beat-strip-make"','img(sh.id)?"Make again":"Make frame"','"data-testid":"beat-strip-make-end"','disabled:anyBusy || !img(sh.id),',
+    '"Frame \\u00b7 from the strip" : "Frame \\u00b7 made another way"','"End frame \\u00b7 from the strip"','"data-testid":"beat-strip-make-all"','"Make this beat\\u2019s frames"',
+    'title:"Make beat "+beatN+"\\u2019s "+n+" frame"+(n!==1?"s":"")+" from the strip?"','" A frame that is there now is kept as an earlier version. Nothing is approved."'])
+    assert.ok(ui.includes(t),t);
+  assert.ok(ui.indexOf("window.appConfirm({")<ui.indexOf("const made = await shotPrevisMakeBeat(list, endOwnerId, setRun);"),"the beat's run asks before it starts");
+});
+test("18c. a beat's frames are made in order, one at a time, then its end frame; a frame that never starts ends the run",async()=>{
+  const b=uiBox();
+  // a card that makes its frame at once: busy for a moment, then a new image
+  const metas={}, order=[];
+  b.nbGetMeta=id=>metas[id]||null; b.__nbGenInflight={};
+  const card=id=>()=>{ order.push(id); b.__nbGenInflight[id]=true; setTimeout(()=>{ metas[id]={iso:"t"+order.length}; delete b.__nbGenInflight[id]; },700); };
+  b.__shotPrevisMake={s1:card("s1"),s2:card("s2"),"s2-end":card("s2-end")};
+  const list=[{id:"s1",moment:{n:1}},{id:"s2",moment:{n:2}}], steps=[];
+  const made=await b.shotPrevisMakeBeat(list,"s2",t=>steps.push(t));
+  assert.equal(made,3); assert.deepEqual(order,["s1","s2","s2-end"]);
+  assert.deepEqual(steps,["Making moment 1 (1 of 2)…","Making moment 2 (2 of 2)…","Making the end frame…"]);
+  // a card that is not there: nothing is pressed after it
+  const b2=uiBox(); b2.nbGetMeta=()=>null; b2.__nbGenInflight={}; let later=0; b2.__shotPrevisMake={s2:()=>{ later++; }};
+  assert.equal(await b2.shotPrevisMakeBeat(list,"",()=>{}),0); assert.equal(later,0);
+});
+
+await Promise.all(pending);
 console.log("\n"+pass+" passed, "+fail+" failed");
 if(fail) process.exit(1);

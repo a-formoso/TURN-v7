@@ -738,7 +738,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
        the person asked for a frame from the previs, never for another kind. */
     if(!(g.editInstruction || g.simple) && typeof window.shotPrevisTakeNext==="function" && window.shotPrevisTakeNext(sh.id)){
       let pv = null;
-      try{ pv = await window.shotPrevisForFrame(sh, ctx, "start"); }
+      try{ pv = await window.shotPrevisForFrame(sh, ctx, "start", null, 0, sceneShots); }
       catch(e){ if(typeof window.appToast==="function") window.appToast((e&&e.message)||"The previs could not be drawn. No frame was made.","error"); return "aborted"; }
       if(!pv){ if(typeof window.appToast==="function") window.appToast("This shot has no previs to make a frame from. No frame was made.","info"); return "aborted"; }
       g = { ...g, previs:pv, baseMaxDim:1536 };
@@ -820,6 +820,15 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
     return onGenerateShot ? onGenerateShot(sh.id) : generateWithProps(gopts);
   };
   const genGuarded = Object.assign({}, gen, { generate: guardedGenerate });
+  /* MADE FROM ITS PREVIS: the same press from the card's Previs and from the beat strip above the cards (which finds
+     it here, by the shot's id: a frame is always made by its own card, through the scene's runner). */
+  const makeFromPrevis = ()=>{ if(typeof window.shotPrevisAskNext==="function") window.shotPrevisAskNext(sh.id); return genGuarded.generate(); };
+  React.useEffect(()=>{
+    if(readOnly) return undefined;
+    window.__shotPrevisMake = window.__shotPrevisMake || {};
+    window.__shotPrevisMake[sh.id] = makeFromPrevis;
+    return ()=>{ if(window.__shotPrevisMake && window.__shotPrevisMake[sh.id]===makeFromPrevis) delete window.__shotPrevisMake[sh.id]; };
+  });
 
   // A fresh start is also the durable "exclude this seed" state. Keep the
   // candidate visible while the live seed is null so the director can reattach
@@ -1487,9 +1496,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       _el(ShotPovPicker,{sh,characters:characters||(((window.turnContinuity||{}).characters)||[]),onUpdate}),
       _el(AdvancedCameraSettings,{sh,onUpdate})),
       // the shot drawn in code from the place's 3D set, before any image (2026-11-22; app/shot-previs-ui.jsx)
-      window.ShotPrevisFold && _el(window.ShotPrevisFold,{key:"previs-"+sh.id,sh,ctx,onView,beatLabel,
+      window.ShotPrevisFold && _el(window.ShotPrevisFold,{key:"previs-"+sh.id,sh,ctx,onView,beatLabel,sceneShots,
         // step 2: this shot's next Generate is made from the drawing; it goes through the scene's runner like any other
-        onMake:readOnly ? null : ()=>{ if(typeof window.shotPrevisAskNext==="function") window.shotPrevisAskNext(sh.id); return genGuarded.generate(); },
+        onMake:readOnly ? null : makeFromPrevis,
         makeDisabled:!!gen.gening || !!(batchActiveId && batchActiveId!==sh.id)}),
       refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
@@ -1524,7 +1533,7 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
             window.QaCheckButton && _el(window.QaCheckButton,{ gen:genGuarded, name:beatLabel, noun:"shot frame", className:"shot-lock-btn",
               // a frame made from its previs is also held against it: the same drawing, through the camera it was made with
               layout:(gen.genMeta && gen.genMeta.previs && gen.genMeta.previs.pose && typeof window.shotPrevisForFrame==="function")
-                ? ()=>window.shotPrevisForFrame(sh, ctx, gen.genMeta.previs.which||"start", gen.genMeta.previs.pose, 896) : null,
+                ? ()=>window.shotPrevisForFrame(sh, ctx, gen.genMeta.previs.which||"start", gen.genMeta.previs.pose, 896, sceneShots) : null,
               specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
               // who is how big in this frame (scale plan step 4, 2026-10-28) — nothing for same-size human casts
               sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],
@@ -1572,7 +1581,7 @@ function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone,
        drawing that cannot be made, leaves the end frame to the words alone. */
     const pm = (typeof nbGetMeta==="function") ? nbGetMeta(sh.id) : null;
     if(pm && pm.previs && pm.previs.pose && typeof window.shotPrevisForFrame==="function"){
-      try{ const pv = await window.shotPrevisForFrame(sh, ctx, "end", pm.previs.pose, 1280);
+      try{ const pv = await window.shotPrevisForFrame(sh, ctx, "end", pm.previs.pose, 1280, sceneShots);
         if(pv && pv.moves) return { ...base, endPrevis:pv, editRefImages:[pv.url] }; }catch(e){}
     }
     return base;
@@ -1594,6 +1603,14 @@ function ShotEndFrame({ sh, sceneShots, ctx, onView, batchActiveId, onBatchDone,
   },[batchActiveId, gen.gening, end.id]);
   // Make / Make again goes through the scene's runner, as a shot's own Generate does; an edit reworks it in place
   const guarded = Object.assign({}, gen, { generate:(gopts)=> (gopts && gopts.editInstruction) || !onGenerateShot ? gen.generate(gopts) : onGenerateShot(end.id) });
+  // the beat strip presses this to make the end frame (as the fold's own button does, through the scene's runner)
+  React.useEffect(()=>{
+    if(readOnly) return undefined;
+    const press = ()=>guarded.generate();
+    window.__shotPrevisMake = window.__shotPrevisMake || {};
+    window.__shotPrevisMake[end.id] = press;
+    return ()=>{ if(window.__shotPrevisMake && window.__shotPrevisMake[end.id]===press) delete window.__shotPrevisMake[end.id]; };
+  });
   const waiting = !!(batchActiveId && batchActiveId!==end.id);
   const state = gen.gening ? "making\u2026" : !gen.genUrl ? "not made yet" : chainStatus==="stale" ? "out of date" : "made";
   return _el(CardFold,{label:"End frame",count:state,defaultOpen:false,foldId:"shot-end-"+sh.id},
@@ -2704,6 +2721,8 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
                 .sort((a,b)=>Number(a.moment&&a.moment.n)-Number(b.moment&&b.moment.n));
               const Lopen=momentShots.length ? {...L,shots:L.shots.filter(sh=>sh.keyframeMode!=="moment")} : L;
               return _el(React.Fragment,{key:"bc"+(L.canonical?"c":"o")+L.n},
+                // the whole beat staged once in code, and each of its shots drawn from it (2026-11-23; app/shot-previs-ui.jsx)
+                window.BeatStrip && _el(window.BeatStrip,{key:"strip"+L.n,scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly}),
                 _el(OpeningBeatCard,{L:Lopen, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
               ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView, onDeleteShotReference,
               onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
