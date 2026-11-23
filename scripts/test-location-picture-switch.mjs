@@ -48,7 +48,8 @@ test("1 the card has five sections with no numbers (and Rooms on a place with ro
   order.forEach((x,i)=>assert.ok(i===0||x>order[i-1],"section "+i+" follows the one before it"));
   // those are all of them: nine sections or parts in two groups, and none carries a number
   const labels=sheet.match(/Card(?:Fold|Group),\{label:[^,]+/g)||[];
-  assert.equal(labels.length,11);
+  // (2026-11-23: two more for the card with the set card on top: The set in 3D as one section, and a place with rooms' Extra spaces)
+  assert.equal(labels.length,13);
   for(const x of labels) assert.ok(!/\d \\u00b7|\d ·|sectionNo/.test(x),"no number on "+x);
   for(const gone of ["sectionNo","locationSectionNumbers","imageN"]) assert.ok(!ui.includes(gone),"gone: "+gone);
   // the two groups: the set opens for a link to its cameras or its Previs, Advanced for a link to the quick image

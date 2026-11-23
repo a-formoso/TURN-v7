@@ -125,7 +125,9 @@ for(const n of bodyChildren.filter(n=>["CardFold","CardGroup"].includes(firstNam
   assert.ok(prop&&!/\d \\u00b7 |\d · /.test(source.slice(prop.value.start,prop.value.end)),"no number on a section");
 }
 const headIndex=childIndex(directClass("sheet-head")),
-  styleIndex=childIndex(directClass("char-style-row")),scenesIndex=childIndex(directClass("location-scenes")),
+  // (2026-11-23: the render style row is built once, above, as styleRow: it is placed here on a card without the
+  //  set card, and in The set in 3D, beside the image engine, on a card with it)
+  styleIndex=bodyChildren.findIndex(n=>n&&n.type==="Identifier"&&n.name==="styleRow"),scenesIndex=childIndex(directClass("location-scenes")),
   // the prompt is the last part of the last section (Advanced)
   viewsIndex=childIndex(directFold("Floor plan")),
   promptIndex=childIndex(advanced);

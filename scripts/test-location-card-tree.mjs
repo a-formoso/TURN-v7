@@ -52,7 +52,8 @@ test("1 the card's sections, in the order of the work: five, with no numbers (an
   order.forEach((x,i)=>assert.ok(i===0||x>order[i-1],"section "+i+" follows the one before it"));
   // nine sections or parts, two of them inside The set in 3D and three inside Advanced; none carries a number
   const labels=sheet.slice(at("// THE CARD IN FIVE SECTIONS (owner 2026-11-21")).match(/Card(?:Fold|Group),\{label:[^,]+/g)||[];
-  assert.equal(labels.length,11);
+  // (2026-11-23: two more for the card with the set card on top: The set in 3D as one section, and a place with rooms' Extra spaces)
+  assert.equal(labels.length,13);
   assert.deepEqual(labels.filter(x=>x.indexOf("CardGroup")===0),['CardGroup,{label:"The set in 3D"','CardGroup,{label:"Advanced"']);
   for(const x of labels) assert.ok(!/\d \\u00b7 |\d · |sectionNo/.test(x),"no number on "+x);
   // the two groups open for a link to what they hold (CardGroup, as on a character or a prop card)
@@ -466,7 +467,7 @@ test("15 Previs: in The set in 3D on every card; optional; the camera check, the
       '"data-testid":"camera-check"','"data-testid":"camera-check-fix"',
       '"Dress the set"','"Remove dressing"','"Make the location image"','"Make another draft"','"data-testid":"previs-dress-cost"','window.nbCostChip(1,choice.cost)',
       '"Use as location image"','"Compare with the 3D set"','"Delete"','"Delete this draft"','"Delete the earlier draft"','"data-testid":"previs-draft-delete"','"Compare drafts"','"Make this the current draft"','"Fix cameras"',
-      '"Go to Floor plan"','"Go to Cameras"','onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})})','onUpdate(l.id,{previs:null})'])
+      '"Go to Floor plan"','onUpdate(l.id,{previs:D.pack(r.dressing,{engine:D.MODEL})})','onUpdate(l.id,{previs:null})'])
     assert.ok(step_ui.includes(t),t);
   assert.ok(step_ui.includes("window.LocationPrevisStep=LocationPrevisStep;"));
   // the draft sits right under the button that makes it, inside the same box (owner 2026-11-15)

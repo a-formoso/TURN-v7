@@ -12805,5 +12805,8 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .lsc-fold .sheet-fold-body{display:flex;flex-direction:column;gap:10px;min-width:0}
 .lsc-fold .sheet-fold-body[hidden]{display:none !important}
 .lsc-plan-tools{margin-top:4px}
+.lsc-connects{margin-top:4px;padding-top:12px;border-top:1px solid var(--line)}
+/* the render style, where the image is made (Previs) */
+.previs-style .char-style-row{margin:0 0 10px}
 /* the location image, inside its section: the frame keeps its own look, without the room the picture switch needed */
 .lsc-fold .loc-viewer .sheet-dropzone{padding-top:0}

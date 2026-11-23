@@ -99,10 +99,22 @@ function LocationChipScroller({children}){
 function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLocation}){
   const E=React.createElement,root=group.root,rooms=group.members.filter(l=>l.id!==root.id);
   // open: the rooms opened inside the card; sections: the section each card was last asked to open
-  const [view,setView]=React.useState({open:{},sections:{}});
+  const [view,setView]=React.useState({open:{},sections:{},chosen:root.id});
   const emit=id=>{ if(id&&typeof window.dispatchEvent==="function"&&typeof window.CustomEvent==="function") window.dispatchEvent(new window.CustomEvent("nb-open-fold",{detail:id})); };
   const later=fn=>{ if(typeof window.setTimeout==="function") window.setTimeout(fn,90); };
+  /* THE CHIPS ARE THE ROOMS (owner 2026-11-23: "we have the ability to click the buttons for each subspace of a
+     location, right at the top, so those buttons actually replace the need for rooms section"). With the set card on
+     top, pressing a space's chip makes the WHOLE card that space's: its views and plan, its description, its
+     variants, its image. So a room is no longer opened further down, under Rooms. */
+  const faced=!!(window.LocationSetCard&&window.KinolotSetCard);
   const select=(id,section="")=>{
+    if(faced){
+      const to=group.members.find(l=>l.id===id)||root;
+      setView(v=>({...v,chosen:to.id,sections:{...v.sections,[to.id]:section}}));
+      // its card is new on the page or was there already: the section asked for opens either way
+      later(()=>emit(locationSectionFoldId(to,section)));
+      return;
+    }
     const room=rooms.find(l=>l.id===id);
     if(!room){
       // the place itself: the section asked for opens on the card that is already there
@@ -123,7 +135,7 @@ function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLoca
   React.useEffect(()=>{
     const hit=rooms.filter(l=>matchingIds.includes(l.id)).map(l=>l.id);
     if(!hit.length||matchingIds.includes(root.id)) return;
-    setView(v=>({...v,open:{...v.open,...Object.fromEntries(hit.map(id=>[id,true]))}}));
+    setView(v=>({...v,chosen:faced?hit[0]:v.chosen,open:{...v.open,...Object.fromEntries(hit.map(id=>[id,true]))}}));
   },[filterKey]);
   // a shot's missing view can name a room of this location: open that room (window.turnOpenLocationCard, 2026-10-20)
   React.useEffect(()=>{ const h=(e)=>{ const id=e&&e.detail&&e.detail.id;
@@ -138,6 +150,11 @@ function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLoca
         E("span",{className:"loc-workspace-lab"},root.name),
         E("span",{className:"loc-space-chip on"},"Making "+(queued.name||"a room")+"\u2026")),
       renderLocation(queued,{...common,initialSection:""}));
+  if(faced){
+    const shown=group.members.find(l=>l.id===view.chosen)||root;
+    return E("div",{className:"sheet-card loc-workspace","data-location-workspace":root.id,"data-space":shown.id},
+      renderLocation(shown,{...common,initialSection:view.sections[shown.id]||"",faceGroup:{place:root,rooms,select:id=>select(id)}}));
+  }
   const roomBlocks=rooms.length?{open:view.open,
     toggle:id=>setView(v=>({...v,open:{...v.open,[id]:!v.open[id]}})),
     render:room=>renderLocation(room,{...common,initialSection:view.sections[room.id]||"",asSection:true})}:null;
@@ -1846,7 +1863,10 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   samePlace=[], mergeChoices=[], onMergeLocations, onPlaceDecision,
   // ONE CARD (owner 2026-11-21): roomBlocks = how the place's card opens its rooms inside itself (LocationWorkspace);
   // asSection = this card is a room shown inside its place's card, under Rooms
-  roomBlocks=null, asSection=false, placeChoices=[] }){
+  roomBlocks=null, asSection=false, placeChoices=[],
+  // THE SET CARD (owner 2026-11-23): faceGroup = {place, rooms, select}: this card is the one shown for its place (the
+  // place itself, or the room whose chip was pressed), with the set card on top
+  faceGroup=null }){
   // "Same place as…" (2026-10-14): the card picked to merge this one with — null while the picker is closed
   const [samePick, setSamePick] = React.useState(null);
   // "A room of…" (2026-11-21): the place picked to put this card inside — null while the picker is closed
@@ -1867,6 +1887,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const displaySideLabel=displaySide==="INT/EXT"?"INT+EXT":displaySide;
   const finalPrompt = combinedLocationPrompt(l, project, {});
   const spatialState=locationSpatialPlanState(l);
+  const facedCardNow=!asSection&&!!faceGroup&&!!(window.LocationSetCard&&window.KinolotSetCard);
   const [layoutReviewRequest,setLayoutReviewRequest]=React.useState(0);
   const sheetRef=React.useRef(null);
   const layoutFoldId="loc-layout-"+l.id;
@@ -2319,6 +2340,13 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       lens:(l.staging&&l.staging.lens)||v.lens||""})});
   },[l.staging]);
 
+  // (with the set card there is no Cameras section: a link that names it opens The set in 3D, where a camera is moved)
+  React.useEffect(()=>{
+    if(!facedCardNow) return undefined;
+    const from=locationStepFoldId(l,3),to=locationStepFoldId(l,4);
+    const h=e=>{ if(e&&e.detail===from) window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:to})); };
+    window.addEventListener("nb-open-fold",h); return ()=>window.removeEventListener("nb-open-fold",h);
+  },[l.id,facedCardNow]);
   // ONE NUMBERED PATH PER CARD (owner 2026-11-01): where each step stands, for the guide and the numbered folds
   const ownRoom=!!(((spatialState.plan.coordinates||{}).spaces||[]).some(s=>s.id===l.id&&(s.footprint||[]).length>=3));
   // THE CARD AS A TREE (owner 2026-11-13)
@@ -2332,7 +2360,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // WHAT THE PICTURE SHOWS: the image, the set in 3D, or the floor plan (kept from the picture-first card, 2026-11-21)
   const [mode,setMode]=React.useState("image");
   // (a place's own card has the set card on top, which shows the set and the plan: its picture here is the image alone)
-  const facedCard=!asSection&&!l.parentLocation&&!!(window.LocationSetCard&&window.KinolotSetCard);
+  const facedCard=facedCardNow;
   const viewModes=[{id:"image",name:"Image",title:"The location image"}]
     .concat(showPrevis&&!facedCard?[{id:"set",name:"3D set",title:"The place in 3D, from its four cameras. Free: nothing is made."}]:[])
     .concat(facedCard?[]:[{id:"plan",name:"Floor plan",title:"The floor plan, from above"}]);
@@ -2361,17 +2389,39 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // nothing made is hidden or lost
   const extraHasImage=v=>{try{return typeof nbGetImage==="function"&&!!nbGetImage(l.id+"-"+v.id);}catch(_){return false;}};
   const shownExtras=l.parentLocation?[]:spatialState.ready?coverageSheets.filter(extraHasImage):coverageSheets;
-  /* THE SET CARD ON TOP (owner 2026-11-23): a place's own card opens with the set card (the chosen camera's view, the
-     name with the place and its rooms, three looks, then folding sections: Location sheet, Floor plan, Connects to,
-     Reference pack, Location image), and the card's other sections follow it. Three parts of this card are handed to
-     it instead of being drawn here (slot): the name row, the picture with the location image, and the Floor plan
-     section, whose plan it draws on top of the plan's own tools. A room inside its place's card keeps its layout. */
-  const setFace=!asSection&&!l.parentLocation&&!!(window.LocationSetCard&&window.KinolotSetCard);
+  /* THE SET CARD ON TOP (owner 2026-11-23): the card shown for a place (the place itself, or the room whose chip was
+     pressed) opens with the set card: the chosen camera's view, the name with a chip for the place and each room,
+     three looks, then folding sections: Location sheet (with what the space connects to), The place, Floor plan,
+     Reference pack, Location image. The card's other sections follow it. Four parts of this card are handed to it
+     instead of being drawn here (slot): the name row, the picture with the location image, The place, and the Floor
+     plan section, whose plan it draws on top of the plan's own tools. */
+  const setFace=facedCard;
+  const facePlace=setFace?faceGroup.place:null;
   const faceSlots={};
   const slot=(name,el)=>{ if(!setFace) return el; faceSlots[name]=el; return null; };
+  // THE RENDER STYLE sits where the image is made (owner 2026-11-23: "bring the render style component into this
+  // section ... so that the user can not only pick the image model ... but also experiment with the render style")
+  const styleRow=React.createElement("div",{className:"char-style-row"},
+        React.createElement("span",{className:"char-style-lab"},"Render style"),
+        React.createElement("div",{className:"char-style-pick"},
+          React.createElement(window.RenderStylePicker,{context:"location",value:styleKey,disabled:styling,onPick:pickLocStyle}),
+          // (2026-11-20, owner) the "59 of 100 styles" count left the card: nobody adds styles from here any more, so it said nothing useful
+        ),
+        styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
+        (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.label) &&
+          (window.SURPRISE_STYLE_OFFERED
+            ? React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style \u2014 one small writing call (writing credits)",onClick:()=>rollSurprise()},
+                l.surpriseRender.label," \u21bb")
+            // (2026-11-17) "Surprise me" is no longer offered: the name of the look this card keeps
+            : React.createElement("span",{className:"char-style-name kept",title:"A one-off look made earlier for this card. Pick any style from the menu to replace it."},
+                l.surpriseRender.label)),
+        (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.style && window.turnCanLockStyles && window.turnCanLockStyles()) &&
+          React.createElement("button",{className:"char-style-lock",title:"Lock this style \u2014 keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"\ud83d\udd12 Lock this style"),
+        (!inheritsStyle && !styling && unlockVisible && window.turnIsUserStyle && window.turnIsUserStyle(l.renderStyleKey)) &&
+          React.createElement("span",{className:"char-style-name char-style-locked",title:"Your saved style \u2014 reusable everywhere. Click to unlock.",onClick:unlockCurrent},"\ud83d\udd12 saved \u00b7 unlock"));
   return React.createElement("div",{ref:sheetRef,className:(asSection?"loc-room-sheet":embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id,
       "data-room-section":asSection?"1":undefined},
-    setFace&&React.createElement(window.LocationSetCard,{place:l,rooms:roomLocations,project,scenes,readOnly,slots:faceSlots,
+    setFace&&React.createElement(window.LocationSetCard,{place:facePlace,rooms:faceGroup.rooms,space:l.id,onSpace:faceGroup.select,project,scenes,readOnly,slots:faceSlots,
       planOpen:initialSection==="layout",planReady:!!spatialState.ready,hasImage:!!gen.genUrl}),
     /* THE HEAD SHOWS THE IMAGE; NOTHING IS GENERATED FROM IT (owner 2026-11-17: the Generate button, its reference
        strip and "Edit a panel" were a second road beside Previs). The quick image, from the description
@@ -2468,24 +2518,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       // and they will be scrolled to the right section"). The tracker above is the way through; each section has its
       // own buttons and shows its own progress. (LocationPreparePlace itself is kept, unused on the card.)
 
-      React.createElement("div",{className:"char-style-row"},
-        React.createElement("span",{className:"char-style-lab"},"Render style"),
-        React.createElement("div",{className:"char-style-pick"},
-          React.createElement(window.RenderStylePicker,{context:"location",value:styleKey,disabled:styling,onPick:pickLocStyle}),
-          // (2026-11-20, owner) the "59 of 100 styles" count left the card: nobody adds styles from here any more, so it said nothing useful
-        ),
-        styling && React.createElement("span",{className:"char-style-busy"},React.createElement("span",{className:"ns-spin"}),"Inventing\u2026"),
-        (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.label) &&
-          (window.SURPRISE_STYLE_OFFERED
-            ? React.createElement("span",{className:"char-style-name",title:"Re-roll a new surprise style \u2014 one small writing call (writing credits)",onClick:()=>rollSurprise()},
-                l.surpriseRender.label," \u21bb")
-            // (2026-11-17) "Surprise me" is no longer offered: the name of the look this card keeps
-            : React.createElement("span",{className:"char-style-name kept",title:"A one-off look made earlier for this card. Pick any style from the menu to replace it."},
-                l.surpriseRender.label)),
-        (!inheritsStyle && !styling && l.renderStyleKey==="surprise" && l.surpriseRender && l.surpriseRender.style && window.turnCanLockStyles && window.turnCanLockStyles()) &&
-          React.createElement("button",{className:"char-style-lock",title:"Lock this style \u2014 keep it and reuse it across Characters, Props & Locations",onClick:lockSurprise},"\ud83d\udd12 Lock this style"),
-        (!inheritsStyle && !styling && unlockVisible && window.turnIsUserStyle && window.turnIsUserStyle(l.renderStyleKey)) &&
-          React.createElement("span",{className:"char-style-name char-style-locked",title:"Your saved style \u2014 reusable everywhere. Click to unlock.",onClick:unlockCurrent},"\ud83d\udd12 saved \u00b7 unlock")),
+      // (with the set card on top the render style sits in The set in 3D, where the image is made)
+      !setFace&&styleRow,
 
       React.createElement("div",{className:"prop-scenes location-scenes"},
         React.createElement("span",{className:"prop-scenes-lab"},"SCENES"),
@@ -2495,7 +2529,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 
       // THE CARD IN FIVE SECTIONS (owner 2026-11-21, "build the 5 sections, no numbers"): The place, Floor plan, The set in 3D,
       // Variants, Advanced. Like a character or a prop card: what it is, the working sections, then Advanced, closed.
-      React.createElement(CardFold,{label:"The place",foldId:locationStepFoldId(l,1),defaultOpen:(!drafted && !!l.manual)},
+      slot("place",React.createElement(CardFold,{label:"The place",foldId:locationStepFoldId(l,1),defaultOpen:(!drafted && !!l.manual)},
         React.createElement("div",{className:"loc-step-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(l),
             title:"Draft the written description of this place. Where its objects stand comes next, in Floor plan."},
@@ -2559,7 +2593,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         // what the place means in the story: guidance for the image and the shots, never a physical fact
         React.createElement(SheetField,{label:"Narrative Significance \u2014 what this place means in the story",value:l.significance,multiline:true,
           placeholder:"Its dramatic role \u2014 what happens here, what it represents\u2026",onCommit:val=>onUpdate(l.id,{significance:val})}),
-      ),
+      )),
 
       slot("plan",React.createElement(CardFold,{label:"Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
         count:(outsideRooms.length?outsideRooms.length+(outsideRooms.length===1?" room to add":" rooms to add"):"")||(locStaged&&typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l)?"layout changed":stagingPrep?"staging\u2026":null)},
@@ -2577,7 +2611,16 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       /* THE SET IN 3D (owner 2026-11-21: five sections, like the character and prop cards): the four cameras and
          Previs (the set dressed, and the location image made from it) are one section. A link that names either
          ("Go to Cameras", "Open Previs") opens the section and that part of it. */
-      React.createElement(CardGroup,{label:"The set in 3D",foldIds:[locationStepFoldId(l,3),locationStepFoldId(l,4)],
+      /* WITH THE SET CARD (owner 2026-11-23: "just remove the whole subsection that says cameras"): the section is
+         Previs alone. A camera is moved with Move a camera, in Previs; the four cameras are fitted by the app, and
+         Previs fixes one that does not show the set. Nothing saved is deleted: the cameras and the written view notes
+         stay on the card's data. A link to Cameras opens this section. */
+      setFace&&showPrevis&&React.createElement(CardFold,{label:"The set in 3D",foldId:locationStepFoldId(l,4),
+          defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},
+        React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation,inside:asSection}),
+        React.createElement(window.LocationPrevisPlace||window.LocationPrevisStep,{location:l,rooms:roomLocations,project,readOnly,onUpdate,hasImage:!!gen.genUrl,
+          imageMeta:gen.genUrl?gen.genMeta:null,onSelectLocation,styleRow})),
+      !setFace&&React.createElement(CardGroup,{label:"The set in 3D",foldIds:[locationStepFoldId(l,3),locationStepFoldId(l,4)],
           defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},
       React.createElement(CardFold,{label:"Cameras",foldId:locationStepFoldId(l,3)},
         React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:3,onSelectLocation,inside:asSection}),
@@ -2616,7 +2659,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             parentGenUrl:gen.genUrl,onTime:time=>updateVariant(v.id,{time}),
             onState:state=>updateVariant(v.id,{state}),onRemove:()=>removeVariant(v.id),onView})),
           !variantCount&&React.createElement("div",{className:"loc-variants-empty"},hasRooms
-            ? "No scene plays in "+(l.name||"this place")+" itself. Its rooms' variants are under Rooms."
+            ? "No scene plays in "+(l.name||"this place")+" itself. "+(setFace?"Press a room at the top of the card to see its variants.":"Its rooms' variants are under Rooms.")
             : "No scene in the screenplay plays here yet."),
           React.createElement("button",{className:"art-draftall ghost loc-variant-add",onClick:addVariant,
               title:"Only for a look the screenplay's times of day don't already give, such as a storm or a power cut"},
@@ -2624,7 +2667,13 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 
       // ROOMS (a main location only; it was the Subspaces section): each room with its variants and scenes, opening
       // here with what is its own, and the extra spaces whose images are kept. A place with no room has no such section.
-      showSubspaces&&React.createElement(CardFold,{label:hasRooms?"Rooms":"Extra spaces",foldId:"loc-subspaces-"+l.id,
+      // WITH THE SET CARD the chips at the top are the rooms (owner 2026-11-23), so a place with rooms has no Rooms
+      // section; its extra spaces whose images are kept get a section of their own, so that nothing made is hidden
+      setFace&&hasRooms&&shownExtras.length>0&&React.createElement(CardFold,{label:"Extra spaces",foldId:"loc-subspaces-"+l.id},
+        React.createElement("p",{className:"loc-layer-note"},"Made before "+(l.name||"this place")+" had its floor plan. These images are kept here."),
+        shownExtras.map(v=>React.createElement(LocationCoverageSheet,{key:v.id,l,v,project,scenes,drafts,
+          previousSheets:coverageSheets.slice(0,coverageSheets.indexOf(v)),parentGenUrl:gen.genUrl,onView}))),
+      !(setFace&&hasRooms)&&showSubspaces&&React.createElement(CardFold,{label:hasRooms?"Rooms":"Extra spaces",foldId:"loc-subspaces-"+l.id,
           count:hasRooms?roomLocations.length:undefined,defaultOpen:hasRooms},
         hasRooms&&React.createElement("p",{className:"loc-layer-note"},"The rooms and areas of "+(l.name||"this place")+(roomBlocks?". Each opens here, with its own image, cameras and variants, and uses ":". Each uses ")+(l.name||"the place")+"'s space and look unless you fill in its own."),
         hasRooms&&React.createElement(LocationSubspaceList,{rooms:roomLocations,units:sluglineUnits,onSelectLocation,

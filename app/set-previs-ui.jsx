@@ -45,7 +45,7 @@ function usePrevisRun(alive,writable){
   };
   return {busy,phase,notice,fail,since,now,setNotice,setFail,run,step,cancel};
 }
-function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard}){
+function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard,styleRow=null}){
   const E=React.createElement,D=window.KinolotSetDressing,P=window.KinolotPrevis,api=window.KinolotCloudRender;
   const [sheet,setSheet]=React.useState(""),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false);
   const [info,setInfo]=React.useState(null),[left,setLeft]=React.useState([]);
@@ -189,7 +189,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
          inside or against part of the set" whatever is done, and Fix cameras put them back where they were and said
          nothing: the same red list, press after press. It now says that this is as clear as the space allows. */
       if(alive.current&&proposal.simple)setTightNote("This space is too tight for clearer views: the cameras now stand as clear of the set as it allows. The image can still be made from them. To change a view yourself, use Move a camera.");
-      else if(alive.current)setFixNote("Cameras updated: "+proposal.panels.filter(x=>!keep.includes(x.key)).map(x=>PANEL_NAMES[x.key]+" is now \u201c"+x.label+"\u201d").join("; ")+". You can review them in Cameras.");
+      else if(alive.current)setFixNote("Cameras updated: "+proposal.panels.filter(x=>!keep.includes(x.key)).map(x=>PANEL_NAMES[x.key]+" is now \u201c"+x.label+"\u201d").join("; ")+". To change one yourself, use Move a camera.");
     }catch(e){if(alive.current)setFail((e&&e.message)||"The cameras could not be fixed.");}
     finally{if(alive.current)setFixing(false);}
   }
@@ -212,8 +212,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       E("div",{className:"loc-step-actions"},
         // a room with no cameras of its own yet (or one standing in a wall): four clear ones in one press
         fixStep===3&&!readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing,"data-testid":"previs-set-cameras",onClick:()=>fixCameras(true),
-          title:"Fits four cameras to this space, each checked for a clear view, and saves them. Free. You can change them in Cameras."},fixing?"Finding clear views\u2026":"Set 4 clear cameras (free)"),
-        E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(fixStep)},fixStep===3?"Go to Cameras":"Go to Floor plan")),
+          title:"Fits four cameras to this space, each checked for a clear view, and saves them. Free. You can change one with Move a camera."},fixing?"Finding clear views\u2026":"Set 4 clear cameras (free)"),
+        fixStep!==3&&E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(fixStep)},"Go to Floor plan")),
       fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail)));
   // ONE RULE: a draft can be used while it still matches the set and the look it was made from
   const stale=d=>!nowKeys||d.meta.setKey!==nowKeys.setKey||d.meta.lookKey!==nowKeys.lookKey;
@@ -241,7 +241,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     small?E("span",null,draftLine(d)):null);
   return E(React.Fragment,null,
     E("p",{className:"loc-layer-note","data-testid":"previs-intro"},
-      "The set in 3D, drawn in your browser from Floor plan and Cameras. It is free and redraws at once. Check where everything stands, dress the set for this film, then make the location image from it."),
+      "The set in 3D, drawn in your browser from the floor plan and its four cameras. It is free and redraws at once. Check where everything stands, then make the location image from it."),
     E("div",{className:"loc-sub previs-view","data-testid":"previs-sheet"},
       E("h4",{className:"loc-step-sub"},"The set from its four cameras"),
       E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},
@@ -257,7 +257,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         E("div",{className:"loc-step-actions"},
           !readOnly&&onUpdate&&E("button",{type:"button",className:"art-draftall",disabled:fixing||!!busy,"data-testid":"camera-check-fix",onClick:fixCameras,
             title:"Moves only the cameras named above to clear views of this set and keeps the others. Free."},fixing?"Finding clear views\u2026":"Fix cameras"),
-          E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>go(3)},"Go to Cameras"))),
+          )),
       fixNote&&!faulty.length&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-fixed"},fixNote),
       tightNote&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-tight"},tightNote),
       // MOVE A CAMERA (owner 2026-11-16: a live camera on the dressed set, opened from here): the camera tool of
@@ -269,7 +269,10 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
         E("select",{className:"prop-select",value:atKey,disabled:!!busy||working,onChange:e=>api.setBuildMoment(l.id,e.target.value)},
           moments.map(m=>E("option",{key:m.key,value:m.key},m.label))),
         E("small",null,"The moving parts are drawn as they are at that moment. An image made at a moment becomes that state\u2019s own image, which shots at those moments use; the usual state makes the location image."))),
-    E("div",{className:"loc-sub","data-testid":"previs-dress"},
+    /* DRESSING IS NOT AN OPTION ANY MORE (owner 2026-11-23: "in Previs section, remove the option to dress the set").
+       A set that is dressed shows no dressing controls. A set that is NOT dressed yet keeps the one button that
+       furnishes it: nothing else can, and the image engine keeps to a dressed set far better than to plain blocks. */
+    !l.previs&&E("div",{className:"loc-sub","data-testid":"previs-dress"},
       E("h4",{className:"loc-step-sub"},"Dress the set"),
       E("p",{className:"loc-layer-note"},"Furnishes the set from this card, the film and the scenes set here, so that it belongs to this story. The floor plan and the cameras stay as saved."),
       !readOnly&&E("div",{className:"loc-step-actions previs-dress-row"},
@@ -295,6 +298,8 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       // plain blocks give the engine little to keep to: say so before an image is paid for
       info&&!info.dressed&&E("p",{className:"loc-layer-note","data-testid":"previs-undressed-hint"},"This set is not dressed yet. The image engine keeps to a dressed set much more closely than to plain blocks: dress the set first."),
       isRoom&&!whole&&E("p",{className:"loc-layer-note","data-testid":"previs-place-first"},"Make the image of the whole place first: this room then takes its look from it."),
+      // the card's render style, beside the engine that draws it (owner 2026-11-23)
+      styleRow&&E("div",{className:"previs-style","data-testid":"previs-style"},styleRow),
       E("label",{className:"loc-cam-field previs-engine","data-testid":"previs-engine"},E("span",null,"Image engine"),
         E("select",{className:"prop-select",value:engines.includes(engine)?engine:(choice?choice.model:""),disabled:readOnly||!!busy||working,onChange:e=>setEngine(e.target.value)},
           engines.map(id=>E("option",{key:id,value:id},engineName(id)))),
@@ -456,7 +461,7 @@ window.LocationPrevisDressAll=LocationPrevisDressAll;
    the same card"). On a place that has rooms, Previs opens with a row of its spaces: the whole place from above, the
    place itself, and each room. A room shown here is the room's own Previs (its four cameras, its dressing, its image
    and drafts), inside the same 3D set. A place with no rooms shows the one step as before. */
-function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,onSelectLocation}){
+function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,onSelectLocation,styleRow=null}){
   const E=React.createElement,list=(rooms||[]).filter(r=>r&&r.id&&r.id!==l.id);
   const [view,setView]=React.useState(l.id),[,setTick]=React.useState(0);
   React.useEffect(()=>{setView(l.id);},[l.id]);
@@ -465,7 +470,7 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
     ["nb-gen-done","nb-prefetched"].forEach(n=>window.addEventListener(n,h));
     return ()=>["nb-gen-done","nb-prefetched"].forEach(n=>window.removeEventListener(n,h));
   },[]);
-  const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN});
+  const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN,styleRow});
   // THE WHOLE PLACE FIRST (owner 2026-11-16): the rooms with no usable cameras yet get them in one press (free), and a
   // room that is not on the floor plan is named, with the way to add it
   const api=window.KinolotCloudRender,alive=React.useRef(true);
