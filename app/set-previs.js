@@ -7,11 +7,21 @@
   const SKY={day:"#9fb6c9",dusk:"#6f6a86",night:"#0b1220"};
   const FILL={day:1.15,dusk:0.7,night:0.28};
 
-  function build(T,scene,light){
+  /* opts.surfaces (the location card's set card, owner 2026-11-23): each material gets the surface it names (brick,
+     planks, tile, grass, glass that mirrors the sky ...), laid at real size, under a sky dome (set-surfaces.js).
+     Without it the set is drawn in its plain colours, as the Previs sheet and the shot drawings are. */
+  function build(T,scene,light,opts){
     const three=new T.Scene(),disposables=[],materials=new Map(),meshes=[];
     const time=light&&light.time||"day";
     three.background=new T.Color(light&&light.sky||SKY[time]);
-    Object.entries(scene.materials).forEach(([id,m])=>{
+    const S=opts&&opts.surfaces&&root.KinolotSetSurfaces||null;
+    let dome=null;
+    if(S){
+      try{dome=S.sky(T,opts.renderer,light&&light.sky||SKY[time]);three.add(dome.dome);disposables.push(dome);}catch(_){dome=null;}
+      // which object wears each material: the builder's plain "floor" and "wall" are told apart by it
+      const worn={};scene.objects.forEach(item=>{if(!worn[item.material])worn[item.material]=String(item.name||"");});
+      Object.entries(scene.materials).forEach(([id,m])=>{materials.set(id,S.material(T,id,m,worn[id]||"",dome&&dome.texture,disposables));});
+    }else Object.entries(scene.materials).forEach(([id,m])=>{
       const colour=new T.Color(...m.baseColor);
       const material=new T.MeshStandardMaterial({color:colour,roughness:m.roughness==null?0.8:m.roughness,metalness:m.metallic||0,side:T.DoubleSide,
         emissive:colour,emissiveIntensity:m.emissionStrength?Math.min(2.5,m.emissionStrength*0.35):0});
@@ -21,6 +31,7 @@
     scene.objects.forEach(item=>{
       const geometry=root.KinolotAnglePreview.geometry(T,item),mesh=new T.Mesh(geometry,materials.get(item.material));
       disposables.push(geometry);
+      if(S)S.layUV(T,geometry,item.size);
       mesh.position.set(...item.position);mesh.scale.set(...item.size);
       const [x,y,z]=item.rotation;
       mesh.quaternion.setFromRotationMatrix(new T.Matrix4().makeRotationZ(z).multiply(new T.Matrix4().makeRotationY(y)).multiply(new T.Matrix4().makeRotationX(x)));
@@ -163,32 +174,94 @@
   }
   /* A LIVE VIEW of the set as Previs draws it (owner 2026-11-16: "the camera tool shows the set as dressed"): the set
      is built once, lit as the sheet is, and then drawn from any camera as often as wanted. viewer(scene, light) gives
-     {render(canvas, pose, width, height), dispose()}: render draws one 16:9 frame onto a 2D canvas. The sun's shadows
+     {render(canvas, pose, width, height, look, cast), dispose()}: render draws one 16:9 frame onto a 2D canvas (look and
+     cast are the location card's: the clay or depth look, and stand-in people). options.surfaces = painted surfaces. The sun's shadows
      are worked out once, since nothing in the set moves. Throws when the browser cannot start the 3D view. */
-  async function viewer(scene,light){
+  async function viewer(scene,light,options){
     if(!root.KinolotAnglePreview)throw new Error("The 3D view did not load. Refresh this page.");
     const T=await root.KinolotAnglePreview.load();
     let renderer;
     try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
     catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
-    const rig=build(T,scene,light||null);
+    const rig=build(T,scene,light||null,options&&options.surfaces?{surfaces:true,renderer}:null);
     let w=0,h=0,dead=false,drawn=false;
     renderer.setPixelRatio(1);renderer.outputColorSpace=T.SRGBColorSpace;
     renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
     renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;
+    /* THE SAME VIEW IN TWO PLAIN LOOKS (owner 2026-11-23, the location card's Blockout / Clay / Depth switch):
+       "clay" draws every shape of the set in one matt white, lit as the set is, so only form and light are left (the
+       stand-in people keep their colours, so they are still told apart); "depth" draws how far each point is from
+       the camera, near light and far dark. Both leave the set itself untouched. */
+    let clay=null,depth=null;
+    const farOf=camera=>{
+      /* how far the dark end is: what this camera really looks at (a grid of rays through its frame), taken at the
+         far end of most of it, so a room fills the whole range from light to dark and a glimpse of the street
+         through a window does not wash the room out. Never under 4 m, never past 40 m. */
+      const ray=new T.Raycaster(),seen=[],COLS=16,ROWS=9;
+      camera.updateMatrixWorld(true);
+      for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+        ray.setFromCamera(new T.Vector2((c+0.5)/COLS*2-1,1-(r+0.5)/ROWS*2),camera);
+        const hit=ray.intersectObjects(rig.meshes,false)[0];if(hit)seen.push(hit.distance);
+      }
+      if(!seen.length)return 12;
+      seen.sort((x,y)=>x-y);
+      return Math.max(4,Math.min(40,seen[Math.floor((seen.length-1)*0.9)]*1.12));
+    };
+    /* THE STAND-IN PEOPLE (the set card's A and B): cast = [{xy, z, to:[x,y], colour, height}], each a jointed figure
+       standing at xy on the floor at height z, turned to face `to`. They are part of the view, never of the set. */
+    const actors=[];let castKey="";
+    const place=cast=>{
+      const S=root.KinolotSetSurfaces,list=S&&Array.isArray(cast)?cast.filter(c=>c&&Array.isArray(c.xy)):[];
+      const key=JSON.stringify(list);if(key===castKey)return;castKey=key;
+      while(actors.length>list.length){const g=actors.pop();rig.three.remove(g);S.disposeMannequin(g);}
+      list.forEach((c,i)=>{
+        if(!actors[i]||actors[i].userData.made!==c.colour+"|"+c.height){
+          if(actors[i]){rig.three.remove(actors[i]);S.disposeMannequin(actors[i]);}
+          actors[i]=S.mannequin(T,c.height,c.colour);actors[i].userData.made=c.colour+"|"+c.height;rig.three.add(actors[i]);
+        }
+        actors[i].position.set(c.xy[0],c.xy[1],Number(c.z)||0);
+        if(Array.isArray(c.to))S.face(actors[i],c.xy,c.to);
+      });
+      rig.three.updateMatrixWorld(true);
+      renderer.shadowMap.needsUpdate=true;   // someone moved: the sun's shadows are worked out again, once
+    };
     return {
-      render(canvas,pose,width,height){
+      render(canvas,pose,width,height,look,cast){
         if(dead)throw new Error("This view was closed.");
         width=Math.max(16,Math.round(width||canvas.width||640));height=Math.max(9,Math.round(height||canvas.height||360));
         if(width!==w||height!==h){renderer.setSize(width,height,false);w=width;h=height;}
-        renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));
+        place(cast);
+        if(look==="clay"||look==="depth"){
+          const camera=root.KinolotAnglePreview.cameraFor(T,pose),sky=rig.three.background,fog=rig.three.fog,swapped=[],hidden=[];
+          rig.three.traverse(o=>{if(o.userData&&o.userData.sky&&o.visible){o.visible=false;hidden.push(o);}});
+          if(look==="clay"){
+            if(!clay)clay=new T.MeshStandardMaterial({color:0xe9e7e2,roughness:0.95,metalness:0,side:T.DoubleSide});
+            rig.meshes.forEach(m=>{swapped.push([m,m.material]);m.material=clay;});
+            // (white shapes under the set's own sun burn out: the clay look is drawn a little darker)
+            rig.three.background=new T.Color(0xd4d2cd);renderer.toneMappingExposure=0.82;
+          }else{
+            if(!depth)depth=new T.ShaderMaterial({side:T.DoubleSide,uniforms:{near:{value:0.3},far:{value:10}},
+              vertexShader:"varying float vz; void main(){ vec4 mv=modelViewMatrix*vec4(position,1.0); vz=-mv.z; gl_Position=projectionMatrix*mv; }",
+              fragmentShader:"uniform float near; uniform float far; varying float vz; void main(){ float d=clamp((vz-near)/(far-near),0.0,1.0); gl_FragColor=vec4(vec3(1.0-d),1.0); }"});
+            depth.uniforms.far.value=farOf(camera);
+            rig.three.overrideMaterial=depth;rig.three.background=new T.Color(0x000000);
+          }
+          rig.three.fog=null;
+          try{renderer.render(rig.three,camera);}
+          finally{rig.three.overrideMaterial=null;rig.three.background=sky;rig.three.fog=fog;renderer.toneMappingExposure=1;
+            swapped.forEach(q=>{q[0].material=q[1];});hidden.forEach(o=>{o.visible=true;});}
+        }else{
+          renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));
+        }
         if(renderer.getContext().isContextLost())throw new Error("The 3D view stopped. Close other heavy tabs and try again.");
         if(!drawn){drawn=true;renderer.shadowMap.autoUpdate=false;}
         if(canvas.width!==width)canvas.width=width;if(canvas.height!==height)canvas.height=height;
         const ctx=canvas.getContext("2d");if(!ctx)throw new Error("This browser cannot draw the view.");
         ctx.drawImage(renderer.domElement,0,0,width,height);
       },
-      dispose(){if(dead)return;dead=true;rig.dispose();renderer.dispose();renderer.forceContextLoss();}
+      dispose(){if(dead)return;dead=true;if(clay)clay.dispose();if(depth)depth.dispose();
+        if(root.KinolotSetSurfaces)actors.forEach(g=>root.KinolotSetSurfaces.disposeMannequin(g));
+        rig.dispose();renderer.dispose();renderer.forceContextLoss();}
     };
   }
   /* THE SET AS PREVIS DRAWS IT: the built floor plan with the dressing on. ONE PLACE, ONE SET (owner 2026-11-16): a

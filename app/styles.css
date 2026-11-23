@@ -12714,3 +12714,96 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .ssx-plan-head{flex-wrap:wrap;padding-right:10px}
   .ssx-plan-work{flex-basis:100%;padding:0 0 10px 16px}
 }
+
+/* ============ THE SET CARD (owner 2026-11-23) ============
+   A card the owner designed: one card per set, laid out top to bottom exactly as designed (the view, the name and the
+   rooms, the facts, three looks, then sections that fold as on the other cards: the location sheet, the floor plan,
+   what it connects to, the reference pack, the location image). Only the colours, the type, the button sizes and
+   the spacing are the app's own (15px rhythm, hairlines, amber for the one chosen thing; the two stand-ins keep the
+   demo's orange and blue, on the plan and in the views). It is the top of a place's card. */
+.lsc{display:flex;flex-direction:column;min-width:0}
+.lsc-stage{position:relative;aspect-ratio:16/9;background:var(--bg-2);overflow:hidden}
+.lsc-stage img{display:block;width:100%;height:100%;object-fit:cover;transition:opacity .2s}
+.lsc-stage.drawing img{opacity:.62}
+.lsc-wait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--txt-3);font-size:12px}
+.lsc-badge{position:absolute;top:12px;left:12px;padding:3px 8px;border-radius:5px;background:var(--hs-amber,var(--pos));color:var(--hs-on-amber,#2C2722);
+  font:700 10.5px/1.3 var(--f-mono);letter-spacing:.08em}
+.lsc-camtag{position:absolute;left:12px;bottom:10px;padding:3px 8px;border-radius:5px;background:var(--bg-1);color:var(--txt-0);
+  font:11px/1.3 var(--f-mono);box-shadow:0 1px 3px rgba(0,0,0,.16)}
+.lsc-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:38px 20px 14px;
+  text-align:center;color:var(--txt-2);font-size:12px;line-height:1.45}
+.lsc-empty b{font-size:13.5px;color:var(--txt-0)}
+.lsc-empty-acts{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;justify-content:center}
+.lsc-body{padding:15px;display:flex;flex-direction:column;gap:15px}
+.lsc-head{display:flex;flex-direction:column;gap:10px}
+.lsc-name{margin:0;font:600 20px/1.25 var(--f-display);color:var(--txt-0);overflow-wrap:anywhere}
+.lsc-chips{display:flex;flex-wrap:wrap;gap:7px;min-width:0}
+.lsc-chips .loc-space-chips{gap:7px}
+.lsc-chips .loc-space-chips > .lsc-chip{flex:0 0 auto;white-space:nowrap}
+.lsc-chip{min-height:32px;padding:0 13px;border-radius:999px;border:1px solid var(--line-3);background:transparent;color:var(--txt-0);
+  font:500 12.5px/1 var(--f-ui);cursor:pointer;transition:.12s}
+.lsc-chip:hover{border-color:var(--txt-2)}
+.lsc-chip[aria-pressed="true"],.lsc-seg button[aria-pressed="true"]{background:var(--hs-amber,var(--pos));border-color:var(--hs-amber,var(--pos));color:var(--hs-on-amber,#2C2722)}
+.lsc-info{display:flex;flex-direction:column;gap:4px;min-height:44px}
+.lsc-info p{margin:0}
+.lsc-mono{margin:0;font:11.5px/1.5 var(--f-mono);color:var(--txt-2)}
+.lsc-mono.dim{color:var(--txt-3)}
+.lsc-role{font:13.5px/1.45 var(--f-ui);color:var(--txt-0)}
+.lsc-seg{display:flex;border:1px solid var(--line-3);border-radius:var(--r-m);overflow:hidden}
+.lsc-seg button{flex:1;min-height:36px;border:0;border-right:1px solid var(--line-3);background:transparent;color:var(--txt-0);
+  font:500 12.5px/1 var(--f-ui);cursor:pointer;transition:.12s}
+.lsc-seg button:last-child{border-right:0}
+.lsc-seg button:disabled{opacity:.5;cursor:default}
+.lsc-seg button:hover:not(:disabled):not([aria-pressed="true"]){background:var(--bg-2)}
+.lsc-sec{display:flex;flex-direction:column;gap:8px;min-width:0}
+.lsc-lab{margin:0;font:400 10.5px/1.5 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--txt-3)}
+.lsc-thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.lsc-thumb{position:relative;display:block;padding:0;border:2px solid var(--line);border-radius:var(--r-s);overflow:hidden;background:var(--bg-2);cursor:pointer;aspect-ratio:16/9}
+.lsc-thumb[aria-pressed="true"]{border-color:var(--hs-amber,var(--pos))}
+.lsc-thumb img,.lsc-thumb-wait{display:block;width:100%;height:100%;object-fit:cover}
+.lsc-num{position:absolute;top:5px;left:5px;width:19px;height:19px;border-radius:10px;background:var(--hs-amber,var(--pos));color:var(--hs-on-amber,#2C2722);
+  display:flex;align-items:center;justify-content:center;font:700 11px/1 var(--f-mono)}
+.lsc-plan{display:block;width:100%;height:auto;border-radius:var(--r-s);background:var(--bg-3);overflow:hidden;touch-action:pan-y}
+.lsc-room{fill:var(--bg-2);stroke:var(--txt-3);stroke-linejoin:miter}
+.lsc-room.lit{fill:var(--hs-amber-soft,var(--pos-soft));stroke:var(--txt-0)}
+.lsc-door{stroke:var(--bg-3);stroke-linecap:butt}
+.lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}
+.lsc-room-name{font:10.5px var(--f-mono);fill:var(--txt-3);pointer-events:none}
+.lsc-room-name.lit{font-weight:700;fill:var(--txt-0)}
+.lsc-room-size{font:9.5px var(--f-mono);fill:var(--txt-2);pointer-events:none}
+.lsc-cone{fill:var(--hs-amber,var(--pos));opacity:.38;pointer-events:none}
+.lsc-cam{pointer-events:none}
+.lsc-cam circle{fill:var(--hs-amber,var(--pos));stroke:var(--bg-1);stroke-width:1.4}
+.lsc-cam text{font:700 11px var(--f-mono);fill:var(--hs-on-amber,#2C2722)}
+.lsc-person{outline:none}
+.lsc-person.can-move{cursor:grab;touch-action:none}
+.lsc-person.can-move:active{cursor:grabbing}
+.lsc-person-hit{fill:transparent}
+.lsc-person rect{stroke:#fff;stroke-width:1.4}
+.lsc-person text{font:700 10.5px var(--f-mono);fill:#fff;pointer-events:none}
+.lsc-person:focus-visible rect{stroke:var(--txt-0);stroke-width:2.2}
+.lsc-noplan{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:14px;border:1px dashed var(--line-3);border-radius:var(--r-m);
+  font-size:12px;line-height:1.45;color:var(--txt-2)}
+.lsc-links{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(140px,100%),1fr));gap:10px 16px}
+.lsc-links li{display:flex;flex-direction:column;gap:2px;font:13.5px/1.35 var(--f-ui);color:var(--txt-0)}
+.lsc-primary{width:100%}
+.lsc-primary,.lsc-ghost{min-height:40px;border-radius:var(--r-m);font:600 13.5px/1.2 var(--f-ui);cursor:pointer;padding:8px 14px;transition:.12s}
+.lsc-primary{background:var(--hs-amber,var(--pos));border:0;color:var(--hs-on-amber,#2C2722)}
+.lsc-primary:hover:not(:disabled){background:var(--hs-amber-hover,var(--pos))}
+.lsc-primary:disabled{opacity:.55;cursor:default}
+.lsc-ghost{background:transparent;border:1px solid var(--line-3);color:var(--txt-0);font-weight:500}
+.lsc-ghost:hover{background:var(--bg-2)}
+.lsc-chip:focus-visible,.lsc-seg button:focus-visible,.lsc-thumb:focus-visible,.lsc-primary:focus-visible,.lsc-ghost:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.lsc-pack{display:flex;flex-direction:column;gap:10px}
+.lsc-pack figure{margin:0;display:flex;flex-direction:column;gap:4px}
+.lsc-pack img{display:block;width:100%;height:auto;border-radius:var(--r-s);background:var(--bg-2);aspect-ratio:16/9}
+.lsc-pack figcaption{font:12.5px/1.45 var(--f-ui);color:var(--txt-2)}
+.lsc-pack figcaption b{color:var(--txt-0);font-weight:600}
+.lsc-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+/* the sections that fold: the other cards' own fold (sheet-fold), one after another */
+.lsc-folds{display:flex;flex-direction:column;min-width:0}
+.lsc-fold .sheet-fold-body{display:flex;flex-direction:column;gap:10px;min-width:0}
+.lsc-fold .sheet-fold-body[hidden]{display:none !important}
+.lsc-plan-tools{margin-top:4px}
+/* the location image, inside its section: the frame keeps its own look, without the room the picture switch needed */
+.lsc-fold .loc-viewer .sheet-dropzone{padding-top:0}

@@ -143,7 +143,8 @@ function LocationWorkspace({group,matchingIds,filterKey,batchActiveId,renderLoca
     render:room=>renderLocation(room,{...common,initialSection:view.sections[room.id]||"",asSection:true})}:null;
   return E("div",{className:"sheet-card loc-workspace","data-location-workspace":root.id},
     // IN THIS CARD: the place and each of its rooms, by name; a room's name opens it, further down, under Rooms
-    rooms.length>0&&E("div",{className:"loc-workspace-nav","data-testid":"location-spaces"},
+    // (with the set card on top, the place and its rooms are its chips; a room still opens under Rooms, in the tools)
+    rooms.length>0&&!(window.LocationSetCard&&window.KinolotSetCard)&&E("div",{className:"loc-workspace-nav","data-testid":"location-spaces"},
       E("span",{className:"loc-workspace-lab"},"In this card"),
       E(LocationChipScroller,null,
         E("span",{className:"loc-space-chip on",title:"The whole place: this card"},root.name),
@@ -2330,9 +2331,11 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const showPrevis=!!(window.LocationPrevisStep&&window.KinolotPrevis&&window.KinolotSetDressing&&window.KinolotCloudRender);
   // WHAT THE PICTURE SHOWS: the image, the set in 3D, or the floor plan (kept from the picture-first card, 2026-11-21)
   const [mode,setMode]=React.useState("image");
+  // (a place's own card has the set card on top, which shows the set and the plan: its picture here is the image alone)
+  const facedCard=!asSection&&!l.parentLocation&&!!(window.LocationSetCard&&window.KinolotSetCard);
   const viewModes=[{id:"image",name:"Image",title:"The location image"}]
-    .concat(showPrevis?[{id:"set",name:"3D set",title:"The place in 3D, from its four cameras. Free: nothing is made."}]:[])
-    .concat([{id:"plan",name:"Floor plan",title:"The floor plan, from above"}]);
+    .concat(showPrevis&&!facedCard?[{id:"set",name:"3D set",title:"The place in 3D, from its four cameras. Free: nothing is made."}]:[])
+    .concat(facedCard?[]:[{id:"plan",name:"Floor plan",title:"The floor plan, from above"}]);
   const modeNow=viewModes.some(m=>m.id===mode)?mode:"image";
   // the description being written (its own button, the card's run or the tab's batch): since when, for its progress
   const describeSince=React.useRef(0);
@@ -2358,13 +2361,23 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   // nothing made is hidden or lost
   const extraHasImage=v=>{try{return typeof nbGetImage==="function"&&!!nbGetImage(l.id+"-"+v.id);}catch(_){return false;}};
   const shownExtras=l.parentLocation?[]:spatialState.ready?coverageSheets.filter(extraHasImage):coverageSheets;
+  /* THE SET CARD ON TOP (owner 2026-11-23): a place's own card opens with the set card (the chosen camera's view, the
+     name with the place and its rooms, three looks, then folding sections: Location sheet, Floor plan, Connects to,
+     Reference pack, Location image), and the card's other sections follow it. Three parts of this card are handed to
+     it instead of being drawn here (slot): the name row, the picture with the location image, and the Floor plan
+     section, whose plan it draws on top of the plan's own tools. A room inside its place's card keeps its layout. */
+  const setFace=!asSection&&!l.parentLocation&&!!(window.LocationSetCard&&window.KinolotSetCard);
+  const faceSlots={};
+  const slot=(name,el)=>{ if(!setFace) return el; faceSlots[name]=el; return null; };
   return React.createElement("div",{ref:sheetRef,className:(asSection?"loc-room-sheet":embedded?"loc-workspace-sheet":"sheet-card")+(batchActiveId===l.id?" batch-on":""),"data-location-card":l.id,
       "data-room-section":asSection?"1":undefined},
+    setFace&&React.createElement(window.LocationSetCard,{place:l,rooms:roomLocations,project,scenes,readOnly,slots:faceSlots,
+      planOpen:initialSection==="layout",planReady:!!spatialState.ready,hasImage:!!gen.genUrl}),
     /* THE HEAD SHOWS THE IMAGE; NOTHING IS GENERATED FROM IT (owner 2026-11-17: the Generate button, its reference
        strip and "Edit a panel" were a second road beside Previs). The quick image, from the description
        alone, is made in Quick image & image check; while one is being made, the head shows it with Stop. */
-    React.createElement("div",{className:"loc-viewer","data-testid":"location-viewer","data-mode":modeNow},
-      React.createElement("div",{className:"loc-viewer-bar"},
+    slot("image",React.createElement("div",{className:"loc-viewer","data-testid":"location-viewer","data-mode":modeNow},
+      viewModes.length>1&&React.createElement("div",{className:"loc-viewer-bar"},
         React.createElement(LocationSegment,{label:"What the picture shows",value:modeNow,options:viewModes,onChange:setMode})),
       // the image stays on the page while another view is on: a quick image being made, or an edit, goes on
       React.createElement("div",{className:"loc-viewer-image",hidden:modeNow!=="image"},
@@ -2397,7 +2410,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           onClick:()=>onPlaceDecision(l.id, l.parentLocation.id, "separate") }] : [])],
       onDelete:()=>onDelete(l.id), deleteLabel:"Delete location" })),
       modeNow==="set"&&React.createElement(LocationSetPicture,{l}),
-      modeNow==="plan"&&React.createElement(LocationPlanPicture,{l,spatialState})),
+      modeNow==="plan"&&React.createElement(LocationPlanPicture,{l,spatialState}))),
     // a sub-space's plate that copies a panel of its parent's — said, never regenerated on its own (2026-10-14)
     l.parentLocation && React.createElement(LocationCopyCheckNotice,{ l, assetId:l.id, gen, readOnly,
       refs:()=>(typeof locationPlateRefCount==="function" ? locationPlateRefCount(l).n : undefined),
@@ -2417,7 +2430,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       onChange:(v)=>setRoomPick({ placeId:v }), onCancel:()=>setRoomPick(null),
       onApply:()=>{ const place = roomPick.placeId; if(!place || typeof onPlaceDecision!=="function") return; setRoomPick(null); onPlaceDecision(l.id, place, "part"); } }),
     React.createElement("div",{className:"sheet-body"},
-      React.createElement("div",{className:"sheet-head"},
+      slot("nameRow",React.createElement("div",{className:"sheet-head"},
         React.createElement("div",{style:{flex:1,minWidth:0}},
           React.createElement("div",{className:"sheet-name loc-name-row",title:l.name||""},
             React.createElement("span",{className:"loc-intext-badge "+(/EXT/.test(displaySide)?"ext":"int"),
@@ -2446,7 +2459,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             React.createElement(LocationImageChangeNotices,{l,meta:gen.genMeta,hasImage:!!gen.genUrl,onSelectLocation})),
           l.parentLocation&&React.createElement("div",{className:"loc-parent-breadcrumb"},
             "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 uses its space and look unless filled in here"),
-          null)),
+          null))),
       // where this card stands and what to do next (owner 2026-11-01: one numbered path per card)
       React.createElement(LocationStepGuide,{l,steps:cardSteps}),
       // PREPARE THIS PLACE (owner 2026-11-17): one run for what is left of the road, on the place's own card
@@ -2548,7 +2561,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
           placeholder:"Its dramatic role \u2014 what happens here, what it represents\u2026",onCommit:val=>onUpdate(l.id,{significance:val})}),
       ),
 
-      React.createElement(CardFold,{label:"Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
+      slot("plan",React.createElement(CardFold,{label:"Floor plan",foldId:layoutFoldId,defaultOpen:initialSection==="layout",
         count:(outsideRooms.length?outsideRooms.length+(outsideRooms.length===1?" room to add":" rooms to add"):"")||(locStaged&&typeof locationStagingLayoutChanged==="function"&&locationStagingLayoutChanged(l)?"layout changed":stagingPrep?"staging\u2026":null)},
         React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:2,onSelectLocation,inside:asSection}),
         // ONE CARD (owner 2026-11-21): the one floor plan is edited once, on the place; a room inside the card points to it
@@ -2559,7 +2572,7 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
         React.createElement("details",{className:"loc-nested-section loc-parts-section",id:"loc-parts-"+l.id,"data-testid":"location-moving-parts-section"},
           React.createElement("summary",null,"Moving parts (optional)"+(partsCount?" \u00b7 "+partsCount:"")),
           React.createElement(LocationMovingParts,{l,scenes,drafts,onUpdate,readOnly})),
-      ),
+      )),
 
       /* THE SET IN 3D (owner 2026-11-21: five sections, like the character and prop cards): the four cameras and
          Previs (the set dressed, and the location image made from it) are one section. A link that names either

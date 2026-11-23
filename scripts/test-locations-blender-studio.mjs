@@ -96,7 +96,10 @@ const sheetBody=astCalls.find(n=>stringValue(n.arguments[0])==="div"&&
 assert.ok(sheetBody,"LocationSheet has a sheet-body producer");
 // a fold shown on demand ("showPrompt && CardFold(…)", the ⋯ menu's "Show the generation prompt",
 // 2026-10-03) still counts as that fold, in place
-const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right):n;
+// a part handed to the set card on a place's own card (slot("nameRow", …), slot("plan", …), 2026-11-23) is still
+// written here, in its place, and drawn here on a room's card
+const unwrapShown=n=>n&&n.type==="LogicalExpression"&&n.operator==="&&"?unwrapShown(n.right)
+  :n&&n.type==="CallExpression"&&n.callee.type==="Identifier"&&n.callee.name==="slot"&&n.arguments.length===2?unwrapShown(n.arguments[1]):n;
 const bodyChildren=sheetBody.arguments.slice(2).map(unwrapShown);
 // 2026-11-15 (owner: one road, "remove Blender"): a location card has no Blender hand-off any more. Its set is drawn
 // in Previs; Blender Studio is opened from the Art Room toolbar, which builds the same production package itself.
