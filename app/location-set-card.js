@@ -159,34 +159,43 @@
   }
 
   /* ---- the plan, ready to draw ----
-     The floor plan in picture coordinates (north up), fitted to the chosen space with what is around it in view:
-     {W, H, scale (px per metre), origin (the metres at the picture's middle), rooms:[{id, name, size, points, lit,
-     at}], doors:[{a, b}], windows:[{a, b}], camera:{at, n, cone}|null, people:[{id, at, css}], wall (px)}.
-     The chosen space is lit (a place that is only its rooms lights them all); every wall is drawn at its thickness,
-     a door is a gap in it and a window a pane of glass. width = the picture's width in px; its height follows the
-     space, 170 to 380 px. */
+     The floor plan in picture coordinates (north up): {W, H, scale (px per metre), origin (the metres at the
+     picture's middle), rooms:[{id, name, size, points, lit, at}], doors:[{a, b}], windows:[{a, b}],
+     camera:{at, n, cone}|null, people:[{id, at, css}], wall (px), missing}.
+     THE WHOLE PLACE, WITH THE CHOSEN SPACE LIT (owner 2026-11-23: "when a user clicks on one of the subspaces ... we
+     should be able to see that area highlighted on the floor plan, so it is clearly visible which part of the
+     location is currently in view"): the picture holds every space of the place when the chosen one still shows
+     well at that size; when the place is far bigger than the room (a hallway in a street), it comes in on the room
+     until the room is a good part of the picture, with as much of the place around it as fits. Only the chosen space
+     is lit; a space that is not on the plan yet lights nothing (missing). Every wall is drawn at its thickness, a
+     door is a gap in it and a window a pane of glass. width = the picture's width in px; its height follows what is
+     shown, 170 to 380 px. */
   function planModel(plan,space,cameraKey,people,width){
     const P=obj(plan), all=arr(P.spaces); if(!all.length) return null;
     const me=all.find(s=>s.id===space.id)||null;
-    const fit=boundsOf(me?me.footprint:[].concat(...all.map(s=>s.footprint))); if(!fit) return null;
-    const W=Math.max(200,Math.round(width||440)), bw=Math.max(0.5,fit.maxX-fit.minX), bh=Math.max(0.5,fit.maxY-fit.minY);
-    // room to see the neighbours: what the space connects to shows beside it
-    const m=Math.max(0.9,0.17*Math.max(bw,bh));
-    let s=W/(bw+2*m), H=(bh+2*m)*s;
-    if(H>380){ s=380/(bh+2*m); H=380; } else if(H<170){ H=170; }
-    H=Math.round(H);
-    const cx=(fit.minX+fit.maxX)/2, cy=(fit.minY+fit.maxY)/2;
+    const whole=boundsOf([].concat(...all.map(s=>s.footprint))), fit=me?boundsOf(me.footprint):whole; if(!fit||!whole) return null;
+    const W=Math.max(200,Math.round(width||440)), TALL=380;
+    const bw=Math.max(0.5,fit.maxX-fit.minX), bh=Math.max(0.5,fit.maxY-fit.minY), aw=Math.max(0.5,whole.maxX-whole.minX), ah=Math.max(0.5,whole.maxY-whole.minY);
+    const m=Math.max(0.6,0.08*Math.max(aw,ah)), mine=Math.max(0.9,0.17*Math.max(bw,bh));
+    // the whole place in the picture; the chosen space alone; and the least the chosen space may be (half of it)
+    const sAll=Math.min(W/(aw+2*m),TALL/(ah+2*m)), sMine=Math.min(W/(bw+2*mine),TALL/(bh+2*mine)), sLeast=Math.min(0.5*W/bw,0.5*TALL/bh);
+    const s=me?Math.min(sMine,Math.max(sAll,sLeast)):sAll;
+    const H=Math.round(Math.max(170,Math.min(TALL,(ah+2*m)*s)));
+    // centred on the whole place when all of it shows; else on the chosen space, kept inside the place
+    const vw=W/s, vh=H/s, mid=(lo,hi,want,view)=>hi-lo+2*m<=view?(lo+hi)/2:Math.max(lo-m+view/2,Math.min(hi+m-view/2,want));
+    const cx=mid(whole.minX,whole.maxX,(fit.minX+fit.maxX)/2,vw), cy=mid(whole.minY,whole.maxY,(fit.minY+fit.maxY)/2,vh);
     const X=x=>Math.round((W/2+(x-cx)*s)*10)/10, Y=y=>Math.round((H/2-(y-cy)*s)*10)/10, at=p=>[X(p[0]),Y(p[1])];
-    const lit=id=>!me||id===space.id;
+    const lit=id=>!!me&&id===space.id;
+    const area=b=>(b.maxX-b.minX)*(b.maxY-b.minY);
     const rooms=all.map(r=>{ const b=boundsOf(r.footprint), c=r.centre||[(b.minX+b.maxX)/2,(b.minY+b.maxY)/2], isLit=lit(r.id);
         // a name sits inside the picture: a big neighbour (a street, a garden) is named where it shows
         const p=at(isLit?interior(r.footprint):c), shown=[Math.max(40,Math.min(W-40,p[0])),Math.max(13,Math.min(H-13,p[1]))];
         // (in the picture when its outline's box and the picture's overlap: a street is far bigger than the picture)
         const lo=at([b.minX,b.maxY]), hi=at([b.maxX,b.minY]), visible=lo[0]<W&&hi[0]>0&&lo[1]<H&&hi[1]>0;
-        return {id:r.id,name:r.name||"",size:isLit?sizeText(r.footprint):"",points:r.footprint.map(at),lit:isLit,at:isLit?p:shown,visible}; })
+        return {id:r.id,name:r.name||"",size:isLit?sizeText(r.footprint):"",points:r.footprint.map(at),lit:isLit,at:isLit?p:shown,visible,area:area(b)}; })
       .filter(r=>r.visible)
-      // the lit rooms are drawn last, over the others
-      .sort((a,b)=>(a.lit?1:0)-(b.lit?1:0));
+      // the biggest first, so a room inside a larger space (a hallway in a house) is drawn over it
+      .sort((a,b)=>b.area-a.area);
     const open=arr(P.openings).filter(o=>o&&!o.outlier&&arr(o.a).length&&arr(o.b).length).map(o=>({a:at(o.a),b:at(o.b),glass:o.kind==="window"||o.kind==="glass"}));
     const cam=arr(P.cameras).find(c=>c&&c.spaceId===space.id&&c.panel===cameraKey&&arr(c.position).length>=2&&!c.outlier);
     let camera=null;
@@ -197,7 +206,7 @@
       camera={at:p,n:KEYS.indexOf(cameraKey)+1,cone:f.length===3?[p,ray(f[1]),ray(f[2])]:null};
     }
     const who=people?PEOPLE.map(k=>({id:k.id,css:k.css,at:at(people[k.id])})):[];
-    return {W,H,scale:s,origin:[cx,cy],wall:Math.max(3,Math.min(7,0.14*s)),rooms,doors:open.filter(o=>!o.glass),windows:open.filter(o=>o.glass),camera,people:who};
+    return {W,H,scale:s,origin:[cx,cy],wall:Math.max(2.5,Math.min(7,0.14*s)),rooms,doors:open.filter(o=>!o.glass),windows:open.filter(o=>o.glass),camera,people:who,missing:!me};
   }
   // a point of the plan's picture, back in metres (for a stand-in that is dragged)
   const planMetres=(model,px,py)=>[model.origin[0]+(px-model.W/2)/model.scale,model.origin[1]-(py-model.H/2)/model.scale];

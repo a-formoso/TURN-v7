@@ -123,11 +123,16 @@ test("6 the two stand-ins: on a scene's first marks in the space, else either si
   assert.deepEqual(K.keepInside(PLAN.spaces[0].footprint,[2,1],[0,0]),[2,1],"a point inside stays");
 });
 
-test("6b the plan, ready to draw: walls, doors and windows, the chosen space lit with its size, its camera, the stand-ins", ()=>{
+test("6b the plan, ready to draw: the whole place with the chosen space lit, walls, doors and windows, its camera, the stand-ins", ()=>{
   const st=K.standIns(FLAT,PLAN,null,null), m=K.planModel(PLAN,FLAT,"TL",st,440);
-  assert.equal(m.W,440); assert.ok(m.H>=170&&m.H<=380);
-  assert.deepEqual(m.rooms.map(r=>r.id+":"+r.lit+":"+r.size),["hall:false:","flat:true:4.0 \u00d7 3.0 m"],"the chosen space alone is lit and sized, and drawn last");
-  assert.ok(m.wall>=3&&m.wall<=7,"a wall is drawn at its thickness");
+  assert.equal(m.W,440); assert.ok(m.H>=170&&m.H<=380); assert.equal(m.missing,false);
+  // a compact place: every room is in the picture, the chosen one alone lit and sized (the bigger room drawn first)
+  assert.deepEqual(m.rooms.map(r=>r.id+":"+r.lit+":"+r.size),["flat:true:4.0 \u00d7 3.0 m","hall:false:"]);
+  m.rooms.forEach(r=>r.points.forEach(q=>assert.ok(q[0]>=0&&q[0]<=m.W&&q[1]>=0&&q[1]<=m.H,r.id+" is whole in the picture")));
+  const other=K.planModel(PLAN,HALL,"TL",null,440);
+  assert.deepEqual(other.rooms.map(r=>r.id+":"+r.lit),["flat:false","hall:true"],"pressing another room lights that room, in the same picture");
+  assert.equal(other.scale,m.scale,"the place does not jump when another of its rooms is chosen");
+  assert.ok(m.wall>=2.5&&m.wall<=7,"a wall is drawn at its thickness");
   assert.equal(m.doors.length,3,"a door is a gap; one far off the plan is left out"); assert.equal(m.windows.length,1);
   assert.equal(m.camera.n,1); assert.equal(m.camera.cone.length,3);
   assert.deepEqual(m.people.map(k=>k.id+k.css),["A#D08A2E","B#3E73B8"],"the demo's orange and blue");
@@ -135,15 +140,24 @@ test("6b the plan, ready to draw: walls, doors and windows, the chosen space lit
   const back=K.planMetres(m,m.people[0].at[0],m.people[0].at[1]);
   assert.ok(Math.abs(back[0]-st.A[0])<0.02&&Math.abs(back[1]-st.A[1])<0.02);
   // the hall has its own camera; a camera that is not this space's is not drawn; nobody placed, nobody drawn
-  assert.equal(K.planModel(PLAN,HALL,"TL",null,440).camera.n,1);
+  assert.equal(other.camera.n,1);
   assert.equal(K.planModel(PLAN,HALL,"BR",null,440).camera,null);
-  assert.deepEqual(K.planModel(PLAN,HALL,"TL",null,440).people,[]);
-  // a neighbour far bigger than the picture (a street) is still drawn, and named where it shows
-  const street={...PLAN,spaces:PLAN.spaces.concat([{id:"street",name:"Street",footprint:[[-30,-20],[30,-20],[30,0],[-30,0]]}])};
-  const ms=K.planModel(street,FLAT,"TL",null,440), row=ms.rooms.find(r=>r.id==="street");
-  assert.ok(row&&row.at[0]>=40&&row.at[0]<=ms.W-40&&row.at[1]>=13&&row.at[1]<=ms.H-13);
-  // a space that is not on the plan: the whole plan, every room lit
-  assert.deepEqual(K.planModel(PLAN,{id:"kitchen",whole:false},"TL",null,440).rooms.map(r=>r.lit),[true,true]);
+  assert.deepEqual(other.people,[]);
+  // a place far bigger than the room (a hallway off a street): the picture comes in on the room until it is half of
+  // it, and the street still shows around it, drawn first and named where it shows
+  const street={spaces:[{id:"street",name:"Street",footprint:[[-15,-17],[15,-17],[15,0],[-15,0]]},{id:"hw",name:"Hallway",footprint:[[-0.9,0],[0.9,0],[0.9,5],[-0.9,5]]}],openings:[],cameras:[]};
+  const ms=K.planModel(street,{id:"hw"},"TL",null,440), hw=ms.rooms.find(r=>r.id==="hw"), row=ms.rooms.find(r=>r.id==="street");
+  assert.deepEqual(ms.rooms.map(r=>r.id+":"+r.lit),["street:false","hw:true"]);
+  const ys=hw.points.map(q=>q[1]); assert.ok(Math.abs((Math.max(...ys)-Math.min(...ys))-0.5*380)<2,"the hallway is half the picture's height");
+  assert.ok(row.at[0]>=40&&row.at[0]<=ms.W-40&&row.at[1]>=13&&row.at[1]<=ms.H-13);
+  // the street itself chosen: all of it, the hallway drawn over it
+  const whole=K.planModel(street,{id:"street"},"TL",null,440);
+  assert.deepEqual(whole.rooms.map(r=>r.id+":"+r.lit),["street:true","hw:false"]);
+  // a space that is not on the plan yet: the whole plan, nothing lit, and said so
+  const gone=K.planModel(PLAN,{id:"kitchen",whole:false},"TL",null,440);
+  assert.deepEqual(gone.rooms.map(r=>r.lit),[false,false]); assert.equal(gone.missing,true);
+  assert.ok(face.includes('model.missing ? (space.name||"This space")+" is not on the floor plan yet, so it cannot be shown on it. Add it in Edit the floor plan, below."'));
+  assert.ok(face.includes('model.rooms.filter(r=>r.lit).map(r=>LSC_E("polygon",{ key:"lit"+r.id, points:pts(r.points), className:"lsc-room-lit" })),'),"the chosen space is outlined over its walls");
   assert.equal(K.planModel({spaces:[]},FLAT,"TL",null,440),null); assert.equal(K.planModel(null,FLAT,"TL",null,440),null);
 });
 
@@ -319,7 +333,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   const block=css.slice(css.indexOf("THE SET CARD (owner 2026-11-23)"));
   for(const t of [".lsc-stage{position:relative;aspect-ratio:16/9;",".lsc-body{padding:15px;display:flex;flex-direction:column;gap:15px}",
     ".lsc-name{margin:0;font:600 20px/1.25 var(--f-display);",".lsc-thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}",
-    ".lsc-room.lit{fill:var(--hs-amber-soft,var(--pos-soft));stroke:var(--txt-0)}",".lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}",
+    ".lsc-room-lit{fill:none;stroke:var(--hs-amber,var(--pos));stroke-width:2;stroke-linejoin:miter;pointer-events:none}",".lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}",
     ".lsc-person.can-move{cursor:grab;touch-action:none}",".lsc-fold .sheet-fold-body[hidden]{display:none !important}"])
     assert.ok(block.includes(t),t);
   assert.ok(!/#1B1A19|#252422|#F0B255|Inter\b/.test(block),"none of the demo's own colours or type");

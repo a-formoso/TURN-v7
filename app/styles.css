@@ -12764,8 +12764,9 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .lsc-num{position:absolute;top:5px;left:5px;width:19px;height:19px;border-radius:10px;background:var(--hs-amber,var(--pos));color:var(--hs-on-amber,#2C2722);
   display:flex;align-items:center;justify-content:center;font:700 11px/1 var(--f-mono)}
 .lsc-plan{display:block;width:100%;height:auto;border-radius:var(--r-s);background:var(--bg-3);overflow:hidden;touch-action:pan-y}
-.lsc-room{fill:var(--bg-2);stroke:var(--txt-3);stroke-linejoin:miter}
-.lsc-room.lit{fill:var(--hs-amber-soft,var(--pos-soft));stroke:var(--txt-0)}
+.lsc-room{fill:var(--bg-1);stroke:var(--txt-2);stroke-linejoin:miter}
+.lsc-room.lit{fill:color-mix(in srgb,var(--hs-amber,var(--pos)) 26%,var(--bg-1));stroke:var(--txt-0)}
+.lsc-room-lit{fill:none;stroke:var(--hs-amber,var(--pos));stroke-width:2;stroke-linejoin:miter;pointer-events:none}
 .lsc-door{stroke:var(--bg-3);stroke-linecap:butt}
 .lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}
 .lsc-room-name{font:10.5px var(--f-mono);fill:var(--txt-3);pointer-events:none}

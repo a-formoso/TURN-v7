@@ -119,6 +119,8 @@ function LocationSetPlan({ model, label, onMove }){
   };
   return LSC_E("svg",{ ref:svg, className:"lsc-plan", viewBox:"0 0 "+model.W+" "+model.H, role:"group", "aria-label":label, "data-testid":"set-card-plan" },
     model.rooms.map(r=>LSC_E("polygon",{ key:r.id, points:pts(r.points), className:"lsc-room"+(r.lit?" lit":""), style:{ strokeWidth:model.wall } })),
+    // the chosen space, outlined in the app's amber over its walls, so it is the first thing seen
+    model.rooms.filter(r=>r.lit).map(r=>LSC_E("polygon",{ key:"lit"+r.id, points:pts(r.points), className:"lsc-room-lit" })),
     model.doors.map((o,i)=>LSC_E("line",{ key:"d"+i, x1:o.a[0], y1:o.a[1], x2:o.b[0], y2:o.b[1], className:"lsc-door", style:{ strokeWidth:model.wall+1.5 } })),
     model.windows.map((o,i)=>LSC_E("line",{ key:"w"+i, x1:o.a[0], y1:o.a[1], x2:o.b[0], y2:o.b[1], className:"lsc-window", style:{ strokeWidth:model.wall+1.5 } })),
     model.rooms.map(r=>LSC_E("text",{ key:"n"+r.id, x:r.at[0], y:r.at[1]-(r.size?6:0), className:"lsc-room-name"+(r.lit?" lit":""), textAnchor:"middle", dominantBaseline:"central" }, r.name)),
@@ -268,7 +270,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
               LSC_E(LocationSetPlan,{ model, label:"Plan of "+(place.name||"this place")+(people ? ". Drag A and B to try where people stand; nothing is saved." : ""),
                 onMove:people && !readOnly ? movePerson : null }),
               LSC_E("p",{ className:"lsc-mono dim", "data-testid":"set-card-people" },
-                K.peopleLine(people, names)+(start && start.sceneNo!=null && (names.A || names.B) ? "   ·   marks of scene "+start.sceneNo : "")))
+                // a space that is not on the plan cannot be lit on it: said, with where to add it
+                model.missing ? (space.name||"This space")+" is not on the floor plan yet, so it cannot be shown on it. Add it in Edit the floor plan, below."
+                  : K.peopleLine(people, names)+(start && start.sceneNo!=null && (names.A || names.B) ? "   ·   marks of scene "+start.sceneNo : "")))
             : LSC_E("div",{ className:"lsc-noplan" },
                 LSC_E("span",null,"No floor plan yet. The place is drawn to scale from its description and its scenes.")),
           // the plan's own tools (drafting it, checking it, its numbers, its moving parts): open until it is confirmed
