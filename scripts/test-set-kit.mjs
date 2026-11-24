@@ -1,11 +1,14 @@
 /* THE FURNITURE KIT (owner 2026-11-23, the Previs look brief, step 4; plan agreed 2026-11-24, stop 1: chair, table,
-   door, window, kitchen units, chosen by name).
+   door, window, kitchen units, chosen by name; stop 2: sofa, bed, shelves with books, cooker, fridge, skirting,
+   radiator, lamp, rug, curtains).
    What must stay true:
      - a piece makes the whole object from its parts, in metres, inside the box it is given, the same every time;
      - a thing is one of the five only when its name plainly says so, and only when its box is that kind of box;
      - NOTHING IN THE SET'S DATA CHANGES: expand() returns what to draw and what not to draw, and touches nothing;
      - what the dressing drew on a thing stays (a hob, a letter plate, a pane, a framed window, a round table);
      - a chair's back is where the set's tall shapes are, a unit's doors face away from where its carcass is pushed;
+     - a thing with nothing to show its front has its back to the wall it stands against;
+     - the books of a bookcase come from a seeded generator: the same books on every draw and every device;
      - only the drawing uses the kit: the checks that read the set never see it. */
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
@@ -29,8 +32,8 @@ function chair(anchor,x,y,back){
 }
 const topRail=(r,name)=>r.parts.filter(p=>p.name===name).sort((a,b)=>b.position[2]-a.position[2]).find(p=>near(p.size[2],0.07,0.001));
 
-test("1 the five pieces: a whole object from its parts, inside its box, the same every time", ()=>{
-  assert.deepEqual(Object.keys(K.PIECES).sort(),["chair","door","table","units","window"]);
+test("1 the first five pieces: a whole object from its parts, inside its box, the same every time", ()=>{
+  assert.deepEqual(Object.keys(K.PIECES).sort(),["bed","chair","cooker","curtains","door","fridge","lamp","radiator","rug","shelves","skirting","sofa","table","units","window"]);
   const made={chair:K.PIECES.chair(0.45,0.45,0.9),table:K.PIECES.table(1.2,0.75,0.74),door:K.PIECES.door(0.8,0.05,2),window:K.PIECES.window(1,0.1,1.4),units:K.PIECES.units(2,0.6,0.9)};
   assert.deepEqual(Object.fromEntries(Object.entries(made).map(([k,v])=>[k,v.length])),{chair:10,table:9,door:9,window:8,units:11},"a chair is ten parts, not a block");
   assert.equal(K.PIECES.door(0.8,0.05,2,{glazed:true}).length,8,"a glazed door: one pane in place of the two upper panels");
@@ -50,11 +53,17 @@ test("1 the five pieces: a whole object from its parts, inside its box, the same
 
 test("2 which piece a thing is: only what its name plainly says", ()=>{
   const is={"Small kitchen table":"table","Mismatched chair (west, window)":"chair","front door leaf":"door","bedroom door":"door","sash window":"window",
-    "Galley run of units":"units","Kitchen base units":"units","Coffee table":"table","Dining chair":"chair","Fitted cupboards":"units","Front door (frosted panel)":"door","flats door":"door","Hussain front door (white uPVC, frosted panel)":"door"};
+    "Galley run of units":"units","Kitchen base units":"units","Coffee table":"table","Dining chair":"chair","Fitted cupboards":"units","Bedside table":"table",
+    "Fridge":"fridge","Fridge freezer":"fridge","Hall radiator":"radiator","Radiator under window":"radiator","Low Qur'an bookshelves":"shelves","Bookcase":"shelves",
+    "hall runner":"rug","Persian rug":"rug","pendant with paper shade":"lamp","kitchen pendant":"lamp","Table lamp":"lamp","Bedside lamp":"lamp","Floor lamp":"lamp",
+    "skirting kitchen north":"skirting","Double bed":"bed","Sofa bed":"sofa","Three-seat sofa":"sofa","Gas cooker":"cooker","Curtains (closed)":"curtains","Chair by the window":"chair","Front door (frosted panel)":"door","flats door":"door","Hussain front door (white uPVC, frosted panel)":"door"};
   Object.keys(is).forEach(n=>assert.equal(K.pieceOf(n),is[n],n));
-  ["wall cabinets","Ellis windows","Table lamp","Fridge","Armchair","Office chair","Wheelchair","Chairs","Door frame","Doormat","Car door","Wardrobe door",
-    "Window sill","Window box","Shop window","Tablecloth","Pool table","Kitchen wall units","Sofa","",null,
-    "Radiator under window","door surround and lamp","boarded shop next door","hall window surround","Driver door","Rear left door","Kitchen table and chairs","Table with lamp","Chair, table"].forEach(n=>assert.equal(K.pieceOf(n),"",String(n)));
+  ["wall cabinets","Ellis windows","Armchair","Office chair","Wheelchair","Chairs","Door frame","Doormat","Car door","Wardrobe door",
+    "Window sill","Window box","Shop window","Tablecloth","Pool table","Kitchen wall units","Wardrobe","",null,
+    "door surround and lamp","boarded shop next door","hall window surround","Driver door","Rear left door","Kitchen table and chairs","Table with lamp","Chair, table",
+    "Dome lamp","Street lamp near west","sodium street lamp","streetlamp","strip lights","Lamp post","Doormat","lobby door mat","hall carpet","Table runner","Stair runner",
+    "Narrow shelf above radiator","Open shelf of mismatched mugs","Wooden multi-tier shoe rack","Three-seat rear bench, charcoal cloth","Net curtains","Shower curtain","Curtain pole",
+    "Sofa cushions","Bed frame","Bunk bed","Flower bed","Oven gloves","Microwave oven","Fridge magnets","Radiator shelf","Coat pegs with heaped coats"].forEach(n=>assert.equal(K.pieceOf(n),"",String(n)));
 });
 
 test("3 a box that is not that kind of thing is left alone", ()=>{
@@ -87,7 +96,7 @@ test("5 expand: what to draw and what not to draw; the set itself is not touched
     ...chair("c1",2,0.2,"-y"),
     shape("extra-1","bedroom door · 1",[0.8,0.05,2],[0,3.5,1],"gloss"),
     shape("extra-2","bedroom door · 1",[0.8,0.05,2],[3,3.5,1],"gloss"),
-    shape("extra-3","Fridge · 1",[0.6,0.6,1.7],[3.5,0.4,0.85],"white")]};
+    shape("extra-3","Wardrobe · 1",[0.6,0.6,1.7],[3.5,0.4,0.85],"white")]};
   const before=JSON.stringify(scene), r=K.expand(scene);
   assert.equal(JSON.stringify(scene),before,"the set's data is exactly as it was");
   assert.deepEqual(plain(r.pieces.map(p=>[p.name,p.piece,p.parts])),[["Kitchen table","table",9],["Chair","chair",10],["bedroom door","door",9],["bedroom door","door",9]],"two doors of one name are two doors");
@@ -144,15 +153,110 @@ test("7 which way a thing faces: read from the set's own shapes", ()=>{
 test("8 only the drawing uses the kit; the checks never see it", ()=>{
   const at=s=>html.indexOf(s);
   assert.ok(at("app/set-kit.js?v=")>0&&at("app/set-kit.js?v=")<at("app/set-previs.js?v="),"loaded before the drawing that uses it");
-  assert.ok(["20261124-kit1"].some(k=>html.includes('app/set-kit.js?v='+k+'"')),"its cache key");
+  assert.ok(["20261124-kit1", "20261124-kit2"].some(k=>html.includes('app/set-kit.js?v='+k+'"')),"its cache key");
   assert.ok(/fitted=root\.KinolotSetKit\?root\.KinolotSetKit\.expand\(scene\):null/.test(previs)&&/scene=\{\.\.\.scene,objects:scene\.objects\.filter\(o=>!fitted\.hide\.has\(o\.id\)\)\.concat\(fitted\.parts\)/.test(previs),"build() draws a copy; the scene it was given is not changed");
   assert.ok(/catch\(_\)\{fitted=null;\}/.test(previs),"a fault in the kit leaves the set as it was drawn before");
   ["app/shot-previs.js","app/set-dressing.js","app/scene-plan.js","app/camera-angle-preview.js","app/location-set-card.js","app/shot-previs-ui.jsx","app/set-previs-ui.jsx"].forEach(f=>assert.ok(!/KinolotSetKit/.test(read(f)),f+" does not know the kit"));
-  assert.ok(!/Math\.random|Date\.now/.test(src),"nothing random in these five");
+  assert.ok(!/Math\.random|Date\.now/.test(src),"nothing left to chance: the one thing that varies is seeded");
   const fact=ai.split("\n").filter(l=>l.startsWith("APP_FEATURES.push")&&/FURNITURE IN FULL/.test(l));
   assert.equal(fact.length,2,"the help assistant knows, on the location card and on a shot's Previs");
-  fact.forEach(l=>{ assert.ok(/chair/.test(l)&&/kitchen units/.test(l)&&/stays/.test(l)); });
-  assert.ok(!/claude|anthropic|openai|gemini|three\.?js|\bTURN\b|\bMUSE\b|credit/i.test(fact.map(l=>l.slice(l.indexOf("FURNITURE IN FULL"),l.indexOf("FURNITURE IN FULL")+900)).join(" ")),"no vendor, codename or billing word in it");
+  fact.forEach(l=>{ assert.ok(/chair/.test(l)&&/kitchen units/.test(l)&&/stays/.test(l)); assert.ok(["sofa","bed","bookcase","cooker","fridge","radiator","lamp","rug","curtains","skirting"].every(w=>l.slice(l.indexOf("FURNITURE IN FULL")).includes(w)),"the ten of stop 2 are named"); });
+  assert.ok(!/claude|anthropic|openai|gemini|three\.?js|\bTURN\b|\bMUSE\b|credit/i.test(fact.map(l=>l.slice(l.indexOf("FURNITURE IN FULL"),l.indexOf("FURNITURE IN FULL")+1700)).join(" ")),"no vendor, codename or billing word in it");
+});
+
+test("9 the ten pieces of stop 2: each a whole object, the same every time", ()=>{
+  const n=(k,...a)=>K.PIECES[k](...a).length;
+  assert.equal(n("sofa",2,0.9,0.85),12,"feet, base, two arms, back, and a seat and a back cushion for each of two places");
+  assert.equal(n("sofa",3,0.95,0.85),16,"a longer sofa seats more"); assert.equal(n("sofa",1.2,0.9,0.85),10);
+  assert.equal(n("bed",1.4,1.9,1),11,"a double bed with a headboard and two pillows"); assert.equal(n("bed",0.9,1.9,0.5),9,"a low single bed has no headboard and one pillow");
+  assert.equal(n("cooker",0.6,0.6,0.9),16); assert.equal(n("fridge",0.6,0.63,1.7),7,"two doors, a seam, two handles"); assert.equal(n("fridge",0.6,0.6,0.85),4,"an under-counter fridge has one door");
+  assert.equal(n("skirting",2,0.02,0.1),2); assert.equal(n("radiator",1,0.08,0.5,{base:0.3}),24,"a fin every five centimetres, a grille, a valve and its pipe");
+  assert.equal(n("radiator",1,0.08,0.5),23,"no pipe for a radiator that stands on the floor"); assert.equal(n("radiator",3,0.08,0.5),35,"never more than 32 fins");
+  ["pendant","floor","table"].forEach(type=>assert.equal(n("lamp",0.3,0.3,type==="floor"?1.6:0.45,{type}),6,type));
+  assert.equal(n("rug",1.5,2.2,0.012),7); assert.equal(n("curtains",1.4,0.1,2.2),11); assert.equal(n("curtains",1.4,0.1,2.2,{closed:true}),21,"drawn across, the folds meet in the middle");
+  ["sofa","bed","cooker","fridge","radiator","rug","curtains"].forEach(k=>assert.deepEqual(plain(K.PIECES[k](1.4,0.7,0.9)),plain(K.PIECES[k](1.4,0.7,0.9)),k));
+  // a fridge keeps the door line and the handle side it is given
+  const f=K.PIECES.fridge(0.6,0.63,1.7,{seam:1.15,hand:-1});
+  assert.ok(near(f.find(p=>p[3]==="dark"&&near(p[1][2],0.012,0.001))[2][2],1.15)&&f.filter(p=>p[3]==="steel").every(p=>p[2][0]<0));
+  // the fringe of a rug is at its two short ends
+  assert.ok(K.PIECES.rug(1.5,2.2,0.012).filter(p=>p[3]==="linen").every(p=>Math.abs(p[2][1])>1.1)&&K.PIECES.rug(2.2,1.5,0.012).filter(p=>p[3]==="linen").every(p=>Math.abs(p[2][0])>1.1));
+  // a part that lies down carries all three turns: the cooker's handle bar, the curtain pole
+  assert.ok(Array.isArray(K.PIECES.cooker(0.6,0.6,0.9).find(p=>p[0]==="cylinder"&&p[1][2]>0.3)[4])&&Array.isArray(K.PIECES.curtains(1.4,0.1,2.2)[0][4]));
+});
+
+test("10 the books of a bookcase: seeded, inside their shelves, the same on every draw", ()=>{
+  const a=K.PIECES.shelves(1,0.3,1.9,{books:true,seed:"Bookcase@35,48"}), b=K.PIECES.shelves(1,0.3,1.9,{books:true,seed:"Bookcase@35,48"}), c=K.PIECES.shelves(1,0.3,1.9,{books:true,seed:"Bookcase@10,10"});
+  assert.deepEqual(plain(a),plain(b),"the same bookcase has the same books every time");
+  assert.notDeepEqual(plain(a),plain(c),"another bookcase has its own");
+  const bare=K.PIECES.shelves(1,0.3,1.9,{}), books=a.filter(p=>/^book\d$/.test(p[3])), boards=bare.filter(p=>near(p[1][2],0.022,0.001)).map(p=>p[2][2]).sort((x,y)=>x-y);
+  assert.equal(bare.length,10,"two sides, a top, a kick board, a back and five shelves"); assert.ok(!bare.some(p=>/^book/.test(p[3])),"shelves that are not a bookcase get no books");
+  assert.ok(books.length>=25&&books.length<=80,"enough to read as books, few enough to draw: "+books.length);
+  books.forEach(p=>{
+    assert.ok(Math.abs(p[2][0])+p[1][0]/2<=0.5-0.022,"between the two sides");
+    const under=boards.filter(z=>z<p[2][2]).pop(), over=boards.find(z=>z>p[2][2]);
+    assert.ok(near(p[2][2]-p[1][2]/2,under+0.011,0.002)&&p[2][2]+p[1][2]/2<over-0.011,"standing on a shelf, under the next one");
+    assert.ok(p[2][1]+p[1][1]/2<=0.15&&p[2][1]-p[1][1]/2>=-0.15,"inside the case");
+  });
+  assert.ok(new Set(books.map(p=>p[3])).size>=4,"spines of several colours"); assert.ok(K.PIECES.shelves(3.4,0.35,2.4,{books:true,seed:"x"}).length<=110,"a wall of books is drawn in wider blocks, not thousands of shapes");
+  const next=K.seeded("a"), again=K.seeded("a"), seq=Array.from({length:50},()=>next());
+  assert.deepEqual(seq,Array.from({length:50},()=>again())); assert.ok(seq.every(v=>v>=0&&v<1)&&new Set(seq).size>45);
+});
+
+test("11 plain blocks against the walls of a room: each piece found, and its back to its wall", ()=>{
+  const B=(id,name,size,position,material)=>shape(id,name,size,position,material,{anchorId:id});
+  const scene={materials:{blue:{baseColor:[0.1,0.2,0.3],roughness:0.9}},objects:[
+    shape("floor-0","Room floor",[6,5,0.1],[3,2.5,-0.05],"floor"),shape("wall-0","Room wall",[6,0.15,2.5],[3,5.075,1.25],"wall"),
+    shape("wall-1","Room wall",[0.15,5,2.5],[-0.075,2.5,1.25],"wall"),shape("wall-2","Room wall",[0.15,5,2.5],[6.075,2.5,1.25],"wall"),
+    B("sofa","Three-seat sofa",[2,0.9,0.85],[1.7,4.5,0.425],"blue"),B("book","Bookcase",[1,0.3,1.9],[3.5,4.85,0.95],"wood"),B("curt","Curtains",[1.6,0.1,2.2],[5,4.93,1.1],"green"),
+    B("fl","Floor lamp",[0.35,0.35,1.6],[0.4,4.5,0.8],"cream"),B("bed","Double bed",[1.9,1.4,0.55],[1.05,1.6,0.275],"blue"),B("bt","Bedside table",[0.45,0.4,0.5],[0.3,2.65,0.25],"wood"),
+    B("tl","Table lamp",[0.25,0.25,0.4],[0.3,2.65,0.7],"cream"),B("pl","Ceiling light",[0.3,0.3,0.5],[3,2.5,2.25],"cream"),B("rug","Persian rug",[1.6,2.3,0.012],[3.4,2.6,0.006],"red"),
+    B("cook","Gas cooker",[0.6,0.6,0.9],[5.7,1.6,0.45],"white"),B("fr","Fridge",[0.6,0.65,1.75],[5.675,2.5,0.875],"white"),B("rad","Radiator",[0.06,1,0.6],[5.95,3.8,0.45],"white"),
+    B("sk","Skirting",[6,0.02,0.12],[3,4.99,0.06],"white")]};
+  const kept=JSON.stringify(scene), r=K.expand(scene), of=name=>r.parts.filter(p=>p.name===name);
+  assert.equal(JSON.stringify(scene),kept);
+  assert.deepEqual(plain(r.pieces.map(p=>[p.name,p.piece])),[["Three-seat sofa","sofa"],["Bookcase","shelves"],["Curtains","curtains"],["Floor lamp","lamp"],["Double bed","bed"],["Bedside table","table"],
+    ["Table lamp","lamp"],["Ceiling light","lamp"],["Persian rug","rug"],["Gas cooker","cooker"],["Fridge","fridge"],["Radiator","radiator"],["Skirting","skirting"]]);
+  assert.equal(r.hide.size,13);
+  // the sofa's back is at the north wall, its seats towards the room
+  assert.ok(of("Three-seat sofa").filter(p=>p.kind==="cushion").every(p=>p.position[1]<4.75)&&of("Three-seat sofa").find(p=>near(p.size[0],1.64,0.01)&&p.size[2]>0.7).position[1]>4.75);
+  // the books show to the room
+  assert.ok(of("Bookcase").filter(p=>/^kit_book/.test(p.material)).length>20&&of("Bookcase").find(p=>near(p.size[1],0.008,0.001)).position[1]>4.95,"the bookcase's back board is at the wall");
+  // the bed lies along its length, its pillows at the west wall
+  const pillows=of("Double bed").filter(p=>p.kind==="cushion"&&near(p.size[1],0.42,0.001));
+  assert.equal(pillows.length,2); assert.ok(pillows.every(p=>p.position[0]<0.6),"its head to the wall"); assert.ok(of("Double bed").some(p=>p.material==="blue")&&r.materials.blue_kitshade,"its cover in the block's colour, its frame a little darker");
+  // the cooker, the fridge and the radiator face west, into the room
+  assert.ok(of("Gas cooker").find(p=>p.kind==="cylinder"&&p.size[2]>0.3).position[0]<5.45,"the oven's handle"); assert.ok(of("Fridge").filter(p=>p.material==="kit_steel").every(p=>p.position[0]<5.4),"the fridge's handles");
+  assert.ok(of("Radiator").filter(p=>near(p.size[2],0.57,0.001)).every(p=>p.position[0]<5.95)&&of("Radiator").length===24,"the radiator's fins; its pipe goes down to the floor");
+  // three lamps: on the floor, on the table, from the ceiling
+  assert.ok(of("Floor lamp").some(p=>near(p.size[0],0.26,0.001))&&!of("Table lamp").some(p=>near(p.size[0],0.26,0.001))&&of("Ceiling light").some(p=>near(p.size[0],0.09,0.001)),"a base plate, none, a ceiling rose");
+  assert.ok(of("Table lamp").every(p=>p.position[2]>=0.5),"the table lamp still stands on its table");
+});
+
+test("12 stop 2: what the dressing drew stays, and its own signs say which way a thing faces", ()=>{
+  const A=(id,name,size,position,material,more)=>shape(id,name,size,position,material,{anchorId:name.split(" · ")[0],...(more||{})});
+  // the flat's fridge: a body, the line between its doors, a handle on one side, and a box standing on top
+  let r=K.expand({materials:{},objects:[A("f1","Fridge · 1",[0.63,0.6,1.7],[3.38,3.25,0.85],"gloss"),A("f2","Fridge · 2",[0.01,0.58,0.01],[3.06,3.25,1.15],"steel"),
+    A("f3","Fridge · 3",[0.03,0.03,0.3],[3.05,3.01,1.35],"steel"),A("f4","Fridge · 4",[0.3,0.2,0.15],[3.4,3.25,1.775],"card")]});
+  assert.deepEqual([...r.hide].sort(),["f1","f2","f3"],"the box on top of it stays"); assert.equal(r.pieces[0].kept,1);
+  assert.ok(near(r.parts.find(p=>p.material==="kit_dark"&&near(p.size[2],0.012,0.001)).position[2],1.15),"the line between its doors where the dressing drew it");
+  assert.ok(r.parts.filter(p=>p.material==="kit_steel").every(p=>p.position[0]<3.1&&p.position[1]<3.25),"its handles on the dressing's side, on its front");
+  // a radiator the dressing drew: its fins say which side is the room
+  r=K.expand({materials:{},objects:[A("r1","Hall radiator · 1",[0.05,1,0.5],[-0.84,2.2,0.58],"rad"),A("r2","Hall radiator · 2",[0.02,0.02,0.46],[-0.81,2.6,0.58],"rad"),A("r3","Hall radiator · 3",[0.02,0.02,0.46],[-0.81,1.8,0.58],"rad")]});
+  assert.equal(r.pieces[0].piece,"radiator"); assert.ok(r.parts.filter(p=>near(p.size[2],0.47,0.001)).every(p=>p.position[0]>-0.835),"fins on the side the dressing had them");
+  // left alone: a bookcase, a lamp or curtains the dressing has already built; a skirting of several shapes
+  const many=(name,n,size)=>Array.from({length:n},(_,i)=>A(name+i,name+" · "+(i+1),size,[1,1+i*0.01,1],"m"));
+  assert.equal(K.expand({materials:{},objects:many("Bookcase",4,[1,0.3,1.9])}).parts.length,0); assert.equal(K.expand({materials:{},objects:many("Floor lamp",5,[0.3,0.3,1.5])}).parts.length,0);
+  assert.equal(K.expand({materials:{},objects:many("Curtains",7,[1.4,0.1,2.2])}).parts.length,0); assert.equal(K.expand({materials:{},objects:many("Skirting",2,[2,0.02,0.1])}).parts.length,0);
+  assert.equal(K.expand({materials:{},objects:[{...A("c1","Curtains",[1.4,0.1,2.2],[1,1,1.1],"m"),kind:"cloth"}]}).parts.length,0,"a curtain already hung as cloth");
+  // a rug: only the rug is redrawn; a sofa: a loose cushion in another colour stays; a cooker: the pan on it stays
+  r=K.expand({materials:{},objects:[shape("extra-1","hall runner · 1",[0.6,2.4,0.01],[0,3,0.15],"carpet"),shape("extra-2","hall runner · 2",[0.06,0.8,0.02],[0.3,1.2,0.16],"steel")]});
+  assert.deepEqual([...r.hide],["extra-1"]); assert.equal(r.parts.length,7);
+  r=K.expand({materials:{},objects:[A("s1","Sofa · 1",[2,0.9,0.45],[2,2,0.225],"blue"),A("s2","Sofa · 2",[2,0.2,0.85],[2,1.65,0.425],"blue"),{...A("s3","Sofa · 3",[0.4,0.15,0.4],[1.4,1.85,0.65],"mustard"),kind:"cushion"}]});
+  assert.deepEqual([...r.hide].sort(),["s1","s2"]); assert.ok(r.parts.filter(p=>p.kind==="cushion"&&p.size[1]>0.5).every(p=>p.position[1]>1.9),"its seats away from its tall back");
+  r=K.expand({materials:{},objects:[A("k1","Gas cooker · 1",[0.6,0.6,0.9],[1,1,0.45],"white"),A("k2","Gas cooker · 2",[0.2,0.2,0.1],[1,1,0.95],"steel")]});
+  assert.deepEqual([...r.hide],["k1"]); assert.equal(r.parts.length,16);
+  // a thing that is the wrong size for its name is left as it is
+  assert.equal(K.expand({materials:{},objects:[A("x","Sofa",[0.8,0.8,0.85],[1,1,0.425],"blue"),A("y","Radiator",[0.5,0.5,1.8],[3,1,0.9],"w"),A("z","Persian rug",[1,1,0.4],[2,2,0.2],"r")]}).parts.length,0);
 });
 
 console.log(`${pass} passed, ${fail} failed`);
