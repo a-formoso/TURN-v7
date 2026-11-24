@@ -45,7 +45,7 @@
     const hue=(h%360)/360, f=n=>{ const k=(n+hue*12)%12; return 0.5-0.32*Math.max(-1,Math.min(k-3,9-k,1)); };
     return [f(0),f(8),f(4)].map(v=>Math.round(Math.pow(v,2.2)*1000)/1000); }
   /* A NAMED COLOUR FOR EACH PERSON, THE SAME IN EVERY SHOT OF A SCENE (2026-11-23: the image engine is told "the blue
-     block figure is Pike"). Never red or orange: those are the props' boxes. By the person's place among everyone
+     figure is Pike"). Never red or orange: those are the props' boxes. By the person's place among everyone
      the scene plan blocks, in id order; someone the blocking does not name takes the next free colour. */
   const PALETTE=[["blue",[0.05,0.09,0.72]],["pink",[0.78,0.08,0.3]],["green",[0.06,0.42,0.1]],["yellow",[0.85,0.62,0.03]],
     ["purple",[0.3,0.06,0.6]],["turquoise",[0.02,0.5,0.5]],["white",[0.82,0.82,0.82]],["brown",[0.22,0.11,0.04]]];
@@ -56,22 +56,81 @@
     const out={}; order.forEach((id,i)=>{ const c=PALETTE[i%PALETTE.length]; out[id]={name:c[0],rgb:c[1].slice()}; });
     return out;
   }
-  // a person as blocks of their own height: legs, torso, head, and a pale face on the side they look to (a pose word
-  // lowers them: sitting, kneeling, lying). turn = radians about +Z; 0 looks north (+Y).
+  /* A PERSON AS A JOINTED FIGURE of their own height (owner 2026-11-23, the Previs look brief, step 3; they were a
+     block of legs, a block of torso and a block of head): pelvis, torso, neck, head with a nose on the side they look
+     to, upper and lower arms, hands, thighs, shins and shoes, in one flat colour (nose and shoes darker). The figure
+     is built 1.80 m tall and scaled to the person's height. A pose word seats, kneels or lays them down, and what
+     they hold brings their hands to it. turn = radians about +Z; 0 looks north (+Y).
+     EVERY RULE THE CAMERA USES IS KEPT: head, chest, height, turn and front are the numbers the block figure had (a
+     pose word lowers them: lying 0.22, kneeling 0.62, sitting 0.74 of the height), so the checks that place a camera
+     and see a face read the same person in the same place. o.holding = how many things they hold (0, 1 or 2). */
   const turnTo=(from,to)=>{ const dx=to[0]-from[0], dy=to[1]-from[1]; return Math.hypot(dx,dy)<0.02 ? null : Math.atan2(-dx,dy); };
   const frontOf=turn=>[-Math.sin(turn||0),Math.cos(turn||0)];
-  function figure(id,name,xy,floorZ,height,pose,turn,rgb){
-    const p=String(pose||"").toLowerCase();
-    const k=/\b(lying|on the floor|prone)\b/.test(p)?0.22:/\b(kneel|crouch|squat)/.test(p)?0.62:/\b(sit|sits|sitting|sat|seated)\b/.test(p)?0.74:1;
-    const h=height*k, mat="standin-"+id, z=floorZ||0, x=xy[0], y=xy[1], label=String(name||id)+" (stand-in)";
-    const rz=Number.isFinite(turn)?turn:0, f=frontOf(rz), rot=[0,0,rz];
-    return {height:h,turn:rz,front:f,head:[x,y,z+h-0.115],chest:[x,y,z+h*0.72],
-      objects:[
-        {id:"fig-"+id+"-legs",name:label,kind:"cylinder",position:[x,y,z+h*0.24],rotation:rot,size:[0.30,0.22,h*0.48],material:mat},
-        {id:"fig-"+id+"-torso",name:label,kind:"box",position:[x,y,z+h*0.66],rotation:rot,size:[0.44,0.24,h*0.36],material:mat},
-        {id:"fig-"+id+"-head",name:label,kind:"cylinder",position:[x,y,z+h-0.115],rotation:rot,size:[0.19,0.21,0.23],material:mat},
-        {id:"fig-"+id+"-face",name:label,kind:"box",position:[x+f[0]*0.095,y+f[1]*0.095,z+h-0.12],rotation:rot,size:[0.13,0.04,0.15],material:"standin-face"}],
-      material:[mat,{baseColor:arr(rgb).length===3?rgb:colourOf(id),metallic:0,roughness:0.9,emissionStrength:0}]};
+  const V={add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],mul:(a,k)=>[a[0]*k,a[1]*k,a[2]*k],
+    mix:(...t)=>{ const o=[0,0,0]; for(let i=0;i<t.length;i+=2){ o[0]+=t[i][0]*t[i+1]; o[1]+=t[i][1]*t[i+1]; o[2]+=t[i][2]*t[i+1]; } return o; },
+    unit:a=>{ const l=Math.hypot(a[0],a[1],a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]};
+  const r3=v=>v.map(n=>Math.round(n*1000)/1000);
+  // the turn of a part whose own height (+Z) lies along d: about X, then about Z (the scene's order of turns)
+  const along=d=>{ const tilt=Math.acos(Math.max(-1,Math.min(1,d[2]))); return [tilt,0,tilt<1e-4?0:Math.atan2(d[0],-d[1])]; };
+  const POSTURE=pose=>{ const p=String(pose||"").toLowerCase();
+    return /\b(lying|on the floor|prone)\b/.test(p)?"lying":/\b(kneel|crouch|squat)/.test(p)?"kneeling":/\b(sit|sits|sitting|sat|seated)\b/.test(p)?"sitting":"standing"; };
+  const LOWERS={lying:0.22,kneeling:0.62,sitting:0.74,standing:1};
+  function figure(id,name,xy,floorZ,height,pose,turn,rgb,o){
+    const posture=POSTURE(pose), k=LOWERS[posture];
+    const h=height*k, mat="standin-"+id, dark=mat+"-dark", z=floorZ||0, x=xy[0], y=xy[1], label=String(name||id)+" (stand-in)";
+    const rz=Number.isFinite(turn)?turn:0, f=frontOf(rz), s=height/1.8;
+    const head=[x,y,z+h-0.115], chest=[x,y,z+h*0.72];
+    const objects=[], n=()=>objects.length;
+    const add=(part,kind,centre,size,rot,m)=>objects.push({id:"fig-"+id+"-"+part,name:label,kind,position:r3(centre),rotation:r3(rot||[0,0,rz]),size:r3(size),material:m||mat});
+    // a rod from a to b, r thick; a ball at c
+    const rod=(part,a,b,r)=>{ const d=V.add(b,V.mul(a,-1)), l=Math.hypot(d[0],d[1],d[2])||0.001; add(part,"capsule",V.mul(V.add(a,b),0.5),[2*r,2*r,l+2*r*0.3],along(V.unit(d))); };
+    const ball=(part,c,size,m)=>add(part,"sphere",c,size,[0,0,rz],m);
+    /* the body's own directions: U up its spine, F the way its chest faces, R to its right. Standing, sitting and
+       kneeling: U is straight up and F is the way the person looks. Lying: the spine lies along the way they were
+       facing, on the floor, and the chest faces up. */
+    const F2=[f[0],f[1],0], UP=[0,0,1], lying=posture==="lying";
+    const U=lying?F2:UP, F=lying?UP:F2, R=V.unit(V.cross(F,U));
+    // where the hips are: so that the head is where the camera's checks have it
+    const skull=0.715*s;   // from the hips up the spine to the middle of the head
+    // (standing: feet on the floor; lying: the head over the mark, the body behind it)
+    const hips=lying?[x-f[0]*skull,y-f[1]*skull,z+0.13*s]:posture==="standing"?[x,y,z+0.95*s]:[x,y,Math.max(z+0.2*s,head[2]-skull)];
+    const up=d=>V.add(hips,V.mul(U,d*s));
+    ball("pelvis",up(0.02),lying?[0.24*s,0.3*s,0.26*s]:[0.345*s,0.255*s,0.24*s]);
+    rod("torso",up(0.06),up(0.5),0.15*s); objects[n()-1].size=r3(lying?[0.24*s,0.36*s,0.56*s]:[0.36*s,0.24*s,0.56*s]);
+    if(!lying) objects[n()-1].rotation=[0,0,rz];
+    rod("neck",up(0.5),up(0.6),0.052*s);
+    const mid=up(0.715);
+    ball("head",mid,[0.21*s,0.24*s,0.255*s]);
+    ball("nose",V.add(up(0.7),V.mul(F,0.125*s)),[0.056*s,0.056*s,0.056*s],dark);
+    // what they hold sits 22 cm in front of them at this height (stateScene, hands): the hands go to it
+    const holds=Math.max(0,Math.min(2,Number(obj(o).holding)||0)), holdAt=i=>[x+f[0]*0.22+(holds>1?(i?0.09:-0.09):0)*f[1],y+f[1]*0.22-(holds>1?(i?0.09:-0.09):0)*f[0],chest[2]-h*0.16];
+    [-1,1].forEach(side=>{
+      const tag=side<0?"l":"r", shoulder=V.add(up(0.47),V.mul(R,side*0.21*s));
+      // arms: down by the sides; on the lap when sitting; to what is held
+      const bend=posture==="sitting"?0.3:0.05, elbow=V.add(shoulder,V.mul(V.unit(V.mix(U,-Math.cos(bend),F,Math.sin(bend),R,side*0.06)),0.3*s));
+      let toHand=V.unit(V.mix(U,-Math.cos(posture==="sitting"?1.15:0.25),F,Math.sin(posture==="sitting"?1.15:0.25)));
+      if(holds&&!lying){ const at=holdAt(holds>1?(side<0?0:1):0), d=V.add(at,V.mul(elbow,-1)); toHand=V.unit(d); }
+      const wrist=V.add(elbow,V.mul(toHand,0.27*s));
+      rod("arm-"+tag,shoulder,elbow,0.05*s); rod("forearm-"+tag,elbow,wrist,0.042*s);
+      ball("hand-"+tag,V.add(wrist,V.mul(toHand,0.05*s)),[0.1*s,0.1*s,0.1*s]);
+      // legs: straight when standing or lying; thighs forward and shins down when sitting; knees on the floor when kneeling
+      const hip=V.add(hips,V.mul(R,side*0.1*s));
+      let knee, ankle, toe=F2;
+      if(posture==="sitting"){ knee=V.add(hip,V.mul(V.unit(V.mix(F,1,U,-0.08)),0.45*s)); ankle=[knee[0],knee[1],Math.max(z+0.08*s,knee[2]-0.42*s)]; }
+      else if(posture==="kneeling"){ const drop=Math.max(0,Math.min(0.44*s,hips[2]-(z+0.08*s))), reach=Math.sqrt(Math.max(0,0.45*s*0.45*s-drop*drop));
+        knee=[hip[0]+f[0]*reach,hip[1]+f[1]*reach,hip[2]-drop]; ankle=[knee[0]-f[0]*0.42*s,knee[1]-f[1]*0.42*s,z+0.07*s]; toe=[-f[0],-f[1],0]; }
+      else{ knee=V.add(hip,V.mul(U,-0.45*s)); ankle=V.add(knee,V.mul(U,-0.42*s)); if(lying) toe=UP; }
+      rod("thigh-"+tag,hip,knee,0.075*s); rod("shin-"+tag,knee,ankle,0.055*s);
+      // a shoe: its length the way the toes point
+      const sole=lying?V.add(ankle,V.mul(U,-0.04*s)):[ankle[0],ankle[1],Math.max(z+0.04*s,ankle[2]-0.04*s)];
+      const shoe=V.add(sole,V.mul(toe,0.07*s));
+      add("shoe-"+tag,"box",shoe,lying?[0.1*s,0.08*s,0.26*s]:[0.1*s,0.26*s,0.08*s],[0,0,rz],dark);
+    });
+    const col=arr(rgb).length===3?rgb:colourOf(id);
+    return {height:h,turn:rz,front:f,head,chest,posture,objects,
+      material:[mat,{baseColor:col,metallic:0,roughness:0.85,emissionStrength:0}],
+      // the nose and the shoes: the same colour, darker (0.55), so the face reads which way it looks
+      shade:[dark,{baseColor:col.map(v=>Math.round(v*0.55*1000)/1000),metallic:0,roughness:0.8,emissionStrength:0}]};
   }
 
   /* ---- things ---- */
@@ -300,7 +359,6 @@
     poseDoors(scene,st.doors,{plan,spaces:ctx.spaces});
     const base=JSON.parse(JSON.stringify(scene));
     scene.materials["prop-standin"]={baseColor:[0.72,0.09,0.06],metallic:0,roughness:0.6,emissionStrength:0};
-    scene.materials["standin-face"]={baseColor:[0.86,0.8,0.72],metallic:0,roughness:0.9,emissionStrength:0};
     const castOf=id=>arr(ctx.cast).find(c=>c&&String(c.id)===String(id))||{id};
     const spaces=arr(ctx.spaces);
     const here=[];
@@ -348,8 +406,8 @@
       if(!to&&arr(ctx.lookAt).length===2) to=ctx.lookAt;
       const turn=to?turnTo(me.xy,to):null;
       const col=colours[me.id]||null;
-      const sp=spaceAt(spaces,me.xy[0],me.xy[1]), fig=figure(me.id,me.name,me.xy,sp?sp.floorZ:0,heightOf(me.card),me.pose,turn==null?0:turn,col&&col.rgb);
-      fig.objects.forEach(o=>scene.objects.push(o)); scene.materials[fig.material[0]]=fig.material[1];
+      const sp=spaceAt(spaces,me.xy[0],me.xy[1]), fig=figure(me.id,me.name,me.xy,sp?sp.floorZ:0,heightOf(me.card),me.pose,turn==null?0:turn,col&&col.rgb,{holding:arr(me.holding).length});
+      fig.objects.forEach(o=>scene.objects.push(o)); scene.materials[fig.material[0]]=fig.material[1]; scene.materials[fig.shade[0]]=fig.shade[1];
       people.push({id:me.id,name:me.name,xy:me.xy,head:fig.head,chest:fig.chest,height:fig.height,turn:fig.turn,front:fig.front,holding:me.holding,
         pose:String(me.pose||""),colour:col?col.name:"",door:me.door||null});
     });
@@ -574,12 +632,12 @@
     return {pose:aim(from,a.target,lens),lensPlanned,distance:Math.round(dist*100)/100,side:opts.side||1,notes,fits:true,source};
   }
   /* WHAT EACH STAND-IN IS, in plain sentences (for the image engine that renders over the previs, and for the check
-     that compares the frame with it): who each coloured block figure is, and what each red box is and where. */
+     that compares the frame with it): who each coloured figure is, and what each red box is and where. */
   function legend(people,things){
     const P=arr(people), lines=[];
     // someone behind a shut door from this camera (p.unseen, set by pair) is not in the picture, and neither is what they hold
-    P.forEach(p=>lines.push(p.unseen ? p.name+" is on the other side of the shut "+lowName(obj(p.door).name||"door")+" and is NOT in this picture: no block figure stands for them"+(p.pose?" ("+p.pose+")":"")+"."
-      : "The "+(p.colour||"coloured")+" block figure is "+p.name+(p.pose?" ("+p.pose+")":"")+"."));
+    P.forEach(p=>lines.push(p.unseen ? p.name+" is on the other side of the shut "+lowName(obj(p.door).name||"door")+" and is NOT in this picture: no figure stands for them"+(p.pose?" ("+p.pose+")":"")+"."
+      : "The "+(p.colour||"coloured")+" figure is "+p.name+(p.pose?" ("+p.pose+")":"")+"."));
     arr(things).forEach(t=>{ const h=t.held&&P.find(p=>p.id===t.held); if(h&&h.unseen) return;
       lines.push("The red box "+(h?"in "+h.name+"\u2019s hands":t.on?(t.hung?"hanging from the ":"on the ")+String(t.on).replace(/^the /i,"").replace(/^./,c=>c.toLowerCase()):"standing on its own")
         +" is the "+String(t.name).replace(/^the /i,"")+"."); });

@@ -88,17 +88,50 @@ test("1. a person's height is read from the card's own words; with none, 1.7 m",
   assert.equal(V.heightOf({}),V.DEFAULT_HEIGHT);
   assert.equal(V.heightOf({height:"tall"}),1.7);
 });
-test("1b. a stand-in is their own height, and its face is on the side they look to",()=>{
+test("1b. a stand-in is a jointed figure of their own height, and its nose is on the side they look to",()=>{
+  // (owner 2026-11-23, the Previs look brief, step 3: it was a block of legs, a block of torso and a block of head)
   const north=V.figure("ann","Ann",[2,1],0,1.7,"standing",0);
-  assert.equal(north.objects.length,4);
+  const part=(f,name)=>f.objects.find(o=>o.id==="fig-ann-"+name);
+  assert.deepEqual(plain(north.objects.map(o=>o.id.replace("fig-ann-",""))),["pelvis","torso","neck","head","nose",
+    "arm-l","forearm-l","hand-l","thigh-l","shin-l","shoe-l","arm-r","forearm-r","hand-r","thigh-r","shin-r","shoe-r"]);
+  assert.deepEqual(plain([...new Set(north.objects.map(o=>o.kind))].sort()),["box","capsule","sphere"]);
   assert.ok(near(north.head[2]+0.115,1.7),"the head's top is the person's height");
-  const face=north.objects.find(o=>/-face$/.test(o.id));
-  assert.ok(face.position[1]>1.05&&near(face.position[0],2),"looking north, the face is north of the head");
+  // the figure itself is that tall and stands on the floor
+  const top=o=>o.position[2]+o.size[2]/2;
+  assert.ok(near(Math.max(...north.objects.map(top)),1.7,0.03),"its head ends at their height");
+  assert.ok(near(Math.min(...north.objects.filter(o=>o.kind==="box").map(o=>o.position[2]-o.size[2]/2)),0,0.005),"its shoes are on the floor");
+  assert.ok(near(part(north,"head").position[2],north.head[2],0.02),"its head is where the camera's checks have it");
+  const nose=part(north,"nose");
+  assert.ok(nose.position[1]>1.05&&near(nose.position[0],2),"looking north, the nose is north of the head");
+  assert.equal(nose.material,"standin-ann-dark"); assert.equal(part(north,"shoe-l").material,"standin-ann-dark"); assert.equal(part(north,"torso").material,"standin-ann");
+  assert.deepEqual(plain(north.shade[1].baseColor),plain(north.material[1].baseColor.map(v=>Math.round(v*0.55*1000)/1000)),"one colour, the nose and the shoes darker");
   const east=V.figure("ann","Ann",[2,1],0,1.7,"standing",V.turnTo([2,1],[5,1]));
-  const f2=east.objects.find(o=>/-face$/.test(o.id));
-  assert.ok(f2.position[0]>2.05&&near(f2.position[1],1),"looking east, the face is east of the head");
+  const n2=part(east,"nose");
+  assert.ok(n2.position[0]>2.05&&near(n2.position[1],1),"looking east, the nose is east of the head");
   assert.ok(near(east.front[0],1)&&near(east.front[1],0));
-  assert.ok(east.objects.every(o=>near(o.rotation[2],east.turn,1e-9)),"every part turns with them");
+  // left and right are theirs: looking north, the right arm is to the east
+  assert.ok(part(north,"arm-r").position[0]>2.1&&part(north,"arm-l").position[0]<1.9);
+  // the same person, smaller: every part is scaled to their height
+  const child=V.figure("ann","Ann",[2,1],0,1.1,"standing",0);
+  assert.ok(near(Math.max(...child.objects.map(top)),1.1,0.03)&&near(child.objects[1].size[2],north.objects[1].size[2]*1.1/1.7,0.002));
+  // sitting: the hips at a seat's height, the thighs forward, the feet on the floor; the numbers the checks use are the old ones
+  const sat=V.figure("ann","Ann",[2,1],0,1.7,"sitting at the table",0);
+  assert.equal(sat.posture,"sitting"); assert.ok(near(sat.height,1.7*0.74)); assert.ok(near(sat.head[2],1.7*0.74-0.115));
+  assert.ok(near(part(sat,"head").position[2],sat.head[2],0.01)); assert.ok(part(sat,"pelvis").position[2]>0.35&&part(sat,"pelvis").position[2]<0.6);
+  assert.ok(part(sat,"thigh-l").position[1]>1.1,"the thighs go forward"); assert.ok(part(sat,"shoe-l").position[2]<0.1);
+  // kneeling: the knees on the floor in front, the feet behind
+  const knelt=V.figure("ann","Ann",[2,1],0,1.7,"kneeling by the bed",0);
+  assert.equal(knelt.posture,"kneeling"); assert.ok(near(part(knelt,"head").position[2],knelt.head[2],0.01));
+  assert.ok(part(knelt,"shin-l").position[2]<0.15&&part(knelt,"shoe-l").position[1]<1.05);
+  // lying: flat on the floor, the head over the mark, the body behind it
+  const lay=V.figure("ann","Ann",[2,1],0,1.7,"lying on the floor",0);
+  assert.equal(lay.posture,"lying"); assert.ok(Math.max(...lay.objects.map(top))<0.4,"nothing of them is higher than a step");
+  assert.ok(near(part(lay,"head").position[0],2,0.01)&&near(part(lay,"head").position[1],1,0.01)); assert.ok(part(lay,"shoe-l").position[1]<0);
+  // what they hold brings their hands to it, 22 cm in front of them
+  const holding=V.figure("ann","Ann",[2,1],0,1.7,"standing",0,null,{holding:1}), empty=part(north,"hand-l"), full=part(holding,"hand-l");
+  assert.ok(full.position[1]>empty.position[1]+0.08&&full.position[2]>empty.position[2]+0.1,"the hands come up and forward");
+  // the same on every draw
+  assert.deepEqual(plain(V.figure("ann","Ann",[2,1],0,1.7,"standing",0).objects),plain(north.objects));
   // a pose word lowers them
   assert.ok(V.figure("a","A",[0,0],0,1.7,"sitting on the stairs",0).height<1.3);
   assert.ok(V.figure("a","A",[0,0],0,1.7,"kneeling",0).height<1.1);
@@ -268,8 +301,8 @@ test("5d. a camera on the other side of the shut door does not have to see them,
   // the legend: pair marks who the door hides from its camera
   st.people[0].unseen=true;
   assert.deepEqual(plain(V.legend(st.people,st.things)),[
-    "Ann Lee is on the other side of the shut front door and is NOT in this picture: no block figure stands for them (standing outside the shut door, a shape in the glass).",
-    "The pink block figure is Bob Marsh (standing)."],"and what they hold is not in it either");
+    "Ann Lee is on the other side of the shut front door and is NOT in this picture: no figure stands for them (standing outside the shut door, a shape in the glass).",
+    "The pink figure is Bob Marsh (standing)."],"and what they hold is not in it either");
   assert.match(src,/unseen\(first\.people\);[\s\S]{0,260}is on the other side of the shut "\+lowName\(p\.door\.name\)\+" as this shot starts, so the picture starts without them\./);
   assert.match(src,/const outdoors=arr\(list\)\.concat\(\[location\]\)\.filter\(l=>l&&\/ext\/i\.test\(String\(l\.intExt\|\|""\)\)&&!\/int\/i\.test/,"which spaces are out of doors comes from the location cards");
 });
@@ -518,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -548,7 +581,7 @@ test("12. each person has a named colour, the same through a scene, never the pr
   const st=V.stateScene(SET(),PLAN,STATE,CTX);
   assert.deepEqual(plain(st.people.map(p=>[p.id,p.colour,p.pose])),[["ann","blue","standing"],["bob","pink","standing"]]);
   assert.deepEqual(plain(st.scene.materials["standin-ann"].baseColor),plain(V.PALETTE[0][1]));
-  assert.deepEqual(plain(V.legend(st.people,st.things)),["The blue block figure is Ann Lee (standing).","The pink block figure is Bob Marsh (standing).",
+  assert.deepEqual(plain(V.legend(st.people,st.things)),["The blue figure is Ann Lee (standing).","The pink figure is Bob Marsh (standing).",
     "The red box in Ann Lee’s hands is the Mug.","The red box on the kitchen table is the Parcel."]);
   assert.deepEqual(plain(V.legend([],[])),[]);
 });
@@ -559,7 +592,7 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
   const chars=[{id:"amira",name:"AMIRA HUSSAIN"}];
   const ctx={scene,location:null,project:{id:"f"},charById:{amira:chars[0]},propById:{},drafts:{s5:{version:"v1",blocks}},scenes:[scene]};
   const sh={id:"b1",sceneId:"s5",beatN:1,order:1,keyframeMode:"beat-opening",moment:{n:1,of:1},planned:true,subjectsByPlan:true,subjects:["amira"],size:"MS",angle:"eye",lens:"35",move:"static",action:"Amira packs rice."};
-  const legend=["The blue block figure is AMIRA HUSSAIN (standing).","The red box in AMIRA HUSSAIN’s hands is the Tupperware."];
+  const legend=["The blue figure is AMIRA HUSSAIN (standing).","The red box in AMIRA HUSSAIN’s hands is the Tupperware."];
   const refs=[{note:"AMIRA HUSSAIN's character sheet",referenceKind:"character"},{note:"the finished frame of the shot before this one — take ONLY its look from it"},{note:"Hussain kitchen location image",locationId:"loc1"}];
   const words="camera 1.5 m high, facing south-west, 24 mm lens (wide). In its frame: AMIRA HUSSAIN (centre, close); Counter (right, close).";
   const p=shotsBox.buildShotPrompt(sh,{...ctx,resolvedRefs:refs,previs:{url:"data:x",legend,words}});
@@ -570,7 +603,7 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
   assert.ok(p.startsWith("Render Image 1 as the finished cinematic still. Image 1 is a 3D PREVIS of this exact shot, drawn to scale from the set's own model through this shot's real camera"),p.slice(0,160));
   assert.ok(p.includes("Image 2 is AMIRA HUSSAIN's character sheet")&&p.includes("Image 3 is the finished frame of the shot before this one"),"the sheets and the look reference follow, numbered after it");
   for(const t of ["THE LAYOUT IS IMAGE 1 (binding: where Image 1 and any other image or any word below disagree about where something is, how big it is or which way it faces, Image 1 is right).",
-    "ITS STAND-INS: The blue block figure is AMIRA HUSSAIN (standing). The red box in AMIRA HUSSAIN’s hands is the Tupperware.",
+    "ITS STAND-INS: The blue figure is AMIRA HUSSAIN (standing). The red box in AMIRA HUSSAIN’s hands is the Tupperware.",
     "The pale panel on a figure's head is its face: the person looks that way.",
     "as tall in the frame as their block and facing the same way",
     "where the box is and the same size in the frame as the box",
@@ -637,7 +670,7 @@ test("15. the QA check of a frame made from its previs reads it beside the drawi
   assert.ok(body.includes("const res = await aiVisionComplete([{ role:\"user\", content:prompt }], lay ? [img, lay] : [img]);"),"the drawing is the second image");
   for(const t of ["THE LAYOUT (binding, part of the contract): the SECOND attached image is the 3D previs this frame was made from",
     "one the layout does not have was ADDED; one it has that is gone was REMOVED","a shut door drawn open, or an open one drawn shut, is wrong",
-    "a person with no block figure was ADDED, a block figure with no person is MISSING","about the same size in the frame as the box",
+    "a person with no figure was ADDED, a figure with no person is MISSING","about the same size in the frame as the box",
     "Each difference is a deviation whose 'what' starts with 'Layout:'","What the layout cannot show is never a fault: faces, clothes, materials, texture, light","Never box the layout image."])
     assert.ok(body.includes(t),t);
   assert.ok(body.includes("...(lay ? { layoutRead:true } : {}),"));
@@ -650,7 +683,7 @@ test("16. an end frame is guided by the drawing of how its shot ends, when the s
   assert.ok(comp.includes("if(pm && pm.previs && pm.previs.pose && typeof window.shotPrevisForFrame===\"function\"){"));
   assert.ok(shotsUi.includes('if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs,runModel,gopts) : "";'));
   for(const t of ['out += "\\n\\nImage "+n+" is a 3D LAYOUT of this SAME shot as it ENDS, drawn to scale through the same camera:',
-    "const n = (Array.isArray(resolvedRefs) ? resolvedRefs.length : 0)+2;","Take ONLY positions from it: never its flat colours, its block figures or its boxes."])
+    "const n = (Array.isArray(resolvedRefs) ? resolvedRefs.length : 0)+2;","Take ONLY positions from it: never its flat colours, its plain jointed figures or its boxes."])
     assert.ok(shotsUi.includes(t),t);
 });
 

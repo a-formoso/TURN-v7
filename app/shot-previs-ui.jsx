@@ -133,7 +133,7 @@ function ShotPrevisFold({ sh, ctx, onView, beatLabel, onMake, makeDisabled, scen
   try{ ready = !!(loc && typeof window.locationSpatialContract==="function"
     && ((((window.locationSpatialContract(loc, ctx.locations)||{}).coordinates||{}).spaces)||[]).some(s=>s && Array.isArray(s.footprint) && s.footprint.length>=3)); }catch(e){ ready = false; }
   const tip = window.InfoTip && SPV_E(window.InfoTip,{label:"About the previs",
-    text:"This shot drawn in code, before any image is made. The place is its own 3D set from the Locations tab. Each block is a person, at their real height, on the mark the scene plan gave them; each red box is a prop at its card’s size. One camera draws how the shot starts and how it ends, so the two differ only by what moved. It costs nothing and changes nothing."});
+    text:"This shot drawn in code, before any image is made. The place is its own 3D set from the Locations tab. Each jointed figure is a person, at their real height, on the mark the scene plan gave them; each red box is a prop at its card’s size. One camera draws how the shot starts and how it ends, so the two differ only by what moved. It costs nothing and changes nothing."});
   return SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id},
     SPV_E("div",{className:"shot-previs-head"},SPV_E("span",{className:"shot-end-lab"},"This shot, drawn in code"),tip),
     ready

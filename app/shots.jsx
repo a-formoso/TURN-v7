@@ -2729,7 +2729,7 @@ function buildShotPrompt(sh, ctx){
   const _previs = (ctx.previs && typeof ctx.previs==="object" && !_isEndFrame) ? ctx.previs : null;
   const _previsNote = "a 3D PREVIS of this exact shot, drawn to scale from the set's own model through this shot's real camera — the LAYOUT to follow: "
     +"keep its camera position, lens and perspective, every wall, floor, ceiling, door, doorway, window and piece of furniture at the same place and the same size in the frame, "
-    +"and each person and each thing exactly where it stands; its flat colours, block figures and boxes are stand-ins, never the look";
+    +"and each person and each thing exactly where it stands; its flat colours, plain jointed figures and boxes are stand-ins, never the look";
   if(_previs) imgs.push(_previsNote);
   else if(ctx.prevFrameRole) imgs.push(_refFrameNote);
   // user-unticked reference sheets (sh.refOff) drop out of the image map ONLY — the

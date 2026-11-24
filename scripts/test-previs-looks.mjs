@@ -198,7 +198,7 @@ await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
   assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1", "20261123-light1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 /* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
@@ -276,6 +276,27 @@ await test("13 a sheen: only metal, glass, gloss paint and tiles mirror the smal
   assert.ok(h.drawn[0].meshes.every(m=>!m.material.envMap));
   const bare=harness(); const v=await bare.P.viewer(bare.scene(),null); v.render(bare.canvas(),{position:[0,0,1]},320,180);
   assert.ok(bare.drawn[0].meshes.every(m=>!m.material.envMap));
+});
+
+/* ---- STEP 3: STAND-INS (owner 2026-11-24: "yes, go on to step 3") ---- */
+await test("14 a person in a shot's Previs is a jointed figure: two new shapes draw it, the words to the image engine say figure", ()=>{
+  const angle=read("app/camera-angle-preview.js"), shots=read("app/shots.jsx"), shotsUi=read("app/shots-ui.jsx");
+  // a rounded rod (a limb) and a ball (a head, a hand), beside the shapes a set is built of
+  assert.ok(angle.includes('else if(item.kind==="capsule"){')&&angle.includes("new T.CapsuleGeometry(.5,Math.max(.001,long/wide-1),6,14)"));
+  assert.ok(angle.includes('}else if(item.kind==="sphere"){g=new T.SphereGeometry(.5,20,14);g.rotateX(Math.PI/2);}'));
+  // the figure: 17 parts, built 1.80 m tall and scaled; the camera's numbers are the block figure's (test-shot-previs.mjs 1b)
+  assert.ok(shot.includes("function figure(id,name,xy,floorZ,height,pose,turn,rgb,o){")&&shot.includes("const LOWERS={lying:0.22,kneeling:0.62,sitting:0.74,standing:1};"));
+  assert.ok(shot.includes("const head=[x,y,z+h-0.115], chest=[x,y,z+h*0.72];"),"head and chest where the checks have always had them");
+  assert.ok(shot.includes("{holding:arr(me.holding).length});"),"what a person holds brings their hands to it");
+  assert.ok(shot.includes("scene.materials[fig.shade[0]]=fig.shade[1];"));
+  // in clay a figure keeps its colours: its parts are objects whose id starts fig- (step 1)
+  assert.ok(shot.includes('add=(part,kind,centre,size,rot,m)=>objects.push({id:"fig-"+id+"-"+part,'));
+  // what the image engine and its check are told: figures, never block figures
+  for(const src of [shot,ai,shots,shotsUi,shotUi]) assert.ok(!/block figure/.test(src.replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/.*$/gm,"")),"no block figure left in what is said");
+  assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its flat colours, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its flat colours, its plain jointed figures or it"));
+  assert.ok(ai.includes("Each person is a plain jointed figure in one colour (a body, a head with a nose that shows which way they look, arms with hands, legs with shoes)"));
+  for(const f of ["app/camera-angle-preview.js","app/shot-previs.js","app/shots.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx"])
+    assert.ok(["20261124-figures1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 console.log(pass+" passed, "+fail+" failed");

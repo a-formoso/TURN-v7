@@ -9,6 +9,11 @@
     if(item.kind==="box")g=new T.BoxGeometry(1,1,1);
     else if(item.kind==="cylinder"){g=new T.CylinderGeometry(.5,.5,1,24);g.rotateX(Math.PI/2);}
     else if(item.kind==="torus")g=new T.TorusGeometry(.36,.07,8,24);
+    // a rounded rod along its height (a stand-in's limb) and a ball (its head, a hand): its size makes it an oval
+    else if(item.kind==="capsule"){
+      const wide=Math.max(.001,Math.max(Math.abs(item.size[0]),Math.abs(item.size[1]))),long=Math.max(wide,Math.abs(item.size[2]));
+      g=T.CapsuleGeometry?new T.CapsuleGeometry(.5,Math.max(.001,long/wide-1),6,14):new T.CylinderGeometry(.5,.5,1,14);g.rotateX(Math.PI/2);
+    }else if(item.kind==="sphere"){g=new T.SphereGeometry(.5,20,14);g.rotateX(Math.PI/2);}
     else if(item.kind==="cushion"){
       g=new T.SphereGeometry(.5,32,16);g.rotateX(Math.PI/2);
       const p=g.getAttribute("position");
