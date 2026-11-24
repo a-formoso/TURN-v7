@@ -12821,3 +12821,11 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .shot-previs-looks button[aria-pressed="true"]{background:var(--hs-amber,var(--pos));color:var(--hs-on-amber,#2C2722)}
 .shot-previs-looks button:hover:not([aria-pressed="true"]){background:var(--bg-2)}
 .shot-previs-looks button:focus-visible{outline:2px solid var(--pos);outline-offset:-2px}
+
+/* USE THIS ANGLE IN A SHOT (owner 2026-11-24): the picker in a location's camera tool, and the line on a shot's Previs */
+.loc-angle-use{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}
+.loc-angle-use-pick{flex:1 1 100%;display:grid;gap:10px;padding:14px 15px;border:1px solid var(--line,#e4dfd3);border-radius:10px;background:var(--panel-2,#faf8f3)}
+.loc-angle-use-pick .loc-cam-field{display:grid;gap:4px}
+.loc-angle-use-pick .loc-cam-field .prop-select{width:100%}
+.shot-previs-hand{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.shot-previs-hand>span{font-weight:600}

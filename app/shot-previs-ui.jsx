@@ -89,9 +89,20 @@ function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig:colourSig, onView, beatLa
     SPV_E("figcaption",null,lab));
   const pose = res.pose||{}, pos = pose.position||[];
   const byLabel = (plan.camerasBy && plan.camerasBy.label) || "the writing engine";
-  const who = res.source==="plan" ? "Placed by "+byLabel+", checked against the set."
+  /* YOUR ANGLE (2026-11-24, step 5): a camera set by hand in a location's camera tool. The card says where it came
+     from and offers the way back to the camera the plan had (or, with none, to the one the app finds). */
+  const hand = res.source==="hand";
+  const from = (hand && (res.from || (cam && cam.from))) || {};
+  const who = hand ? "It stays exactly where you set it; the checks only say what they find."
+    : res.source==="plan" ? "Placed by "+byLabel+", checked against the set."
     : res.source==="moved" ? "Placed by "+byLabel+", then moved by the app."
     : "Placed by the app.";
+  const canReturn = hand && typeof window.turnReturnPlannedCamera==="function" && window.ScenePlan && !(ctx && ctx.readOnly);
+  const handLine = hand && SPV_E("p",{className:"shot-previs-line shot-previs-hand","data-testid":"shot-previs-hand"},
+    SPV_E("span",null,"Camera: your angle from "+(String(from.locationName||"").trim()||"a location")+(String(from.angleName||"").trim() ? " (\u201c"+String(from.angleName).trim()+"\u201d)" : "")+"."),
+    canReturn && SPV_E("button",{type:"button",className:"char-draft-btn ghost","data-testid":"shot-previs-return",
+      title:cam && cam.planned ? "Give this shot back the camera the scene plan placed for it. Your angle stays saved on its location." : "Remove your angle from this shot: the app finds a camera for it again. Your angle stays saved on its location.",
+      onClick:()=>window.turnReturnPlannedCamera(sh.sceneId, window.ScenePlan.shotCameraKey(sh))},"Return to the planned camera"));
   const line = ["The camera stands "+shotPrevisNum(res.distance,1)+" m away", shotPrevisNum(pos[2],1)+" m high", shotPrevisNum(pose.lensMm)+" mm lens"].join(", ")+". "+who;
   const moving = sh.move && sh.move!=="static";
   const notes = (res.notes||[]).slice();
@@ -107,6 +118,7 @@ function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig:colourSig, onView, beatLa
       pic(res.start, res.end ? "How it starts" : "Start and end", base+(res.end?", start":"")),
       res.end && pic(res.end, "How it ends", base+", end")),
     !res.end && SPV_E("p",{className:"shot-previs-line"},"Nothing moves in this shot: it ends as it starts."),
+    handLine,
     SPV_E("p",{className:"shot-previs-line","data-testid":"shot-previs-camera"},line),
     notes.map((t,i)=>SPV_E("p",{key:i,className:"shot-previs-note"},t)),
     // (a frame is always made from the Colour drawing: said while another look is on)
@@ -134,7 +146,7 @@ function ShotPrevisFold({ sh, ctx, onView, beatLabel, onMake, makeDisabled, scen
     && ((((window.locationSpatialContract(loc, ctx.locations)||{}).coordinates||{}).spaces)||[]).some(s=>s && Array.isArray(s.footprint) && s.footprint.length>=3)); }catch(e){ ready = false; }
   const tip = window.InfoTip && SPV_E(window.InfoTip,{label:"About the previs",
     text:"This shot drawn in code, before any image is made. The place is its own 3D set from the Locations tab. Each jointed figure is a person, at their real height, on the mark the scene plan gave them; each red box is a prop at its card’s size. One camera draws how the shot starts and how it ends, so the two differ only by what moved. It costs nothing and changes nothing."});
-  return SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id},
+  return SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : (cam && cam.hand) ? "your angle" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id},
     SPV_E("div",{className:"shot-previs-head"},SPV_E("span",{className:"shot-end-lab"},"This shot, drawn in code"),tip),
     ready
       ? (()=>{ const st = shotPrevisStaged(sceneShots||[sh])[sh.id] || null;

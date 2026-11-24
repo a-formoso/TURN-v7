@@ -499,7 +499,7 @@ test("8 it asks first, says what it replaces as Re-draft does, shows its progres
   const order=['const q = SP.confirmText({ sceneNo:scene.no, engine, hasShots:live.length>0, replaces:redraftReplaces(live), again:had });',
     'ok = typeof window.appConfirm==="function" ? await window.appConfirm(q)','if(!ok) return;','setPlanningScene({ id:scene.id, since:Date.now(), est:SP.estimateSeconds(beatRows.length), engine, text:"Planning Scene "+no+"\\u2026" });',
     'const res = await window.aiPlanScene(scene,','assertCurrent();\n      if(typeof normalizeShot','const k = keepUnansweredBeats(scene, rows, made); made = k.made;','if(made.length) commitBeatKeyframes(made, assertCurrent);',
-    'const applied = SP.applyToShots(','shotsLiveRef.current = next; setShots(next);','setProject(p=>({ ...p, scenePlans:{ ...((p && p.scenePlans)||{}), [scene.id]:doc } }));']
+    'const applied = SP.applyToShots(','shotsLiveRef.current = next; setShots(next);','return { ...p, scenePlans:{ ...((p && p.scenePlans)||{}), [scene.id]:Object.keys(mine).length ? { ...doc, cameras:mine } : doc } }; });']
     .map(t=>{ const i=fn.indexOf(t); assert.ok(i>=0,"the run has "+t); return i; });
   order.forEach((x,i)=>assert.ok(i===0||x>order[i-1],"step "+i+" follows the one before it"));
   // a shot whose specification changed loses its approval, as a re-draft does; one that did not keeps it
@@ -578,7 +578,7 @@ test("9 the brief, Frances's fact, the pipeline and the keys", ()=>{
   assert.ok(at('<script src="app/scene-plan.js?v=')<at('src="app/props.jsx?v=')&&at('<script src="app/scene-plan.js?v=')<at('src="app/shots.jsx?v='));
   assert.ok(at('src="app/locations-ui.jsx?v=')<at('src="app/shots-ui.jsx?v='),"the progress line's own file comes before the Shots tab");
   for(const f of ["scene-plan.js","shots.jsx","shots-ui.jsx","props.jsx","artroom.jsx","ai.jsx","script.jsx","app.jsx","styles.css"])
-    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 test("9b the shots are written a few beats at a time: whole beats up to six moments, a long beat in runs of six", ()=>{

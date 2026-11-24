@@ -513,7 +513,7 @@ test("10. the shot card has a Previs fold: two pictures from one camera, the cam
   assert.ok(shotsUi.indexOf("window.ShotPrevisFold && _el(")>shotsUi.indexOf('label:"2 \\u00b7 Camera"')&&shotsUi.indexOf("window.ShotPrevisFold && _el(")<shotsUi.indexOf('_el(CardFold,{label:"Shot prompt"'),"right under the camera");
   assert.ok(ui.includes('if(!sh || !sh.planned || !sh.startState || !SP || !SPv || !window.KinolotPrevis) return null;'),"planned shots only");
   assert.ok(ui.includes('if(!plan || !SP.exact(plan)) return null;'),"a plan with marks only");
-  assert.ok(ui.includes('SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id}'));
+  assert.ok(ui.includes('SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : (cam && cam.hand) ? "your angle" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id}'));
   assert.ok(ui.includes('window.ShotPrevis.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:960,')&&ui.includes("...(staged ? { startState:staged.start, endState:staged.end } : {}) }) : null;"),"the card's previs is the strip's own panel");
   assert.ok(ui.includes("const turn = shotPrevisLine.then(run, run);"),"one drawing at a time");
   assert.ok(ui.includes('pic(res.start, res.end ? "How it starts" : "Start and end"')&&ui.includes('res.end && pic(res.end, "How it ends"'));
@@ -538,7 +538,7 @@ test("10b. the Scene plan has a Cameras row; placing them is saved with the plan
   const at=app.indexOf("const placeSceneCameras = async (scene, opts)=>{"), body=app.slice(at,app.indexOf("const planSceneShots = async (scene, opts)=>{",at));
   assert.ok(at>0&&body.includes("const q = SP.camerasConfirmText({ sceneNo:scene.no, engine,")&&body.indexOf("window.appConfirm(q)")<body.indexOf("window.aiPlanCameras(scene"),"alone, it asks before it spends");
   assert.ok(body.includes("if(!cur || cur.at!==plan.at) return p;"),"only onto the plan it was made for");
-  assert.ok(body.includes("[scene.id]:{ ...cur, cameras:res.cameras, camerasAt:new Date().toISOString(),"));
+  assert.ok(body.includes("[scene.id]:{ ...cur, cameras:SP.keepHandCameras(cur.cameras, res.cameras, keysNow), camerasAt:new Date().toISOString(),"),"(an angle set by hand is kept: step 5)");
   assert.ok(!/setShots|shotsLiveRef\.current\s*=|commitBeatKeyframes/.test(body),"no shot, no frame and no approval changes");
   assert.ok(body.includes("if(!canDesignShots()) return 0;")||body.includes("|| !canDesignShots()) return 0;"));
   // a new plan places them as its last step, and a failure there leaves the plan
@@ -551,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -789,6 +789,41 @@ test("18c. a beat's frames are made in order, one at a time, then its end frame;
   // a card that is not there: nothing is pressed after it
   const b2=uiBox(); b2.nbGetMeta=()=>null; b2.__nbGenInflight={}; let later=0; b2.__shotPrevisMake={s2:()=>{ later++; }};
   assert.equal(await b2.shotPrevisMakeBeat(list,"",()=>{}),0); assert.equal(later,0);
+});
+
+/* ---- 19. a camera set by hand (owner 2026-11-24, the Previs look brief, step 5): "a camera set by hand keeps its
+   own direction and is never moved. Every check still runs and its notes are shown" ---- */
+test("19. a camera set by hand stands and looks exactly as it was chosen; the checks speak and move nothing",()=>{
+  const st=placed(), clear=clearOf(st.base);
+  const mine=(position,yaw,pitch,lensMm)=>SP.handCamera({position,yaw,pitch,lensMm},{floorZ:0,from:{locationId:"loc",locationName:"Kitchen",angleId:"a1",angleName:"From the window"}});
+  const good=V.planCamera(mine([2.6,2.6,1.5],180,-8,35),SHOT,st,st.base,PLAN,SPACES,{clear});
+  assert.equal(good.source,"hand"); assert.equal(good.fits,true); assert.deepEqual(plain(good.notes),[]);
+  assert.deepEqual(plain(good.pose),{position:[2.6,2.6,1.5],yaw:180,pitch:-8,lensMm:35},"its own place, direction and lens: not aimed again");
+  assert.deepEqual(plain(good.from),{locationId:"loc",locationName:"Kitchen",angleId:"a1",angleName:"From the window"});
+  // the same spots a planned camera is moved from (7b): a hand-set one stays, and says why it is a problem
+  const inWall=V.planCamera(mine([1,1.5,1.5],90,0,35),{...SHOT,subjects:["ann"]},st,st.base,PLAN,SPACES,{clear});
+  assert.deepEqual(plain(inWall.pose.position),[1,1.5,1.5]); assert.equal(inWall.source,"hand");
+  assert.equal(inWall.notes[0],"Your angle stands inside a wall or a piece of furniture.");
+  const off=V.planCamera(mine([2.6,3.4,1.5],180,-8,35),SHOT,st,st.base,PLAN,SPACES,{clear});
+  assert.deepEqual(plain(off.pose.position),[2.6,3.4,1.5]); assert.equal(off.notes[0],"Your angle stands off this place\u2019s floor plan.");
+  const onAnn=V.planCamera(mine([2,1.15,1.5],180,0,35),SHOT,st,st.base,PLAN,SPACES,{clear});
+  assert.deepEqual(plain(onAnn.pose.position),[2,1.15,1.5]); assert.equal(onAnn.notes[0],"Your angle stands where a person stands as this shot starts.");
+  // looking the other way: the people the shot frames are not in the picture, and the card says so
+  const away=V.planCamera(mine([2.6,2.6,1.5],0,0,35),SHOT,st,st.base,PLAN,SPACES,{clear});
+  assert.equal(away.pose.yaw,0); assert.ok(away.notes.some(n=>/ and .* are outside the picture from your angle as this shot starts\.$/.test(n)),"said, not corrected");
+  // something in the set in the way: said
+  const blind=V.planCamera(mine([2.6,2.6,1.5],180,-8,35),SHOT,st,st.base,PLAN,SPACES,{clear:()=>false});
+  assert.deepEqual(plain(blind.pose.position),[2.6,2.6,1.5]); assert.ok(blind.notes.includes("From your angle something in the set hides someone this shot frames."));
+  // a very wide lens: the size note, the lens untouched; a very long one cuts both people out, and that is what is said
+  const wide=V.planCamera(mine([2.6,2.9,1.5],180,-4,14),SHOT,st,st.base,PLAN,SPACES,{clear});
+  assert.equal(wide.pose.lensMm,14); assert.ok(wide.notes.some(n=>/^From \d\.\d m your 14 mm lens shows more than the .* this shot was planned as\.$/.test(n)),"a planned camera would have had its lens changed");
+  const tight=V.planCamera(mine([2.6,2.9,1.5],180,-4,120),SHOT,st,st.base,PLAN,SPACES,{clear});
+  assert.equal(tight.pose.lensMm,120); assert.ok(tight.notes.some(n=>/are outside the picture from your angle/.test(n)));
+  // what is in the picture: in front, inside the angle of the lens
+  assert.equal(V.inFrame({position:[0,0,1.5],yaw:0,pitch:0,lensMm:35},[0,3,1.5]),true); assert.equal(V.inFrame({position:[0,0,1.5],yaw:0,pitch:0,lensMm:35},[0,-3,1.5]),false,"behind the camera");
+  assert.equal(V.inFrame({position:[0,0,1.5],yaw:90,pitch:0,lensMm:35},[3,0,1.5]),true,"90 is east"); assert.equal(V.inFrame({position:[0,0,1.5],yaw:0,pitch:0,lensMm:100},[2,3,1.5]),false,"outside a long lens");
+  // marked by hand but with no pose (damaged): read as an ordinary planned camera
+  assert.equal(V.planCamera({hand:true,at:[2.6,2.6],height:1.5,aim:["ann","bob"],lens:35},SHOT,st,st.base,PLAN,SPACES,{clear}).source,"plan");
 });
 
 await Promise.all(pending);

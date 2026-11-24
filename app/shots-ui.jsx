@@ -2343,6 +2343,7 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
   const marks = (plan && plan.marks) || [];
   const setName = (id)=>{ const st = ((plan && plan.sets)||[]).find(x=>x && x.id===id); return st ? st.heading : ""; };
   const camCount = Object.keys((plan && plan.cameras)||{}).length;
+  const handCount = (plan && SP && typeof SP.handCameraCount==="function") ? SP.handCameraCount(plan) : 0;   // angles set by hand (step 5)
   return _el("div",{className:"ssx-plan","data-testid":"scene-plan"},
     _el("div",{className:"ssx-plan-head"},
       _el("button",{type:"button",className:"ssx-brief-toggle ssx-plan-toggle","aria-expanded":(open&&plan)?"true":"false",disabled:!plan,
@@ -2372,7 +2373,8 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
       SP.exact(plan) && _el("div",{className:"ssx-plan-row","data-testid":"scene-plan-cameras"},
         _el("span",{className:"ssx-plan-k"},"Cameras"),
         _el("span",{className:"ssx-plan-v ssx-plan-cams"},
-          _el("span",null,camCount ? camCount+" placed on the floor plan"+((plan.camerasBy && plan.camerasBy.label) ? " by "+plan.camerasBy.label : "")+". Each shot\u2019s Previs shows its own."
+          _el("span",null,camCount ? [camCount-handCount>0 ? (camCount-handCount)+" placed on the floor plan"+((plan.camerasBy && plan.camerasBy.label) ? " by "+plan.camerasBy.label : "") : "",
+              handCount ? handCount+" your own angle"+(handCount!==1?"s":"")+" from a location\u2019s camera" : ""].filter(Boolean).join(", ")+". Each shot\u2019s Previs shows its own."
             : "Not placed yet: each shot\u2019s Previs uses a camera found by the app."),
           window.InfoTip && _el(window.InfoTip,{label:"About the cameras",
             text:"One short writing pass gives each planned shot a camera on the floor plan: where it stands, how high, what it looks at and its lens. The app then checks each one against the set in 3D and moves any that cannot stand there. A new plan places them as its last step."}),
@@ -2986,6 +2988,17 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
     if(i<0) return;
     setPIdx(i);
     setCollapsed(c=>({ ...c, [f.sceneId]:false }));
+    /* AN ANGLE WAS JUST PUT INTO A SHOT (2026-11-24, step 5: "After confirm, open that shot in the Shots tab with its
+       Previs open"): the hand-off names the shot; once its card is on the page it is brought into view and its
+       Previs section opened. Tried for a few seconds, then given up quietly. */
+    if(String(f.action||"").indexOf("shot:")===0){
+      const shotId = String(f.action).slice(5); let tries = 0;
+      const go = ()=>{ const card = document.querySelector('[data-shot-card="'+shotId.replace(/"/g,"")+'"]');
+        if(!card){ if(++tries<24) setTimeout(go, 250); return; }
+        try{ card.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){}
+        try{ window.dispatchEvent(new CustomEvent("nb-open-fold",{ detail:"shot-previs-"+shotId })); }catch(e){} };
+      setTimeout(go, 300);
+    }
     if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i], { always:true }); }, 400);
   },[scenesWithShots.length]);
   const sceneNoOf = (sid)=>{ const s=(scenes||[]).find(x=>x.id===sid); return s ? s.no : sid; };

@@ -563,8 +563,50 @@
   const WHY={outside:"The planned camera stood off the floor plan.",solid:"The planned camera stood inside a wall or a piece of furniture.",
     person:"The planned camera stood where a person stands.",hidden:"From the planned camera something in the set hid who the shot is of.",
     behind:"From the planned camera one person hid another."};
+  /* A CAMERA SET BY HAND (owner 2026-11-24, step 5: "a camera set by hand keeps its own direction and is never
+     moved. Every check still runs and its notes are shown"). It stands and looks exactly as it was chosen in the
+     location's camera tool; the checks say what they find and change nothing. */
+  const HAND_WHY={outside:"Your angle stands off this place\u2019s floor plan.",solid:"Your angle stands inside a wall or a piece of furniture.",
+    person:"Your angle stands where a person stands as this shot starts.",hidden:"From your angle something in the set hides someone this shot frames.",
+    behind:"From your angle one person hides another."};
+  // is a point inside the picture a camera takes? (16:9; a little slack at the edges)
+  function inFrame(pose,pt){
+    const p=obj(pose), at=arr(p.position), yaw=Number(p.yaw)/DEG, pitch=Number(p.pitch)/DEG;
+    const f=[Math.sin(yaw)*Math.cos(pitch),Math.cos(yaw)*Math.cos(pitch),Math.sin(pitch)], r=[Math.cos(yaw),-Math.sin(yaw),0];
+    const u=[r[1]*f[2]-r[2]*f[1],r[2]*f[0]-r[0]*f[2],r[0]*f[1]-r[1]*f[0]], d=[pt[0]-at[0],pt[1]-at[1],pt[2]-at[2]];
+    const z=d[0]*f[0]+d[1]*f[1]+d[2]*f[2]; if(z<=0.05) return false;
+    const tv=Math.tan(vfovOf(Number(p.lensMm)||35)/2), th=tv*16/9;
+    return Math.abs(d[0]*r[0]+d[1]*r[1]+d[2]*r[2])/z<=th*1.02&&Math.abs(d[0]*u[0]+d[1]*u[1]+d[2]*u[2])/z<=tv*1.02;
+  }
+  function handCamera(cam,shot,placed,set,plan,spaces,opts){
+    opts=opts||{};
+    const c=obj(cam), pose=obj(c.pose), from=arr(pose.position).map(Number), sh=obj(shot);
+    if(from.length!==3||!from.every(Number.isFinite)) return null;
+    const lens=Math.max(8,Math.min(200,Math.round(Number(pose.lensMm)||35))), notes=[], P=arr(placed.people);
+    const a=aimOf(c,sh,placed,set,plan), framed=a?a.who.concat(P.filter(p=>arr(sh.subjects).indexOf(p.id)>=0&&a.who.indexOf(p)<0)):[];
+    const x=from[0], y=from[1], sp=spaceAt(spaces,x,y), own=String(sh.angle||"").toLowerCase()==="pov";
+    const out={position:from.map(n=>Math.round(n*1000)/1000),yaw:Number(pose.yaw)||0,pitch:Math.max(-89,Math.min(89,Number(pose.pitch)||0)),lensMm:lens};
+    // the same checks as a planned camera, in the same order; each one only says what it finds
+    if(!sp) notes.push(HAND_WHY.outside);
+    else if(edgeDistance(sp.footprint,x,y)<0.1||solidAt(set,from)) notes.push(HAND_WHY.solid);
+    else if(!own&&P.some(q=>!beyond(q,x,y)&&Math.hypot(q.xy[0]-x,q.xy[1]-y)<0.3)) notes.push(HAND_WHY.person);
+    const seen=framed.filter(p=>!beyond(p,x,y)), cut=seen.filter(p=>!inFrame(out,p.head)), inside=seen.filter(p=>cut.indexOf(p)<0);
+    if(cut.length) notes.push(cut.map(p=>p.name||"Someone").join(" and ")+(cut.length>1?" are":" is")+" outside the picture from your angle as this shot starts.");
+    if(typeof opts.clear==="function"&&inside.some(p=>!opts.clear(from,p.head))) notes.push(HAND_WHY.hidden);
+    else if(inside.some(w=>P.some(q=>q.id!==w.id&&!beyond(q,x,y)&&hides(from,w.head,q)))) notes.push(HAND_WHY.behind);
+    const dist=a?Math.hypot(a.target[0]-from[0],a.target[1]-from[1],a.target[2]-from[2])||0.01:0;
+    if(a&&inside.length){
+      const shows=2*dist*Math.tan(vfovOf(lens)/2);
+      if(shows<a.frameH*0.72||shows>a.frameH*1.5) notes.push("From "+dist.toFixed(1)+" m your "+lens+" mm lens shows "+(shows<a.frameH?"less":"more")+" than the "+SIZE_WORD[a.size]+" this shot was planned as.");
+    }
+    P.forEach(q=>{ const d=[q.xy[0]-x,q.xy[1]-y], l=Math.hypot(d[0],d[1]), f=[Math.sin(out.yaw/DEG),Math.cos(out.yaw/DEG)];
+      if(l>0.01&&l<0.5&&(d[0]*f[0]+d[1]*f[1])/l>0.7&&!own&&!beyond(q,x,y)) notes.push((q.name||"Someone")+" stands "+l.toFixed(1)+" m in front of the camera and fills much of the frame."); });
+    return {pose:out,lensPlanned:lens,distance:Math.round(dist*100)/100,side:opts.side||1,notes,fits:true,source:"hand",from:obj(c.from)};
+  }
   function planCamera(cam,shot,placed,set,plan,spaces,opts){
     opts=opts||{};
+    // (a camera set by hand is never moved)
+    if(obj(cam).hand===true&&obj(cam).pose){ const mine=handCamera(cam,shot,placed,set,plan,spaces,opts); if(mine) return mine; }
     const c=obj(cam), at=arr(c.at).map(Number);
     if(at.length!==2||!at.every(Number.isFinite)) return null;
     const sh=obj(shot), a=aimOf(c,sh,placed,set,plan); if(!a) return null;
@@ -748,7 +790,7 @@
       }finally{ lines.dispose(); }
     }
     const rough=first.things.filter(t=>!t.measured).map(t=>t.name);
-    const out={start:null,end:null,width:0,height:0,pose:found.pose||null,source:found.source||"app",fits:!!found.fits,notes:arr(found.notes).slice(),
+    const out={start:null,end:null,width:0,height:0,pose:found.pose||null,source:found.source||"app",from:found.from||null,fits:!!found.fits,notes:arr(found.notes).slice(),
       missing:first.missing.slice(),rough,lensPlanned:found.lensPlanned,distance:found.distance,side:found.side,people:first.people,things:first.things};
     if(!found.pose) return out;
     // who a shut door hides from this camera: said, and left out of what the picture is told it holds
@@ -868,5 +910,5 @@
   }
 
   root.ShotPrevis={DEFAULT_HEIGHT,DEFAULT_SIZE,FRAME,PALETTE,paletteFor,heightOf,colourOf,figure,turnTo,sizeFromText,sizeOf,inside,edgeDistance,spacesOf,spaceAt,markXY,fixedTop,fixedCentre,
-    faceTarget,openingId,doorLine,poseDoors,hangOn,restsOn,dressingWords,stateScene,hides,solidAt,camera,aimOf,planCamera,cameraKey,legend,seenIn,frameWords,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
+    faceTarget,openingId,doorLine,poseDoors,hangOn,restsOn,dressingWords,stateScene,hides,solidAt,camera,aimOf,planCamera,handCamera,inFrame,cameraKey,legend,seenIn,frameWords,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
 })(typeof window!=="undefined"?window:globalThis);

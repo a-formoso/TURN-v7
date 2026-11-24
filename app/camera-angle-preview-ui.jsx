@@ -6,6 +6,10 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   const [extraId,setExtraId]=React.useState(""),[error,setError]=React.useState(""),[notice,setNotice]=React.useState(""),[ready,setReady]=React.useState(false),[attempt,setAttempt]=React.useState(0),[displayMode,setDisplayMode]=React.useState(""),[softwareOnly,setSoftwareOnly]=React.useState(false);
   const [inspection,setInspection]=React.useState(null);
   const [viewLabel,setViewLabel]=React.useState(null);
+  /* USE THIS ANGLE IN A SHOT (owner 2026-11-24, the Previs look brief, step 5: "I move the camera until I like the
+     view. I press Use this angle in a shot. I pick where it goes: the scene, then the beat, then the shot inside
+     that beat"). use = the picker's choice so far ({sceneId, beatN, shotId, name}); null = the picker is shut. */
+  const [use,setUse]=React.useState(null);
   const base=React.useRef(null),dialog=React.useRef(null),candidate=React.useRef(null),thumbs=React.useRef({}),viewer=React.useRef(null),lastRendered=React.useRef("");
   /* THE SET AS IT IS DRESSED (owner 2026-11-16: "the camera tool shows the set as dressed"): the views are drawn as
      Previs draws them (lit, with the dressing of every card of the place), so a camera is aimed at the real thing.
@@ -18,7 +22,7 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
   };
   const labels={TL:"Top left",TR:"Top right",BL:"Bottom left",BR:"Bottom right"};
   const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0;
-  React.useEffect(()=>{setOpen(false);setSpec(null);setError("");setNotice("");},[l.id,epoch]);
+  React.useEffect(()=>{setOpen(false);setSpec(null);setError("");setNotice("");setUse(null);},[l.id,epoch]);
   const list=()=>((window.turnContinuity||{}).locations)||[];
   const current=()=>list().find(x=>x.id===l.id);
   function begin(panel="TL"){
@@ -88,15 +92,47 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
     if(!ready||lastRendered.current!==window.KinolotRenderContract.canonical(pose))throw Error("Wait for the current angle preview before using it.");return location;
   }
   function saveExtra(){
-    setError("");try{const location=guard(),views=locationCoverageViews(location),id=extraId||"angle-"+window.crypto.randomUUID();
-      const existing=extraId&&views.find(v=>v.id===extraId&&!v.panel);
-      if(extraId&&!existing)throw Error("That extra camera was removed. Close and reopen the preview.");
+    setError("");try{const location=guard();
       const title=name.trim().slice(0,100);if(!title)throw Error("Name this camera angle before saving it.");
-      const text=locationPoseFreeText(pose,locationSpaceAnchors(location));
-      const view={...(existing||{id,purpose:"",visibleAnchors:"",staging:emptyStaging()}),name:title,pose:{...pose,position:[...pose.position],basis:"user"},
-        cameraPosition:existing?.cameraPosition||text.cameraPosition,target:existing?.target||text.target,lens:pose.lensMm+" mm"};
-      onUpdate(location.id,{coverageViews:existing?views.map(v=>v.id===id?view:v):views.concat(view)});
+      const id=keepAngle(location,title);
       setExtraId(id);setNotice("Saved “"+title+"” as an extra camera. The four panel cameras are unchanged.");
+    }catch(e){setError(e.message);}
+  }
+  // the extra camera this angle is kept as (a new one, or the one being edited): saved on the location under a name
+  function keepAngle(location,title){
+    const views=locationCoverageViews(location),id=extraId||"angle-"+window.crypto.randomUUID();
+    const existing=extraId&&views.find(v=>v.id===extraId&&!v.panel);
+    if(extraId&&!existing)throw Error("That extra camera was removed. Close and reopen the preview.");
+    const text=locationPoseFreeText(pose,locationSpaceAnchors(location));
+    const view={...(existing||{id,purpose:"",visibleAnchors:"",staging:emptyStaging()}),name:title,pose:{...pose,position:[...pose.position],basis:"user"},
+      cameraPosition:existing?.cameraPosition||text.cameraPosition,target:existing?.target||text.target,lens:pose.lensMm+" mm"};
+    onUpdate(location.id,{coverageViews:existing?views.map(v=>v.id===id?view:v):views.concat(view)});
+    return id;
+  }
+  // the scenes that play in this place, with their beats and planned shots (shot-angle.js)
+  function shotTargets(){
+    const A=window.KinolotShotAngle,C=window.turnContinuity||{};
+    if(!A)return [];
+    try{return A.targets(current()||l,{locations:list(),scenes:C.scenes||[],shots:C.shots||[],plans:(window.turnProject||{}).scenePlans||{}});}catch(_){return [];}
+  }
+  function openUse(){
+    setError("");setNotice("");
+    const scenes=shotTargets(),first=scenes.find(s=>s.planned&&s.beats.length);
+    setUse({sceneId:first?first.id:"",beatN:first?first.beats[0].n:0,shotId:first?first.beats[0].shots[0].id:"",name:extraId?name:""});
+  }
+  function useInShot(){
+    setError("");try{
+      const location=guard(),A=window.KinolotShotAngle,scenes=shotTargets();
+      const scene=scenes.find(s=>s.id===use?.sceneId),beat=scene?.beats.find(b=>b.n===use.beatN),shot=beat?.shots.find(x=>x.id===use.shotId);
+      if(!scene||!beat||!shot)throw Error("Choose the scene, the beat and the shot this angle goes to.");
+      if(typeof window.turnUseAngleInShot!=="function")throw Error("The Shots tab did not load. Refresh this page.");
+      const title=(use.name||"").trim().slice(0,100)||A.angleName(scene,beat.n);
+      // kept on the location under its name, so it can go to other shots too
+      const angleId=keepAngle(location,title);
+      const done=window.turnUseAngleInShot({sceneId:scene.id,shotId:shot.id,pose:{position:[...pose.position],yaw:pose.yaw,pitch:pose.pitch,lensMm:pose.lensMm},
+        floorZ:A.floorAt(location,list(),pose.position[0],pose.position[1]),from:{locationId:location.id,locationName:location.name||"",angleId,angleName:title}});
+      if(!done||!done.ok)throw Error((done&&done.error)||"The angle could not be put into that shot.");
+      setExtraId(angleId);setName(title);setUse(null);setOpen(false);
     }catch(e){setError(e.message);}
   }
   function assign(){
@@ -201,6 +237,40 @@ function LocationCameraAngleWorkbench({l,onUpdate,readOnly=false,previewRequest=
         <label className="loc-cam-field"><span>Angle name</span><input className="prop-select" value={name} maxLength={100} onChange={e=>setName(e.target.value)}/></label>
         <button type="button" className="art-draftall ghost" disabled={readOnly||!ready||!!problem} onClick={saveExtra}>{extraId?"Save extra camera changes":"Save extra camera"}</button>
       </details>
+      {(()=>{
+        // USE THIS ANGLE IN A SHOT: the scene, then the beat, then the shot. The last choice is always a shot.
+        const scenes=use?shotTargets():[],scene=scenes.find(s=>s.id===use?.sceneId)||null,beat=scene?.beats.find(b=>b.n===use.beatN)||null;
+        const sceneLabel=s=>"Scene "+String(s.no==null?"":s.no).padStart(2,"0")+(s.title?" \u00b7 "+s.title:"")+(s.planned?"":" \u00b7 not planned yet");
+        const pickScene=id=>{const s=scenes.find(x=>x.id===id),b=s&&s.planned?s.beats[0]:null;setUse(u=>({...u,sceneId:id,beatN:b?b.n:0,shotId:b?b.shots[0].id:""}));};
+        const pickBeat=n=>{const b=scene?.beats.find(x=>x.n===n);setUse(u=>({...u,beatN:n,shotId:b?b.shots[0].id:""}));};
+        return <div className="loc-angle-use" data-testid="angle-use">
+          {!use&&<button type="button" className="art-draftall ghost" data-testid="angle-use-open" disabled={readOnly||!ready||!!problem} onClick={openUse}>Use this angle in a shot</button>}
+          {!use&&window.InfoTip&&<window.InfoTip label="About using an angle in a shot" text="Gives one planned shot this camera: where it stands, how high, the way it looks and its lens. The shot’s Previs is then drawn from it, with each person on the mark the scene plan gave them. The angle is also saved on this location under a name, so it can go to other shots. It is free, changes no frame and no approval, and a shot can return to its planned camera."/>}
+          {use&&<section className="loc-angle-use-pick" aria-label="Use this angle in a shot" data-testid="angle-use-pick">
+            <h4 className="loc-angle-group-title">Use this angle in a shot</h4>
+            {!scenes.length&&<p className="loc-layer-note" data-testid="angle-use-none">No scene with shots plays in this place yet. Draft the shots of a scene set here, then plan that scene in the Shots tab.</p>}
+            {scenes.length>0&&<>
+              <label className="loc-cam-field"><span>1 · Scene</span><select className="prop-select" aria-label="Scene" data-testid="angle-use-scene" value={use.sceneId} onChange={e=>pickScene(e.target.value)}>
+                {!use.sceneId&&<option value="">Choose a scene</option>}
+                {scenes.map(s=><option key={s.id} value={s.id} disabled={!s.planned||!s.beats.length}>{sceneLabel(s)}</option>)}
+              </select></label>
+              <label className="loc-cam-field"><span>2 · Beat</span><select className="prop-select" aria-label="Beat" data-testid="angle-use-beat" value={use.beatN||""} disabled={!scene} onChange={e=>pickBeat(Number(e.target.value))}>
+                {(scene?.beats||[]).map(b=><option key={b.n} value={b.n}>Beat {b.n} · {b.shots.length} shot{b.shots.length!==1?"s":""}</option>)}
+              </select></label>
+              <label className="loc-cam-field"><span>3 · Shot</span><select className="prop-select" aria-label="Shot" data-testid="angle-use-shot" value={use.shotId} disabled={!beat} onChange={e=>setUse(u=>({...u,shotId:e.target.value}))}>
+                {(beat?.shots||[]).map(x=><option key={x.id} value={x.id}>{x.label}{x.hand?" \u00b7 has an angle of yours":""}</option>)}
+              </select></label>
+              <label className="loc-cam-field"><span>Name of this angle</span><input className="prop-select" data-testid="angle-use-name" value={use.name} maxLength={100} placeholder={scene&&beat?window.KinolotShotAngle.angleName(scene,beat.n):"Angle"} onChange={e=>setUse(u=>({...u,name:e.target.value}))}/></label>
+              {scenes.some(s=>!s.planned)&&<p className="loc-layer-note">A scene that is not planned yet cannot take an angle: plan it in the Shots tab first.</p>}
+              {scene&&scene.waiting>0&&<p className="loc-layer-note">{scene.waiting} shot{scene.waiting!==1?"s":""} of this scene {scene.waiting!==1?"are":"is"} not in its plan and cannot take an angle yet.</p>}
+            </>}
+            <div className="loc-cloud-render-actions">
+              <button type="button" className="art-draftall" data-testid="angle-use-confirm" disabled={readOnly||!ready||!!problem||!use.shotId} onClick={useInShot}>Use in this shot</button>
+              <button type="button" className="art-draftall ghost" onClick={()=>setUse(null)}>Cancel</button>
+            </div>
+          </section>}
+        </div>;
+      })()}
       {notice&&<p role="status" className="loc-layer-note">{notice}</p>}
       </section>
     </dialog>}

@@ -818,12 +818,59 @@
     });
     return {cameras:out,dropped,missing:keys.filter(k=>!out[k])};
   }
+  /* ---- A CAMERA SET BY HAND (owner 2026-11-24, the Previs look brief, step 5: "I move the camera until I like
+     the view ... Use this angle in a shot ... That shot now holds my angle") ----
+     An angle chosen in a location's camera tool is written into the plan's camera list under the shot's own key, like
+     any other camera, with: hand:true, pose (where it stands, the direction it looks and its lens, exactly as chosen),
+     from (the location and the saved angle it came from) and planned (the camera the plan had for that shot before,
+     which "Return to the planned camera" brings back). at / height / lens are kept too, so everything that reads a
+     plan camera goes on reading one. A hand-set camera keeps its direction and is never moved (shot-previs.js
+     planCamera); "Place the cameras" and a plan written again leave it alone (keepHandCameras). */
+  const isHandCamera=c=>!!(c&&c.hand===true&&c.pose&&arr(c.pose.position).length===3&&arr(c.pose.position).every(n=>typeof n==="number"&&Number.isFinite(n)));
+  function handCamera(pose,o){
+    o=o||{};
+    const p=obj(pose), at=arr(p.position).map(Number), yaw=Number(p.yaw), pitch=Number(p.pitch), lens=Number(p.lensMm);
+    if(at.length!==3||![...at,yaw,pitch,lens].every(Number.isFinite)||at.some(n=>Math.abs(n)>500)) return null;
+    const r=(n,d)=>{ const f=Math.pow(10,d); return Math.round(n*f)/f; }, floor=Number(o.floorZ)||0, from=obj(o.from);
+    // the camera the plan had before: never another hand-set one (an angle replaced by an angle returns to the plan's)
+    const before=o.planned&&isHandCamera(o.planned)?obj(o.planned.planned):obj(o.planned), had=Object.keys(before).length>0;
+    return {at:[r(at[0],2),r(at[1],2)],height:r(Math.max(0.1,Math.min(4,at[2]-floor)),2),aim:[],lens:Math.max(8,Math.min(200,Math.round(lens))),
+      // who faces whom stays as the plan had it: an angle moves the camera, not the people
+      faces:{...obj(before.faces)},why:"Set by hand.",hand:true,
+      pose:{position:at.map(n=>r(n,3)),yaw:r(((yaw%360)+360)%360,2),pitch:r(Math.max(-89,Math.min(89,pitch)),2),lensMm:Math.max(8,Math.min(200,Math.round(lens)))},
+      from:{locationId:text(from.locationId,80),locationName:text(from.locationName,120),angleId:text(from.angleId,80),angleName:text(from.angleName,100)},
+      setAt:text(o.at,40)||new Date().toISOString(),...(had?{planned:before}:{})};
+  }
+  // the plan with this shot's camera set by hand (key = shotCameraKey(shot))
+  function setHandCamera(plan,key,cam){
+    if(!plan||!key||!isHandCamera(cam)) return plan;
+    return {...plan,cameras:{...obj(plan.cameras),[String(key)]:cam}};
+  }
+  // "Return to the planned camera": the camera the plan had before comes back; with none, the app finds one again
+  function returnPlannedCamera(plan,key){
+    const cams={...obj(plan&&plan.cameras)}, cur=cams[String(key)];
+    if(!plan||!isHandCamera(cur)) return plan;
+    if(cur.planned&&Object.keys(cur.planned).length) cams[String(key)]=cur.planned; else delete cams[String(key)];
+    return {...plan,cameras:cams};
+  }
+  /* Cameras placed again (or a plan written again): every hand-set camera of a shot the scene still has stays as it
+     is, and the camera just placed for that shot becomes the one it would return to. keys = the shots the scene has
+     now (none given = keep them all). */
+  function keepHandCameras(old,fresh,keys){
+    const out={...obj(fresh)}, has=Array.isArray(keys)?keys.map(String):null;
+    Object.keys(obj(old)).forEach(k=>{ const c=old[k]; if(!isHandCamera(c)||(has&&has.indexOf(k)<0)) return;
+      const placed=obj(fresh)[k];
+      out[k]=placed&&!isHandCamera(placed)?{...c,planned:placed}:c; });
+    return out;
+  }
+  const handCameraCount=plan=>Object.values(obj(plan&&plan.cameras)).filter(isHandCamera).length;
+
   function camerasConfirmText(o){
     o=o||{};
     const no=String(o.sceneNo==null?"":o.sceneNo).padStart(2,"0");
     return {title:"Place the cameras of Scene "+no+" (writing credits)?",
       body:"One short writing pass"+(o.engine?" on "+o.engine:"")+" gives each planned shot a camera on the floor plan: where it stands, how high, what it looks at and its lens. The app then checks each one against the set in 3D and moves any that cannot stand there. No shot is changed and no image is made."
-        +(o.again?" It replaces the cameras this scene has now.":""),
+        +(o.again?" It replaces the cameras this scene has now"+(o.hand>0?", except the "+(o.hand===1?"one angle":o.hand+" angles")+" you set yourself: "+(o.hand===1?"it stays as it is":"they stay as they are"):"")+".":""),
       confirmLabel:"Place the cameras",cancelLabel:"Cancel"};
   }
 
@@ -839,7 +886,8 @@
 
   const api={SIZES,ANGLES,MOVES,HANDOFFS,sizeId,angleId,moveId,lensId,handoffType,sets,beatSets,brief,normalize,shotRows,applyToShots,
     linkPropToShots,unplan,PLAN_FIELDS,stateText,namesOf,wordsFor,exact,OLD_PLAN_NOTE,handoffText,checks,thingProp,thingCard,originLabel,ownerItems,estimateSeconds,shotGroups,groupLabel,SHOT_GROUP_MOMENTS,confirmText,sameText,snapLine,parseHeading,
-    isKeyShot,momentOf,cameraKey,shotCameraKey,normalizeCameras,camerasConfirmText};
+    isKeyShot,momentOf,cameraKey,shotCameraKey,normalizeCameras,camerasConfirmText,
+    isHandCamera,handCamera,setHandCamera,returnPlannedCamera,keepHandCameras,handCameraCount};
   root.ScenePlan=api;
   root.scenePlanChecks=checks;
 })(typeof window!=="undefined"?window:globalThis);

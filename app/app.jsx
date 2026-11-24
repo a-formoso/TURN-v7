@@ -6914,7 +6914,7 @@ function App(){
     const projectId = projIdRef.current;
     try{
       if(alone){
-        const q = SP.camerasConfirmText({ sceneNo:scene.no, engine, again:!!(plan.cameras && Object.keys(plan.cameras).length) });
+        const q = SP.camerasConfirmText({ sceneNo:scene.no, engine, again:!!(plan.cameras && Object.keys(plan.cameras).length), hand:SP.handCameraCount(plan) });
         scenePlanAskingRef.current = true;
         let ok = false;
         try{ ok = typeof window.appConfirm==="function" ? await window.appConfirm(q) : window.confirm(q.title+"\n\n"+q.body); }
@@ -6932,10 +6932,13 @@ function App(){
       // saved with the plan it was made for: a plan written again in the meantime keeps its own
       setProject(p=>{ const cur = ((p && p.scenePlans)||{})[scene.id];
         if(!cur || cur.at!==plan.at) return p;
-        return { ...p, scenePlans:{ ...p.scenePlans, [scene.id]:{ ...cur, cameras:res.cameras, camerasAt:new Date().toISOString(),
+        // (an angle set by hand stays as it is: the camera placed for that shot is only what it would return to)
+        const keysNow = shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id).map(sh=>SP.shotCameraKey(sh));
+        return { ...p, scenePlans:{ ...p.scenePlans, [scene.id]:{ ...cur, cameras:SP.keepHandCameras(cur.cameras, res.cameras, keysNow), camerasAt:new Date().toISOString(),
           camerasBy:{ id:(res.by&&res.by.modelId)||"", label:(res.by&&res.by.model)||"" } } } }; });
       if(alone) say("Scene "+no+": "+count+" camera"+(count!==1?"s":"")+" placed on the floor plan"
         +(res.missing && res.missing.length ? "; "+res.missing.length+" shot"+(res.missing.length!==1?"s":"")+" got none and "+(res.missing.length!==1?"are":"is")+" placed by the app" : "")
+        +(SP.handCameraCount(plan) ? "; the angle"+(SP.handCameraCount(plan)!==1?"s":"")+" you set yourself "+(SP.handCameraCount(plan)!==1?"were":"was")+" left as "+(SP.handCameraCount(plan)!==1?"they are":"it is") : "")
         +". Open a shot\u2019s Previs to see it. No image was made.","success");
       return count;
     }catch(e){
@@ -6947,6 +6950,41 @@ function App(){
       if(alone) setPlanningScene(null);
     }
   };
+  /* AN ANGLE FROM A LOCATION'S CAMERA TOOL, INTO A SHOT (owner 2026-11-24, the Previs look brief, step 5: "I press
+     Use this angle in a shot. I pick where it goes ... That shot now holds my angle. Previs draws it from that
+     camera"). The angle is written into the scene plan's camera list under the shot's own key, marked as set by
+     hand, with the location and the saved angle it came from and the camera the plan had before (so it can be
+     returned to). No shot's specification, frame or approval changes; nothing is charged. Then the Shots tab opens
+     on that shot with its Previs open. → {ok, error?, key?} */
+  const useAngleInShot = (o)=>{
+    o = o || {};
+    const SP = window.ScenePlan;
+    if(!SP || typeof SP.handCamera!=="function") return { ok:false, error:"The scene plan did not load. Refresh this page." };
+    if(!canDesignShots()) return { ok:false, error:"This film is read-only." };
+    const sh = shotsLiveRef.current.find(x=>x && x.id===o.shotId && x.sceneId===o.sceneId);
+    const plan = ((project && project.scenePlans)||{})[o.sceneId];
+    if(!sh || !plan || !SP.exact(plan) || !sh.planned) return { ok:false, error:"That shot is no longer in the scene plan. Close this and choose again." };
+    const key = SP.shotCameraKey(sh);
+    const cam = SP.handCamera(o.pose, { floorZ:o.floorZ, from:o.from, planned:(plan.cameras||{})[key] });
+    if(!cam) return { ok:false, error:"This angle could not be read. Move the camera and try again." };
+    setProject(p=>{ const cur = ((p && p.scenePlans)||{})[o.sceneId];
+      return cur ? { ...p, scenePlans:{ ...p.scenePlans, [o.sceneId]:SP.setHandCamera(cur, key, cam) } } : p; });
+    // open that shot in the Shots tab, with its Previs open (shots-ui.jsx reads the hand-off when it mounts)
+    if(typeof window.turnFocusArtScene==="function") window.turnFocusArtScene("shots", o.sceneId, "shot:"+sh.id);
+    setArtView("shots");
+    if(typeof window.appToast==="function") window.appToast("This shot now uses your angle"+(cam.from.locationName ? " from "+cam.from.locationName : "")+". Its Previs is drawn from it. No image was made.","success");
+    return { ok:true, key };
+  };
+  // "Return to the planned camera", on a shot's Previs: the camera the plan had before the angle comes back
+  const returnPlannedCamera = (sceneId, key)=>{
+    const SP = window.ScenePlan;
+    if(!SP || typeof SP.returnPlannedCamera!=="function" || !canDesignShots()) return false;
+    setProject(p=>{ const cur = ((p && p.scenePlans)||{})[sceneId];
+      return cur ? { ...p, scenePlans:{ ...p.scenePlans, [sceneId]:SP.returnPlannedCamera(cur, key) } } : p; });
+    return true;
+  };
+  window.turnUseAngleInShot = useAngleInShot;
+  window.turnReturnPlannedCamera = returnPlannedCamera;
   const planSceneShots = async (scene, opts)=>{
     const SP = window.ScenePlan;
     const say = (m,t)=>{ if(typeof window.appToast==="function") window.appToast(m,t||"info"); };
@@ -7018,7 +7056,10 @@ function App(){
       const { shots:_planShots, ...planBody } = res.plan;
       const doc = { ...planBody, at:new Date().toISOString(), by:{ id:(res.by&&res.by.modelId)||"", label:(res.by&&res.by.model)||"" },
         screenplayRev:res.screenplayRev||"", sets:res.sets, beats:beatNos, shotCount:(res.plan.shots||[]).length, checks:found };
-      setProject(p=>({ ...p, scenePlans:{ ...((p && p.scenePlans)||{}), [scene.id]:doc } }));
+      // (a plan written again keeps the angles set by hand, for the shots the scene still has)
+      setProject(p=>{ const old = ((p && p.scenePlans)||{})[scene.id];
+        const mine = SP.keepHandCameras(old && old.cameras, {}, sceneNow.map(sh=>SP.shotCameraKey(sh)));
+        return { ...p, scenePlans:{ ...((p && p.scenePlans)||{}), [scene.id]:Object.keys(mine).length ? { ...doc, cameras:mine } : doc } }; });
       // the last step: each shot's camera in numbers, on the floor plan (its failure leaves the plan as it is)
       const cams = SP.exact(doc) ? await placeSceneCameras(scene, { plan:doc }) : 0;
       const fixes = found.filter(c=>c.level==="fix").length;
