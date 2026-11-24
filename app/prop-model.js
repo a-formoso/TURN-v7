@@ -259,10 +259,10 @@
     // a model BUILT for this prop (stage 2: saved on its card) is the prop itself; a shape picked by hand still wins
     const mine=!formById(c.modelForm)&&saved(c.model);
     if(mine){
-      if(own.length!==3) return {form:"built",label:mine.what||"its own model",dims:mine.dims.slice(),basis:"built",parts:mine.parts,colours:mine.colours,built:true};
+      if(own.length!==3) return {form:"built",label:mine.what||"its own model",dims:mine.dims.slice(),basis:"built",parts:mine.parts,colours:mine.colours,built:true,state:mine.state};
       const k=own.map((n,i)=>n/mine.dims[i]);
-      return {form:"built",label:mine.what||"its own model",dims:own.map(r4),basis:"set",colours:mine.colours,built:true,
-        parts:mine.parts.map(q=>{ const M=turnOf(q[4]); return [q[0],[0,1,2].map(j=>r4(q[1][j]*(Math.abs(M[0][j])*k[0]+Math.abs(M[1][j])*k[1]+Math.abs(M[2][j])*k[2])/((Math.abs(M[0][j])+Math.abs(M[1][j])+Math.abs(M[2][j]))||1))),q[2].map((n,i)=>r4(n*k[i])),q[3],q[4]]; })};
+      return {form:"built",label:mine.what||"its own model",dims:own.map(r4),basis:"set",colours:mine.colours,built:true,state:mine.state,
+        parts:mine.parts.map(q=>{ const M=turnOf(q[4]); return [q[0],[0,1,2].map(j=>r4(q[1][j]*(Math.abs(M[0][j])*k[0]+Math.abs(M[1][j])*k[1]+Math.abs(M[2][j])*k[2])/((Math.abs(M[0][j])+Math.abs(M[1][j])+Math.abs(M[2][j]))||1))),q[2].map((n,i)=>r4(n*k[i])),q[3],q[4],q[5]||""]; })};
     }
     if(own.length===3){ dims=own; basis="set"; }
     else{
@@ -370,7 +370,7 @@
     return {lo,hi};
   }
   // what a model was built from: when the card's words change, the model says it is older than they are
-  function sigOf(card){ const c=obj(card), t=[c.name,c.form,c.material,c.signatureFeature,c.size].map(x=>tidy(x,2000)).join("|"); let h=2166136261; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
+  function sigOf(card){ const c=obj(card), t=[c.name,c.form,c.material,c.signatureFeature,c.size].map(x=>tidy(x,2000)).concat([stateOf(c.modelState)==="open"?"open":""]).join("|"); let h=2166136261; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
   /* raw = the engine's answer: {what, size:[w, d, h] cm, colours:{main, second, dark, light}, parts:[{shape, size, at, turn, tone, what}]}
      → {model:{v, what, dims (metres), parts, colours} | null, left:[what was left out and why]} */
   function built(raw){
@@ -382,7 +382,7 @@
       if(size.length!==3||!size.every(n=>Number.isFinite(n)&&n>0&&n<2000)||at.length!==3||!at.every(n=>Number.isFinite(n)&&Math.abs(n)<2000)){ left.push(what+": no size or no place"); return; }
       if(parts.length>=LIMITS.parts){ left.push(what+": more parts than a model holds"); return; }
       const t=arr(o.turn).map(Number), one=Number(o.turn), turn=(t.length===3&&t.every(Number.isFinite))?t.map(d=>r4(d*Math.PI/180)):[0,0,Number.isFinite(one)&&!Array.isArray(o.turn)?r4(one*Math.PI/180):0];
-      parts.push([kind,size.map(n=>n/100),at.map(n=>n/100),TONES.indexOf(o.tone)>=0?o.tone:"main",turn]);
+      parts.push([kind,size.map(n=>n/100),at.map(n=>n/100),TONES.indexOf(o.tone)>=0?o.tone:"main",turn,tidy(o.what,40)]);
     });
     if(!parts.length) return {model:null,left};
     // set down on the table, centred
@@ -394,30 +394,52 @@
     if(want>0&&have>0&&Math.abs(want/have-1)>0.03){ const k=want/have;
       parts.forEach(q=>{ q[1]=q[1].map(n=>n*k); q[2]=q[2].map(n=>n*k); }); dims=dims.map(n=>n*k);
       if(Math.abs(k-1)>0.25) left.push("built "+(k<1?"larger":"smaller")+" than its stated size, and brought to it"); }
-    parts=parts.map(q=>[q[0],q[1].map(n=>r4(Math.max(0.0005,n))),q[2].map(r4),q[3],q[4]]);
+    parts=parts.map(q=>[q[0],q[1].map(n=>r4(Math.max(0.0005,n))),q[2].map(r4),q[3],q[4],q[5]||""]);
+    // the builder looks at the prop from the -y side (as one reads a page); a model's front is +y here: turned to it
+    parts=faceFront(parts);
     const colours={}; TONES.forEach(t=>{ const c=hex(obj(r.colours)[t]); if(c) colours[t]=c; });
-    return {model:{v:1,what:tidy(r.what,60),dims:dims.map(n=>r4(Math.max(0.0005,Math.min(20,n)))),parts,colours},left};
+    return {model:{v:2,what:tidy(r.what,60).replace(/[\s,;:.]+$/,""),dims:dims.map(n=>r4(Math.max(0.0005,Math.min(20,n)))),parts,colours},left};
   }
+  /* WHICH WAY A BUILT MODEL FACES (2026-11-24, the second run: an open wallet came back laid out as a page is read,
+     its crest on the reader's left, and the sheet's layout showed it from the far side, upside down). The builder
+     stands at -y and looks towards +y: x runs from its left to its right, and a flat thing reads the right way up
+     from there. A model's front is +y everywhere else in this file (a radio's speaker, a frame's picture, where the
+     card's cameras stand), so what the builder wrote is turned half round about Z. A model saved before this (v 1)
+     is turned when it is read: what is saved is never rewritten. */
+  const faceFront=parts=>arr(parts).map(q=>[q[0],q[1],[r4(-q[2][0]),r4(-q[2][1]),q[2][2]],q[3],turnsFrom(mul(Rz(Math.PI),turnOf(q[4]))).map(r4),q[5]||""]);
+  /* THE STATE A PROP IS BUILT IN (owner 2026-11-24, after the first image made from a model: the wallet was built
+     closed, and the image engine drew its crest and its ID on the outside of a closed wallet). A prop that opens is
+     built closed, as it is carried, or open, as it is held out to be looked at: the person chooses (card.modelState),
+     and the model, its layout and the image's words all say the same thing. */
+  const stateOf=v=>String(v||"")==="open"?"open":"closed";
+  const opens=card=>{ const c=obj(card); return /\b(open(?:s|ed|ing)?|bifold|trifold|unfold\w*|fold(?:s|ed|ing)?\s+out|hinge\w*|flip\w*)\b/i.test([c.form,c.signatureFeature,c.size].map(x=>String(x||"")).join(" ")); };
+  // the names the model's parts were given, each once, in the order they were built: what the image is told the model holds
+  const partNames=model=>{ const seen=[]; arr(obj(model).parts).forEach(q=>{ const n=tidy(q&&q[5],40).toLowerCase(); if(n&&seen.indexOf(n)<0) seen.push(n); }); return seen; };
   // a model as saved on a card, read safely: null when it is not one
   function saved(m){
-    const o=obj(m); if(o.v!==1||arr(o.dims).length!==3||!o.dims.every(n=>Number.isFinite(n)&&n>0&&n<=20)) return null;
+    const o=obj(m); if((o.v!==1&&o.v!==2)||arr(o.dims).length!==3||!o.dims.every(n=>Number.isFinite(n)&&n>0&&n<=20)) return null;
     const kinds=Object.keys(SHAPES).map(k=>SHAPES[k]);
     const parts=arr(o.parts).filter(q=>Array.isArray(q)&&kinds.indexOf(q[0])>=0&&arr(q[1]).length===3&&q[1].every(n=>Number.isFinite(n)&&n>0)&&arr(q[2]).length===3&&q[2].every(Number.isFinite)
-      &&TONES.indexOf(q[3])>=0&&arr(q[4]).length===3&&q[4].every(Number.isFinite)).slice(0,LIMITS.parts);
+      &&TONES.indexOf(q[3])>=0&&arr(q[4]).length===3&&q[4].every(Number.isFinite)).slice(0,LIMITS.parts).map(q=>[q[0],q[1],q[2],q[3],q[4],tidy(q[5],40)]);
     if(!parts.length) return null;
+    const turned=o.v===1?faceFront(parts):parts;   // (saved as the builder wrote it: turned to face front as it is read)
     const colours={}; TONES.forEach(t=>{ const c=arr(obj(o.colours)[t]); if(c.length===3&&c.every(n=>Number.isFinite(n)&&n>=0&&n<=1)) colours[t]=c.slice(); });
-    return {v:1,what:tidy(o.what,60),dims:o.dims.slice(),parts,colours,by:tidy(o.by,60),at:tidy(o.at,40),from:tidy(o.from,20)};
+    return {v:2,what:tidy(o.what,60).replace(/[\s,;:.]+$/,""),dims:o.dims.slice(),parts:turned,colours,state:stateOf(o.state),by:tidy(o.by,60),at:tidy(o.at,40),from:tidy(o.from,20)};
   }
   // what is saved on the card: the model, the engine that built it, when, and what it was built from
-  const keep=(model,card,o)=>({...model,by:tidy(obj(o).engine||MODEL,60),at:tidy(obj(o).at||new Date().toISOString(),40),from:sigOf(card)});
+  const keep=(model,card,o)=>({...model,state:stateOf(obj(card).modelState),by:tidy(obj(o).engine||MODEL,60),at:tidy(obj(o).at||new Date().toISOString(),40),from:sigOf(card)});
   const stale=card=>{ const m=saved(obj(card).model); return !!(m&&m.from&&m.from!==sigOf(card)); };
   function prompt(card){
     const c=obj(card), line=(k,v)=>tidy(v,900)?k+": "+tidy(v,900)+"\n":"";
     return "You build a film prop as a simple 3D model made of plain parts, the way a prop maker blocks out a shape before detailing it. "
       +"The model places the prop in every shot at its true size, and its reference sheet is drawn over it, so its outline and proportions must be right.\n\n"
       +"THE PROP\n"+line("Name",c.name)+line("What it is",c.form)+line("Material and finish",c.material)+line("Identifying details",c.signatureFeature)+line("Size as written",c.size)
-      +"\nHOW IT RESTS: build it as it rests on a table when nobody holds it: a phone or a wallet lies flat, a mug or a bottle stands, a bag stands on its base, keys lie in a loose bunch. A thing shown closed in the story is built closed.\n"
-      +"THE FRAME: centimetres. x is across it (its width), y is front to back (its depth; +y is its front), z is up from the table (z = 0 is the table top). The whole prop fits a box of `size` [wide, deep, high] centred on x = 0 and y = 0.\n"
+      +"\nHOW IT RESTS: build it as it rests on a table when nobody holds it: a phone or a wallet lies flat, a mug or a bottle stands, a bag stands on its base, keys lie in a loose bunch.\n"
+      +(stateOf(c.modelState)==="open"
+        ? "STATE: OPEN, as it is held out for someone to look at: opened fully and laid flat on the table, its inside facing up. Build what is seen inside it as parts, each in its true place and size (a panel, a card behind a window, a badge, pages, a screen, a lining). Take the open measurements where the size text gives them.\n"
+        : "STATE: CLOSED, as it is carried. Build its outside only: nothing that is inside it is built.\n")
+      +"THE FRAME: centimetres. x is across it (its width), y is its depth, z is up from the table (z = 0 is the table top). The whole prop fits a box of `size` [wide, deep, high] centred on x = 0 and y = 0.\n"
+      +"WHERE YOU STAND: at -y, looking towards +y. x runs from your left (-) to your right (+), and +y is away from you. A thing that lies flat (an open wallet, a letter, a phone) reads the right way up from where you stand: its top edge is at +y, its left side at -x. A thing with a front (a radio, a clock, a camera) faces you.\n"
       +"PARTS: between 4 and 20 (never more than "+LIMITS.parts+"). Each is {shape, size:[x, y, z] (the part's own box, before any turn), at:[x, y, z] (its centre), turn:[x, y, z] (degrees, turned about x, then y, then z; leave it out when there is none), tone, what (two or three words)}.\n"
       +"- shapes: \"box\"; \"cylinder\" (a round bar, tube or disc whose axis is z: its x and y sizes are its diameters, its z size its length; turn [0, 90, 0] lays it along x, turn [90, 0, 0] along y); "
       +"\"ring\" (a ring lying flat, its axis z: x and y are its outer diameters, z the thickness of its wire; turn [90, 0, 0] stands it upright across x, as a mug's handle); \"ball\" (a sphere or an egg); \"pad\" (a soft block with rounded sides: a bag's body, a cushion, folded cloth).\n"
@@ -428,6 +450,8 @@
       +"- Every part lies inside the box of `size`. Each part touches or overlaps what it is fixed to: nothing floats.\n"
       +"- Build the outline first (the big masses), then the parts that make it THIS prop and no other: a lid, a handle, a clasp, a spout, a strap, a hinge, a label panel, a badge, a row of buttons.\n"
       +"- No lettering, no surface texture, nothing thinner than 1 mm unless the prop itself is (a sheet of paper, a needle). A hollow thing (a mug, a bowl, an open box) is solid, with a thin dark disc or panel just inside its rim.\n"
+      +"- Every part is a real piece of the prop that a person could point at and name. NEVER add a part only to round, soften or finish an edge or a corner (no corner posts, no edge beads, no trim strips): a plain box is right for a thing with rounded corners, and a \"pad\" for a thing that is soft or rounded all over.\n"
+      +"- Name each part by what it is on this prop (\"front cover\", \"crest badge\", \"lid\"), never by its shape.\n"
       +"Return ONLY compact JSON: {\"what\":\"a ...\",\"size\":[17,12,7],\"colours\":{\"main\":\"#c8d4d0\",\"second\":\"#4f8f8a\",\"dark\":\"#222222\",\"light\":\"#f2f0ea\"},"
       +"\"parts\":[{\"shape\":\"box\",\"size\":[16,11,6],\"at\":[0,0,3],\"tone\":\"main\",\"what\":\"tub body\"}]}";
   }
@@ -476,7 +500,7 @@
   }
 
   const api={FORMS,DEFAULT,MATERIALS,MODEL,CALL,LIMITS,forms,formById,formOf,numbers,fit,plain,modelOf,hung,place,turnsFrom,sizeWords,stage,
-    built,saved,keep,stale,sigOf,bounds,prompt,estimate,draft,sheet,tones};
+    built,saved,keep,stale,sigOf,bounds,prompt,estimate,draft,sheet,tones,stateOf,opens,partNames};
   root.KinolotPropModel=api;
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
 })(typeof window!=="undefined"?window:globalThis);

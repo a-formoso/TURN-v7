@@ -20,7 +20,7 @@ const PROP_MODEL_BASIS = {
   text:"read from this card’s Physical dimensions",
   usual:"the usual size of such a thing: this card has no measurements yet",
   guess:"a guess: this card has no measurements, and its shape is not one the app knows" };
-function propModelSig(p){ return JSON.stringify([p.name||"", p.size||"", p.detail||"", p.form||"", p.modelForm||"", (p.dims||[]).join("x"), (p.model && p.model.at)||""]); }
+function propModelSig(p){ return JSON.stringify([p.name||"", p.size||"", p.detail||"", p.form||"", p.modelForm||"", (p.dims||[]).join("x"), (p.model && p.model.at)||"", p.modelState||""]); }
 // the model alone on a plain floor beside its ruler: {front, side, quarter (pictures), tick (a ruler block, in metres)}
 async function propModelDraw(model, width){
   const P = window.KinolotPrevis, M = window.KinolotPropModel;
@@ -116,7 +116,7 @@ function PropModelBody({ p, onUpdate, onView, gen, modelBase }){
     setMaking(true);
     try{
       const base = await propModelSheetBase(model, 1536);
-      const sent = { url:base.url, form:model.form, basis:model.basis, dims:model.dims.slice(), own:!!base.own, stood:!!base.stood };
+      const sent = { url:base.url, form:model.form, basis:model.basis, dims:model.dims.slice(), own:!!base.own, stood:!!base.stood, ...(model.built ? { state:model.state||"closed" } : {}) };
       // held on the card for this one render: its prompts lead with the layout (the simpler second try too)
       if(modelBase) modelBase.current = sent;
       await gen.generate({ modelBase:sent, baseMaxDim:1536 });
@@ -141,9 +141,19 @@ function PropModelBody({ p, onUpdate, onView, gen, modelBase }){
     pics && PMU_E("p",{className:"prop-model-ruler"},"Each block of the ruler is "+(pics.tick<0.05 ? "1 cm" : "10 cm")+"."),
     // its own model: who built it, and whether the card's words have changed since
     own && model.built && PMU_E("p",{className:"prop-model-ruler","data-testid":"prop-model-own"},
-      "Its own model"+(propModelEngine(own.by) ? ", built by "+propModelEngine(own.by) : "")+"."+(M.stale(p) ? " This card’s description has changed since: build it again to follow it." : "")),
+      "Its own model, built "+own.state+(propModelEngine(own.by) ? " by "+propModelEngine(own.by) : "")+"."
+        +(own.state!==M.stateOf(p.modelState) ? " Build it again to have it "+M.stateOf(p.modelState)+"."
+          : M.stale(p) ? " This card’s description has changed since: build it again to follow it." : "")),
     build && build.error && PMU_E("p",{className:"shot-previs-note","data-testid":"prop-model-build-error",role:"alert"},build.error),
     build && build.left && PMU_E("p",{className:"shot-previs-note","data-testid":"prop-model-left"},"Left out of the model: "+build.left.join("; ")+"."),
+    // CLOSED OR OPEN (after the first image made from a model): a prop that opens is built as it is carried, or as it is
+    // held out to be looked at. Offered when the card's words say it opens, or once the choice has been made.
+    (typeof onUpdate==="function") && (M.opens(p) || p.modelState || (own && own.state==="open")) && PMU_E("label",{className:"sheet-field prop-model-state"},
+      PMU_E("span",{className:"obj-lab",title:"A prop that opens is built closed, as it is carried, or open, as it is held out to be looked at. Its model, its layout and its image all follow this."},"Built"),
+      PMU_E("select",{className:"prop-select","data-testid":"prop-model-state",value:M.stateOf(p.modelState),disabled:!!(build && build.since),
+          onChange:e=>onUpdate(p.id,{ modelState:e.target.value==="open" ? "open" : "" })},
+        PMU_E("option",{value:"closed"},"Closed, as it is carried"),
+        PMU_E("option",{value:"open"},"Open, as it is shown"))),
     (typeof onUpdate==="function") && PMU_E("div",{className:"prop-model-acts"},
       (build && build.since)
         ? PMU_E("span",{className:"prop-model-building","data-testid":"prop-model-building",role:"status"},"Building the model…",

@@ -190,10 +190,12 @@ const WALLET={what:"a bifold leather wallet",size:[11,7.5,1],colours:{main:"#1a1
 
 test("9 a model built for one prop: the answer is read safely, set down on the table, brought to its stated size", ()=>{
   const got=M.built(WALLET), m=got.model;
-  assert.equal(m.v,1); assert.equal(m.what,"a bifold leather wallet"); assert.equal(m.parts.length,5);
+  assert.equal(m.v,2); assert.equal(m.what,"a bifold leather wallet"); assert.equal(m.parts.length,5);
   assert.deepEqual(plain(got.left),["a cone: a shape a model cannot have","no size: no size or no place"]);
   assert.deepEqual(plain(m.parts.map(q=>q[0])),["box","box","cylinder","box","torus"]); assert.equal(m.parts[4][3],"main","a tone it does not know is the main one");
-  assert.ok(near(m.parts[4][4][2],Math.PI/4)&&near(m.parts[2][4][0],Math.PI/2),"turns in degrees, kept as they were asked");
+  assert.ok(near(Math.abs(m.parts[4][4][2]),Math.PI*3/4)&&near(Math.abs(m.parts[2][4][0]),Math.PI/2),"turns in degrees, then the whole model turned half round to face front");
+  // the builder stands at -y: what it put on its left (the spine, x = -5.3) and its right (the crest, x = +2) is turned half round, so a model's front is +y
+  assert.ok(m.parts[2][2][0]>0.04&&m.parts[3][2][0]<-0.01,"left and right as seen from the front: "+m.parts[2][2][0]+" "+m.parts[3][2][0]);
   // on the table, centred, its longest side as stated (11 cm), in metres
   const b=M.bounds(m.parts); assert.ok(near(b.lo[2],0,1e-4)&&near((b.lo[0]+b.hi[0])/2,0,1e-4)&&near((b.lo[1]+b.hi[1])/2,0,1e-4));
   assert.ok(near(Math.max(...m.dims),0.113,2e-3),String(m.dims)); assert.deepEqual(plain(m.colours.main),[0.102,0.102,0.11]); assert.deepEqual(plain(Object.keys(m.colours)),["main","second","dark","light"]);
@@ -205,7 +207,7 @@ test("9 a model built for one prop: the answer is read safely, set down on the t
   // saved on the card with who built it and from what; read back safely
   const card={id:"p1",name:"Pike’s warrant card",form:"A bifold black leather wallet",size:FILM[1][1]}, kept=M.keep(m,card,{at:"2026-11-24T10:00:00.000Z"});
   assert.equal(kept.by,"claude-fable-5-2"); assert.equal(kept.from,M.sigOf(card)); assert.ok(M.saved(kept)&&M.saved(kept).parts.length===5);
-  for(const bad of [null,{},{v:2,dims:[1,1,1],parts:kept.parts},{v:1,dims:[1,1],parts:kept.parts},{v:1,dims:[0.1,0.1,0.1],parts:[["cone",[1,1,1],[0,0,0],"main",[0,0,0]]]}]) assert.equal(M.saved(bad),null);
+  for(const bad of [null,{},{v:3,dims:[1,1,1],parts:kept.parts},{v:1,dims:[1,1],parts:kept.parts},{v:1,dims:[0.1,0.1,0.1],parts:[["cone",[1,1,1],[0,0,0],"main",[0,0,0]]]}]) assert.equal(M.saved(bad),null);
   // it IS the prop from then on: in the card's drawing and in every shot
   const mine=M.modelOf({...card,model:kept}); assert.equal(mine.basis,"built"); assert.equal(mine.form,"built"); assert.equal(mine.label,"a bifold leather wallet"); assert.equal(mine.parts.length,5); assert.equal(mine.built,true);
   const scene=V.stateScene(SET,{...PLAN,things:[{key:"card",name:"Pike’s warrant card",kind:"prop",propId:"p1"}]},{people:{},things:{card:{at:"table"}},doors:[]},{...CTX,props:[{...card,model:kept}]});
@@ -286,14 +288,53 @@ test("12 the image made from the model: the layout is the base image and leads e
   assert.ok(ui.includes("(window.WRITING_MODELS||[]).find(x=>x && x.id===(id||window.KinolotPropModel.MODEL)); return (m && m.label) || \"\";"),"the engine by its name in the engine list, never its id");
 });
 
+test("13 closed or open, and no part made only to round a corner (after the first image made from a model)", ()=>{
+  const card={id:"p1",name:"Pike’s warrant card",form:"A bifold black leather wallet that opens like a book.",size:FILM[1][1]};
+  // a prop whose card says it opens is offered the choice; a mug is not
+  assert.equal(M.opens(card),true); assert.equal(M.opens({form:"Straight-sided tea mug with a handle",size:"9.5 cm tall"}),false); assert.equal(M.opens({form:"A notebook with a hinged cover"}),true);
+  assert.equal(M.stateOf("open"),"open"); assert.equal(M.stateOf(""),"closed"); assert.equal(M.stateOf("ajar"),"closed");
+  // the builder is told the state, and to build no part only for rounding; each part is named by what it is
+  const closed=M.prompt(card), open=M.prompt({...card,modelState:"open"});
+  assert.ok(closed.includes("STATE: CLOSED, as it is carried. Build its outside only: nothing that is inside it is built.")&&!closed.includes("STATE: OPEN"));
+  assert.ok(open.includes("STATE: OPEN, as it is held out for someone to look at: opened fully and laid flat on the table, its inside facing up.")&&open.includes("Take the open measurements where the size text gives them.")&&!open.includes("STATE: CLOSED"));
+  for(const t of ["NEVER add a part only to round, soften or finish an edge or a corner (no corner posts, no edge beads, no trim strips)","a plain box is right for a thing with rounded corners","Name each part by what it is on this prop"]) assert.ok(closed.includes(t),t);
+  // the model keeps its state and its parts' names; a changed choice makes it older than the card
+  const got=M.built({what:"an open bifold wallet",size:[22,7.5,0.5],parts:[{shape:"box",size:[11,7.5,0.5],at:[-5.5,0,0.25],what:"Left panel"},{shape:"box",size:[11,7.5,0.5],at:[5.5,0,0.25],what:"right panel"},
+    {shape:"box",size:[4,5,0.3],at:[-5.5,0,0.6],tone:"light",what:"crest badge"},{shape:"box",size:[8,5,0.1],at:[5.5,0,0.55],tone:"light",what:"crest badge"}]});
+  const kept=M.keep(got.model,{...card,modelState:"open"});
+  // which way it faces: the builder's left panel (x = -5.5) is at +x here, so that from the front (+y) it is on the left; the sheet stands it up that way round
+  assert.ok(kept.parts[0][2][0]>0.05&&kept.parts[1][2][0]<-0.05); assert.ok(M.prompt(card).includes("WHERE YOU STAND: at -y, looking towards +y.")&&M.prompt(card).includes("reads the right way up from where you stand"));
+  // a model saved before this (v 1, as the builder wrote it) is turned when it is read; what is saved is not rewritten
+  const old={...kept,v:1,parts:kept.parts.map(q=>[q[0],q[1],[-q[2][0],-q[2][1],q[2][2]],q[3],[0,0,0],q[5]])}, read=M.saved(old);
+  assert.equal(read.v,2); read.parts.forEach((q,i)=>{ assert.ok(near(q[2][0],kept.parts[i][2][0],1e-4)&&near(q[2][1],kept.parts[i][2][1],1e-4)); }); assert.equal(old.parts[0][2][0]<0,true);
+  assert.equal(M.built({what:"an open wallet lying flat,",size:[10,5,1],parts:[{shape:"box",size:[10,5,1],at:[0,0,0.5]}]}).model.what,"an open wallet lying flat");
+  assert.equal(kept.state,"open"); assert.deepEqual(plain(M.partNames(kept)),["left panel","right panel","crest badge"]); assert.equal(M.saved(kept).state,"open"); assert.equal(M.saved(kept).parts[0][5],"Left panel");
+  assert.equal(M.keep(got.model,card).state,"closed"); assert.equal(M.saved({...kept,state:undefined}).state,"closed","a model built before the choice existed was built closed");
+  const mine=M.modelOf({...card,modelState:"open",model:kept}); assert.equal(mine.state,"open"); assert.deepEqual(plain(mine.dims),[0.22,0.075,0.0075]); assert.equal(mine.parts[2][5],"crest badge");
+  assert.equal(M.stale({...card,modelState:"open",model:kept}),false); assert.equal(M.stale({...card,model:kept}),true,"built open, now asked closed");
+  assert.notEqual(M.sigOf(card),M.sigOf({...card,modelState:"open"})); assert.equal(M.sigOf(card),M.sigOf({...card,modelState:"closed"}));
+  // an open flat thing is stood up for its sheet, its inside to the camera
+  const sh=M.sheet(mine); assert.equal(sh.stood,true); assert.deepEqual(plain(sh.size),[0.22,0.0075,0.075]);
+  // the card: the choice, shown when the card says it opens; the line says how it was built
+  for(const t of ['"data-testid":"prop-model-state"','PMU_E("option",{value:"closed"},"Closed, as it is carried")','PMU_E("option",{value:"open"},"Open, as it is shown")','onChange:e=>onUpdate(p.id,{ modelState:e.target.value==="open" ? "open" : "" })',
+    '(M.opens(p) || p.modelState || (own && own.state==="open"))','"Its own model, built "+own.state+','" Build it again to have it "+M.stateOf(p.modelState)+"."','...(model.built ? { state:model.state||"closed" } : {})']) assert.ok(ui.includes(t),t);
+  // the image's words: the parts the model has and no others; no fitting made of a corner; closed = its outside only
+  const lead=props.slice(props.indexOf("function propModelLayoutLead(p){"),props.indexOf("function buildPropFromModelPrompt"));
+  for(const t of ['"THE MODEL\\u2019S PARTS are these and no others: "+names.join("; ")+". "',"never turn a block\\u2019s corner, edge or join into a fitting, a stud, a rivet, a bracket, a cap or a metal corner that the description does not name",
+    "THE OBJECT IS SHOWN OPEN, its inside to the camera, in every panel, as the model is.","THE OBJECT IS SHOWN CLOSED in every panel, as the model is: draw its outside only.","cannot be seen and is left out"]) assert.ok(lead.includes(t),t);
+  const fact=ai.split("\n").find(l=>l.startsWith('APP_FEATURES.push({ name:"Props: the model in code"'));
+  for(const t of ["'Built' offers 'Closed, as it is carried' or 'Open, as it is shown'","built closed, the image shows its outside only; built open, its inside"]) assert.ok(fact.includes(t),t);
+  for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/props.jsx","app/ai.jsx","app/script.jsx","app/styles.css"]) assert.ok(["20261124-propmodel3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this fix's key");
+});
+
 test("8 loaded in order, fresh keys, and Frances knows", ()=>{
   const i=s=>html.indexOf(s);
   assert.ok(i("app/prop-model.js?v=")>0&&i("app/prop-model.js?v=")<i("app/shot-previs.js?v="),"the model before the drawing that uses it");
   assert.ok(i("app/props.jsx?v=")<i("app/prop-model-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/prop-model-ui.jsx?v="));
   for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/shot-previs.js","app/shot-previs-ui.jsx","app/props.jsx","app/shots.jsx","app/stage.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
-    assert.ok(["20261124-propmodel1", "20261124-propmodel2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/props.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
-    assert.ok(["20261124-propmodel2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has stage 2's key");
+    assert.ok(["20261124-propmodel2", "20261124-propmodel3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has stage 2's key");
   const g=[]; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Props: the model in code"')).join("\n"))(g);
   assert.equal(g.length,1);
   const fact=g[0].what;

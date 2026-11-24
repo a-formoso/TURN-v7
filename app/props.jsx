@@ -589,10 +589,19 @@ function propModelLayoutLead(p){
   const M = window.KinolotPropModel, m = M ? M.modelOf(p, null) : null;
   const size = m ? M.sizeWords(m.dims) : "";
   const own = !!(m && m.built && m.colours && Object.keys(m.colours).length);
+  // (after the first image made from a model, 2026-11-24: a wallet built closed came back with its crest and its ID on
+  // the outside, and the small pieces that rounded its corners came back as brass fittings) the state the model was
+  // built in is said, and so are the parts it has: nothing else on it is a part.
+  const state = (m && m.built) ? (m.state==="open" ? "open" : "closed") : "";
+  const names = (m && m.built && M.partNames) ? M.partNames(m).slice(0,24) : [];
   return "IMAGE 1 IS THE LAYOUT: this object built in code as a plain 3D model at its true proportions"+(size ? " ("+size+")" : "")+", already laid out as this sheet is: three equal panels, FRONT, SIDE, CLOSE-UP. "
     +"Draw the SAME sheet, finished. In every panel keep exactly the model\u2019s outline, its proportions, how large it is in its panel, the angle it is seen from, and where each of its parts sits: the layout wins over any other words about shape or proportion. "
     +"Add only what a plain model cannot show: the real material and finish, true colour, texture, small details, any lettering the description states, wear, soft studio light and a soft contact shadow. "
     +"Do not add, remove or move a part, and do not make the object rounder, slimmer, taller, thicker or more elegant than the model. "
+    +(names.length ? "THE MODEL\u2019S PARTS are these and no others: "+names.join("; ")+". " : "")
+    +"The model is made of plain blocks, so its edges and corners are harder than the real thing\u2019s: finish them as the material would be finished, and never turn a block\u2019s corner, edge or join into a fitting, a stud, a rivet, a bracket, a cap or a metal corner that the description does not name. "
+    +(state==="open" ? "THE OBJECT IS SHOWN OPEN, its inside to the camera, in every panel, as the model is. "
+      : state==="closed" ? "THE OBJECT IS SHOWN CLOSED in every panel, as the model is: draw its outside only. Whatever the description says is inside it (a card, a badge, a photo, pages, a lining) cannot be seen and is left out. " : "")
     +(own ? "The model\u2019s flat colours are the object\u2019s own base colours. " : "The model\u2019s flat greys and blue are placeholders, never its colours: take every colour from the description. ")
     +"Never leave the model\u2019s plain flat surfaces as they are. Keep the thin lines between the panels and the flat off-white background. "
     +"The close-up may show finer detail than the model has, of the same part from the same angle. "
