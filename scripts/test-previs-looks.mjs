@@ -162,7 +162,8 @@ await test("6 a shot's drawing and a beat's take the look; a frame is still made
   assert.ok(shot.includes("const draw=async(scene)=>{ const view=await P.viewer(scene,built.light,{look:o.look}), canvas=root.document.createElement(\"canvas\");"));
   assert.ok(shot.includes("startState:st.start,endState:st.end,midState:mid,look:o.look});"),"beat() passes it to each shot");
   // the frame: the drawing handed to the image engine is asked for with no look
-  const forFrame=shotUi.slice(shotUi.indexOf("async function shotPrevisForFrame("),shotUi.indexOf("/* THE LOOK OF THE FRAME BEFORE"));
+  // (the function for a FRAME ends where the one for a clip's layout begins: that one is clay on purpose, step 6)
+  const forFrame=shotUi.slice(shotUi.indexOf("async function shotPrevisForFrame("),shotUi.indexOf("/* THE LAYOUT A WHOLE-BEAT CLIP IS GIVEN FOR A SHOT"));
   assert.ok(forFrame.includes("SPv.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:width||1536, words:true,")&&!/look/.test(forFrame));
   // the Previs sheet a location image is made from is the Colour sheet
   const sheets=stepUi.match(/P\.sheet\([^)]*\)/g)||[];
@@ -198,7 +199,7 @@ await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
   assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 /* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
@@ -297,7 +298,7 @@ await test("14 a person in a shot's Previs is a jointed figure: two new shapes d
   assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its drawn surfaces, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its drawn surfaces, its plain jointed figures or it"));
   assert.ok(ai.includes("Each person is a plain jointed figure in one colour (a body, a head with a nose that shows which way they look, arms with hands, legs with shoes)"));
   for(const f of ["app/camera-angle-preview.js","app/shot-previs.js","app/shots.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 await test("15 the furniture kit: a chair of the set is drawn from its parts; the set keeps its shapes; clay covers the parts too", async()=>{

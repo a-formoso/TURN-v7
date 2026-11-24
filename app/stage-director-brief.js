@@ -388,13 +388,28 @@
       const cameraSettings=text(u.p.cameraSettings)
         ||(typeof root.shotCameraSettingsClause==="function"
           ?text(root.shotCameraSettingsClause(u.sh)).replace(/^Advanced camera settings\s*—\s*/i,""):"");
+      /* THE SHOT'S LAYOUT (owner 2026-11-24, the Previs look brief, step 6: "The prompt says, for each shot, which
+         reference is its layout and which figure is which person"): when this shot's clay drawing is among the
+         references, its line names it, says who each figure is and what each red box is, and gives the camera the
+         drawing was made through. One lens is said, never two: the layout's own, when the card wrote another. */
+      const layout=assets.find(a=>a&&a.kind==="image"&&a.key==="previs-layout:"+u.sh.id);
+      const layoutLens=layout&&Number(layout.layoutLensMm)>0?Number(layout.layoutLensMm):0;
+      const cardLens=(/(\d{1,3}(?:\.\d)?)/.exec(text(u.sh.lens))||[])[1];
+      const cameraShown=layoutLens&&cardLens&&Math.abs(Number(cardLens)-layoutLens)>=1
+        ?camera.split(" · ").filter(part=>!/\d\s*mm\b/i.test(part)).join(" · "):camera;
+      const layoutLine=layout&&token(layout)?"Layout: "+token(layout)+" is this shot as it starts."
+        +((layout.layoutLegend||[]).length?" "+layout.layoutLegend.map(text).filter(Boolean).join(" "):""):"";
+      const layoutCamera=layout&&text(layout.layoutCamera)?"Camera in the set (as the layout was drawn): "+text(layout.layoutCamera)
+        +(layout.layoutSource==="hand"?"; an angle set by hand":"")+".":"";
       const timing=timedByShot.get(String(u.sh.id));
       const window=timing?(" · "+seconds(timing.start)+"–"+seconds(timing.end)+"s"):"";
       return [(continuous?"SHOT ":"CUT ")+(u.i+1)+window+" · Beat "+(u.sh.beatN||"unassigned"),
         action,
         (beatLevel||(u.actions.length&&stagingAdds))&&staging?"Staging: "+staging:"",
         !continuous&&u.i>0?"Carry-over: preserve prior positions, screen direction, gaze targets, relative scale and prop state; nothing resets or teleports.":"",
-        camera?"Camera: "+camera:"",
+        cameraShown?"Camera: "+cameraShown:"",
+        layoutCamera,
+        layoutLine,
         u.p.geometry&&text(u.p.geometry.text)?"Geometry anchor (from "+(text(u.p.geometry.source)||"Blender")+"): "+text(u.p.geometry.text)+".":"",
         text(u.p.composition)?"Composition: "+u.p.composition:"",
         text(u.p.purpose)?"Intent: "+u.p.purpose:"",

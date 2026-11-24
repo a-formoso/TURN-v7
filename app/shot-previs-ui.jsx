@@ -398,6 +398,41 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width, sceneShots){
   // who each stand-in is, then what sits on the shelves and hooks in frame (so the image engine dresses nothing itself)
   return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things).concat(pic.dressing||[]), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end };
 }
+/* THE LAYOUT A WHOLE-BEAT CLIP IS GIVEN FOR A SHOT (owner 2026-11-24, the Previs look brief, step 6: "each shot's
+   clay drawing is attached as a layout reference, one per shot, in shot order ... The prompt says, for each shot,
+   which reference is its layout and which figure is which person"). The shot as it STARTS, drawn in clay through
+   the camera the plan holds for it (placed, or set by hand), with the room as the whole scene staged once has it.
+   Clay, not Colour: a video engine copies what it is shown, and clay has no surface or colour of the set to copy,
+   only where things are. Free; nothing is saved; kept for the session by what it was drawn from.
+   → {url, legend:[who each figure is, what each red box is], camera:"stands … m away, … m high, … mm lens",
+      lensMm, source ("plan" | "moved" | "hand" | "app"), from, sig} or null when the shot has no previs. */
+const SHOT_LAYOUT_KEPT = new Map();
+async function shotPrevisLayout(sh, ctx, sceneShots, width){
+  const SP = window.ScenePlan, SPv = window.ShotPrevis;
+  if(!sh || !sh.planned || !sh.startState || !SP || !SPv || !window.KinolotPrevis) return null;
+  const plan = ((((ctx||{}).project||{}).scenePlans)||{})[sh.sceneId] || null;
+  if(!plan || !SP.exact(plan)) return null;
+  const loc = shotPrevisPlace(sh, plan, ctx);
+  if(!loc) return null;
+  const cam = shotPrevisCamera(sh, plan);
+  const st = shotPrevisStaged(sceneShots||[sh])[sh.id] || null;
+  let sig = "";
+  try{ sig = shotPrevisSig(sh, plan, cam, loc, ctx)+"|layout|"+JSON.stringify(st||null)+"|"+(width||960); }catch(e){ sig = ""; }
+  if(sig && SHOT_LAYOUT_KEPT.has(sig)) return SHOT_LAYOUT_KEPT.get(sig);
+  const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
+  const run = ()=> SPv.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:width||960, look:"clay",
+    ...(st ? { startState:st.start, endState:st.end } : {}) });
+  const turn = shotPrevisLine.then(run, run);
+  shotPrevisLine = turn.then(()=>{}, ()=>{});
+  const res = await turn;
+  if(!res || !res.start || !res.pose) return null;
+  const pos = res.pose.position||[];
+  const out = { url:res.start.dataUrl, legend:SPv.legend(res.people, res.things), lensMm:Number(res.pose.lensMm)||0,
+    camera:["stands "+shotPrevisNum(res.distance,1)+" m from what it frames", shotPrevisNum(pos[2],1)+" m high", shotPrevisNum(res.pose.lensMm)+" mm lens"].join(", "),
+    source:res.source||"", from:res.from||null, sig };
+  if(sig){ SHOT_LAYOUT_KEPT.set(sig, out); if(SHOT_LAYOUT_KEPT.size>60) SHOT_LAYOUT_KEPT.delete(SHOT_LAYOUT_KEPT.keys().next().value); }
+  return out;
+}
 /* THE LOOK OF THE FRAME BEFORE, WITHOUT ITS LAYOUT (2026-11-23, after the first whole beat made from the strip: every
    frame came back framed like the one before it, because that frame rode along whole "for its look" and the image
    engine took its composition too). The frame is cut into a grid of twelve pieces, the pieces are moved to other
@@ -439,4 +474,4 @@ function shotLookSwatches(url){
 // (the mark lasts ten minutes: a run the person then cancels must not turn a later, ordinary Generate into this one)
 function shotPrevisAskNext(id){ window.__shotPrevisNext = window.__shotPrevisNext || {}; window.__shotPrevisNext[id] = Date.now(); }
 function shotPrevisTakeNext(id){ const m = window.__shotPrevisNext, at = m && m[id]; if(!at) return false; delete m[id]; return Date.now()-at < 600000; }
-Object.assign(window, { ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisAskNext, shotPrevisTakeNext });
+Object.assign(window, { ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisLayout, shotPrevisAskNext, shotPrevisTakeNext });

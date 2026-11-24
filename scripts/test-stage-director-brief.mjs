@@ -882,6 +882,46 @@ ok("a named grammar in native performance lists the spoken language lines",
   ok("…and with an entrance, it builds before the face is seen",/An entrance builds before the face is seen: the approach first/.test(withEntrance));
 }
 
+/* EACH SHOT'S LAYOUT (owner 2026-11-24, the Previs look brief, step 6): "each shot's clay drawing is attached as a
+   layout reference, one per shot, in shot order ... The prompt says, for each shot, which reference is its layout
+   and which figure is which person." */
+{
+  const layoutOf=(sh,n,tag,more)=>({tag,kind:"image",key:"previs-layout:"+sh.id,label:"Layout \u00b7 shot "+n,layoutShot:n,requiredByShots:[sh.id],
+    assetRole:"derived_reference",assetSourceQuality:"previs_clay_layout",...more});
+  const withLayouts={...refs,assets:refs.assets.concat([
+    layoutOf(shotOpening,1,"@Image11",{layoutLegend:["The green figure is Mara (standing).","The red box on the desk is the Sealed Letter."],
+      layoutCamera:"stands 2.1 m from what it frames, 1.5 m high, 24 mm lens",layoutLensMm:24,layoutSource:"hand"}),
+    layoutOf(shotPart,2,"@Image12",{layoutLegend:["The green figure is Mara (standing)."],
+      layoutCamera:"stands 0.9 m from what it frames, 1.6 m high, 85 mm lens",layoutLensMm:85,layoutSource:"plan"})])};
+  const pair=[shotOpening,shotPart];
+  const two=brief(makeClip(makeData(pair),"brief-layouts"),pair,shotOpening,true,[],withLayouts,opts);
+  const plain=brief(makeClip(makeData(pair),"brief-layouts"),pair,shotOpening,true,[],refs,opts);
+  const cut=(text,n)=>{const a=text.indexOf("CUT "+n+" "),b=text.indexOf("CUT "+(n+1)+" ",a+1);return a<0?"":text.slice(a,b<0?text.indexOf("\n\n",a):b);};
+  const c1=cut(two,1),c2=cut(two,2);
+  ok("each shot's line names its own layout and says who each figure is",
+    c1.includes("Layout: @Image11 is this shot as it starts. The green figure is Mara (standing). The red box on the desk is the Sealed Letter.")
+    &&c2.includes("Layout: @Image12 is this shot as it starts. The green figure is Mara (standing).")&&!c1.includes("@Image12")&&!c2.includes("@Image11"),c1+"\n---\n"+c2);
+  ok("each shot's line gives the camera its layout was drawn through, and says when the angle was set by hand",
+    c1.includes("Camera in the set (as the layout was drawn): stands 2.1 m from what it frames, 1.5 m high, 24 mm lens; an angle set by hand.")
+    &&c2.includes("Camera in the set (as the layout was drawn): stands 0.9 m from what it frames, 1.6 m high, 85 mm lens.")&&!c2.includes("set by hand"),c1+c2);
+  ok("one lens is said for a shot, never two: the layout's own when the card wrote another",
+    /Camera: Wide \u00b7 Eye level \u00b7 Slow push\n/.test(c1)&&!c1.includes("35mm")&&/Camera: Close-up \u00b7 High \u00b7 Static \u00b7 85mm/.test(c2),c1+c2);
+  ok("each shot is still one line of the timeline: its seconds, its camera, what happens",
+    /^CUT 1 \u00b7 0\u2013[\d.]+s \u00b7 Beat 1\n/.test(c1)&&/^CUT 2 \u00b7 [\d.]+\u2013[\d.]+s \u00b7 Beat 1\n/.test(c2)&&c1.indexOf("Camera:")<c1.indexOf("Layout:"),c1.slice(0,200));
+  const active=section(two,"ACTIVE REFERENCES","SCENE AND OPENING STATE")||two;
+  ok("the references say what a layout is and which shot it belongs to, in shot order",
+    active.includes("@Image11 is the layout of shot 1, drawn in code from the set\u2019s own 3D model through that shot\u2019s camera, as the shot starts.")
+    &&active.includes("Assigned to Shot 1.")&&active.includes("@Image12 is the layout of shot 2")&&active.indexOf("@Image11")<active.indexOf("@Image12"),active.slice(0,900));
+  ok("a layout only marks position: its white set, figures and red boxes are never shown",
+    active.includes("each person is a jointed figure in one colour and each prop is a red box: they only mark position")
+    &&active.includes("never show the white set, the figures, the red boxes or the layout itself")
+    &&active.includes("Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 from the other references and this text"));
+  ok("with no layout among the references the brief is exactly as it was",!plain.includes("Layout:")&&!plain.includes("Camera in the set")&&cut(plain,1).includes("35mm"));
+  // a layout left out of the render (not among the references) is not named; the other still is
+  const one=brief(makeClip(makeData(pair),"brief-layouts"),pair,shotOpening,true,[],{...withLayouts,assets:withLayouts.assets.filter(a=>a.tag!=="@Image11")},opts);
+  ok("a layout the user left out is not mentioned",!cut(one,1).includes("Layout:")&&cut(one,1).includes("35mm")&&cut(one,2).includes("Layout: @Image12"));
+}
+
 ok("brief and clip compilation are immutable",JSON.stringify({shots:allShots,drafts})===before);
 
 console.log(pass+" passed, "+fail+" failed");

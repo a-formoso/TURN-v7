@@ -3338,6 +3338,14 @@ function stageAssetRole(a, refs){
       +". Its grey shapes and coloured stand-ins are placeholders that only mark position. Match its camera position, height, lens framing and moves, the screen direction, the relative size of people and objects, and where everyone stands and moves"
       +(a.boardKey?" ("+a.boardKey+")":"")+". Take every look \u2014 faces, wardrobe, the set, the light \u2014 from the other references and this text; never show the stand-ins, grey shapes, letters, captions or the page itself.";
   }
+  /* A SHOT'S LAYOUT (owner 2026-11-24, the Previs look brief, step 6): the shot drawn in clay from the set's own
+     3D model through its own camera (shot-previs-ui.jsx shotPrevisLayout). It only marks position. */
+  if(k.indexOf("previs-layout:")===0){
+    return T+" is the layout of "+(a.layoutShot?"shot "+a.layoutShot:"this shot")+", drawn in code from the set\u2019s own 3D model through that shot\u2019s camera, as the shot starts."
+      +" The set is plain white, each person is a jointed figure in one colour and each prop is a red box: they only mark position."
+      +" Match its camera position, height and lens framing, the screen direction, where each person stands and which way they face, and the relative size of people and things."
+      +" Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 from the other references and this text; never show the white set, the figures, the red boxes or the layout itself.";
+  }
   if(k.indexOf("c:")===0) return T+" is "+(label.replace(/\s+reference$/i,"")||"the character")+"'s identity reference — keep their appearance exactly consistent; use it for identity only and do not copy its background, pose or lighting.";
   if(k==="loc") return T+" is the "+(label||"location plate")+" — keep its geography and lighting.";
   if(k.indexOf("scene-loc:")===0) return T+" is a scene location reference chosen by the director — preserve its geography, set dressing and lighting.";
@@ -3962,6 +3970,29 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     setDialogueAudio(clipHasUnassignedDialogue?"native":"locked");
     setDialogueAssignOpen(false); setDialogueAssignments({}); setDialogueAssignError("");
   },[clip.id,clipHasUnassignedDialogue,clipDialogueAssignSig]);
+  /* EACH SHOT'S LAYOUT (step 6): drawn here, in the page, when the clip is opened (free, nothing saved), one shot
+     after another; a shot with no scene plan or no floor plan simply has none. Redrawn when the clip, its shots'
+     cameras or the plan change. */
+  const [layouts, setLayouts] = React.useState({});
+  const layoutPlan = (((ctx.project||{}).scenePlans)||{})[scene.id] || null;
+  const layoutShots = (d.shots||[]).filter(sh=>sh && sh.planned && sh.startState);
+  const layoutKey = [clip.id, (layoutPlan&&layoutPlan.at)||"", (layoutPlan&&layoutPlan.camerasAt)||"",
+    layoutShots.map(sh=>sh.id+":"+(window.ScenePlan&&layoutPlan ? JSON.stringify(((layoutPlan.cameras||{})[window.ScenePlan.shotCameraKey(sh)])||null) : "")).join("|")].join("#");
+  React.useEffect(()=>{
+    let live = true;
+    if(typeof window.shotPrevisLayout!=="function" || !layoutPlan || !layoutShots.length){ setLayouts({}); return; }
+    const sceneAll = (((window.turnContinuity||{}).shots)||ctx.shots||[]).filter(x=>x && x.sceneId===scene.id);
+    (async()=>{
+      const got = {};
+      for(const sh of layoutShots){
+        try{ const L = await window.shotPrevisLayout(sh, ctx, sceneAll); if(L && L.url) got[sh.id] = L; }catch(e){}
+        if(!live) return;
+      }
+      if(live) setLayouts(got);
+    })();
+    return ()=>{ live = false; };
+  },[layoutKey]);
+  const layoutSig = Object.keys(layouts).map(id=>id+":"+((layouts[id]||{}).sig||"").length+":"+((layouts[id]||{}).url||"").length).join("|");
   const assets = React.useMemo(()=>{
     // model shape decides WHAT can ride: a Sora-class engine takes one start image
     // only, so identity/prop/location/video refs never appear as inputs, and audio
@@ -4011,6 +4042,18 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         label:"Blender board"+((d.shots||[]).length>1?" \u00b7 shot "+(i+1):"")+(n>1?" (frames A\u2013"+String.fromCharCode(64+n)+")":""),
         url:u, ready:true, id:slot, boardFrames:n, boardKey:(meta&&meta.keyText)||"",
         assetRole:"derived_reference", assetSourceQuality:"blender_board_page" });
+    });
+    /* PREVIS LAYOUTS (owner 2026-11-24, the Previs look brief, step 6: "Each shot's clay drawing is attached as a
+       layout reference, one per shot, in shot order, beside the shot's frame and the character and location
+       references already sent"). On by default on Seedance 2.5, where a whole beat is one clip and there is room
+       for them; offered, off, on a model with fewer image slots. Each can be left out like any other reference. */
+    if(_mRefs) (d.shots||[]).forEach((sh,i)=>{
+      const L=sh&&layouts[sh.id]; if(!L||!L.url) return;
+      out.push({ key:"previs-layout:"+sh.id, kind:"image", group:"Layouts",
+        label:"Layout"+((d.shots||[]).length>1?" \u00b7 shot "+(i+1):""), url:L.url, ready:true,
+        layoutShot:(d.shots||[]).length>1?i+1:0, layoutLegend:L.legend||[], layoutCamera:L.camera||"", layoutLensMm:L.lensMm||0, layoutSource:L.source||"",
+        requiredByShots:[sh.id], assetRole:"derived_reference", assetSourceQuality:"previs_clay_layout",
+        ...(modelId!=="seedance-2.5"?{ sceneOnly:true }:{}) });
     });
     // VIDEO ELEMENTS (2026-10-27): each on-screen character's video element (face motion and voice) — on by default on
     // Seedance 2.5; offered off on 2.0, whose video references are capped at 3 files and 15 s together
@@ -4191,7 +4234,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assetRoleLabel:"Screenplay screenshot",assetSourceQuality:"canonical_screenplay_page",
       ready:!!p.url,locked:false}));
     return out;
-  }, [clip.id, activeShot.id, veTick, identityCast.map(c=>c.id+":"+(c.videoElementOff?0:1)).join(","), sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
+  }, [clip.id, activeShot.id, veTick, layoutSig, identityCast.map(c=>c.id+":"+(c.videoElementOff?0:1)).join(","), sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
 
   // assets default ON when ready; user can toggle (off set). @tags number the INCLUDED
   // assets only — attachment order is what fal sees, so excluding @Image2 must renumber
@@ -4809,6 +4852,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         : a.key==="loc" || String(a.key).indexOf("scene-loc:")===0 ? "Locations"
         : String(a.key).indexOf("scene-shotframe:")===0 ? "Shot frames"
         : String(a.key).indexOf("blender-board:")===0 ? "Blender boards"
+        : String(a.key).indexOf("previs-layout:")===0 ? "Layouts"
         : String(a.key).indexOf("crowd:")===0 ? "Crowds"
         : a.kind==="audio" ? "Voices" : "References");
       if(on(a)){
