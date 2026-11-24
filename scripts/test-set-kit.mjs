@@ -153,15 +153,15 @@ test("7 which way a thing faces: read from the set's own shapes", ()=>{
 test("8 only the drawing uses the kit; the checks never see it", ()=>{
   const at=s=>html.indexOf(s);
   assert.ok(at("app/set-kit.js?v=")>0&&at("app/set-kit.js?v=")<at("app/set-previs.js?v="),"loaded before the drawing that uses it");
-  assert.ok(["20261124-kit1", "20261124-kit2"].some(k=>html.includes('app/set-kit.js?v='+k+'"')),"its cache key");
-  assert.ok(/fitted=root\.KinolotSetKit\?root\.KinolotSetKit\.expand\(scene\):null/.test(previs)&&/scene=\{\.\.\.scene,objects:scene\.objects\.filter\(o=>!fitted\.hide\.has\(o\.id\)\)\.concat\(fitted\.parts\)/.test(previs),"build() draws a copy; the scene it was given is not changed");
+  assert.ok(["20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes('app/set-kit.js?v='+k+'"')),"its cache key");
+  assert.ok(/fitted=root\.KinolotSetKit\?root\.KinolotSetKit\.expand\(scene,\(opts&&opts\.kit\)\|\|\(light&&light\.kit\)\|\|null\):null/.test(previs)&&/scene=\{\.\.\.scene,objects:scene\.objects\.filter\(o=>!fitted\.hide\.has\(o\.id\)\)\.concat\(fitted\.parts\)/.test(previs),"build() draws a copy; the scene it was given is not changed");
   assert.ok(/catch\(_\)\{fitted=null;\}/.test(previs),"a fault in the kit leaves the set as it was drawn before");
-  ["app/shot-previs.js","app/set-dressing.js","app/scene-plan.js","app/camera-angle-preview.js","app/location-set-card.js","app/shot-previs-ui.jsx","app/set-previs-ui.jsx"].forEach(f=>assert.ok(!/KinolotSetKit/.test(read(f)),f+" does not know the kit"));
+  ["app/shot-previs.js","app/scene-plan.js","app/camera-angle-preview.js","app/location-set-card.js","app/shot-previs-ui.jsx","app/set-previs-ui.jsx"].forEach(f=>assert.ok(!/KinolotSetKit/.test(read(f)),f+" does not know the kit"));
   assert.ok(!/Math\.random|Date\.now/.test(src),"nothing left to chance: the one thing that varies is seeded");
   const fact=ai.split("\n").filter(l=>l.startsWith("APP_FEATURES.push")&&/FURNITURE IN FULL/.test(l));
   assert.equal(fact.length,2,"the help assistant knows, on the location card and on a shot's Previs");
-  fact.forEach(l=>{ assert.ok(/chair/.test(l)&&/kitchen units/.test(l)&&/stays/.test(l)); assert.ok(["sofa","bed","bookcase","cooker","fridge","radiator","lamp","rug","curtains","skirting"].every(w=>l.slice(l.indexOf("FURNITURE IN FULL")).includes(w)),"the ten of stop 2 are named"); });
-  assert.ok(!/claude|anthropic|openai|gemini|three\.?js|\bTURN\b|\bMUSE\b|credit/i.test(fact.map(l=>l.slice(l.indexOf("FURNITURE IN FULL"),l.indexOf("FURNITURE IN FULL")+1700)).join(" ")),"no vendor, codename or billing word in it");
+  fact.forEach(l=>{ assert.ok(/chair/.test(l)&&/kitchen units/.test(l)&&/stays/.test(l)); assert.ok(["sofa","bed","bookcase","cooker","fridge","radiator","lamp","rug","curtains","skirting"].every(w=>l.slice(l.indexOf("FURNITURE IN FULL")).includes(w)),"the ten of stop 2 are named"); assert.ok(/WHEN A SET IS DRESSED, the dressing names such a thing as the piece it is/.test(l),"stop 3"); });
+  assert.ok(!/claude|anthropic|openai|gemini|three\.?js|\bTURN\b|\bMUSE\b|credit/i.test(fact.map(l=>l.slice(l.indexOf("FURNITURE IN FULL"),l.indexOf("FURNITURE IN FULL")+2200)).join(" ")),"no vendor, codename or billing word in it");
 });
 
 test("9 the ten pieces of stop 2: each a whole object, the same every time", ()=>{
@@ -257,6 +257,37 @@ test("12 stop 2: what the dressing drew stays, and its own signs say which way a
   assert.deepEqual([...r.hide],["k1"]); assert.equal(r.parts.length,16);
   // a thing that is the wrong size for its name is left as it is
   assert.equal(K.expand({materials:{},objects:[A("x","Sofa",[0.8,0.8,0.85],[1,1,0.425],"blue"),A("y","Radiator",[0.5,0.5,1.8],[3,1,0.9],"w"),A("z","Persian rug",[1,1,0.4],[2,2,0.2],"r")]}).parts.length,0);
+});
+
+test("13 stop 3, the dressing names the piece: a named box is that piece, whatever it is called", ()=>{
+  const scene={materials:{oak:{baseColor:[0.4,0.25,0.1],roughness:0.6}},objects:[
+    shape("wall-0","Room wall",[6,0.15,2.5],[3,5.075,1.25],"wall"),
+    // a block the floor plan calls "Seat by the stove": no name of the kit, but the dressing said chair
+    shape("anchor-4","Seat by the stove",[0.45,0.45,0.9],[1,1,0.45],"oak",{anchorId:"seat"}),
+    // a run of units the dressing named, with the sink it drew on the worktop
+    shape("anchor-5","Counter",[2,0.6,0.9],[3,4.7,0.45],"cream",{anchorId:"counter"}),
+    shape("dress-0","Counter · 1",[0.5,0.4,0.02],[3,4.7,0.91],"steel",{anchorId:"counter"}),
+    // an extra the dressing named: its box first, then what it drew on it, numbered from 2
+    shape("extra-0","Way out",[0.9,0.05,2],[0,2,1],"green"),shape("extra-1","Way out · 2",[0.3,0.02,0.4],[0,2,1.5],"glass"),
+    // a thing whose name the kit knows, that nobody named: still read by its name
+    shape("anchor-6","Kitchen table",[1.2,0.75,0.74],[4,2,0.37],"oak",{anchorId:"table"}),
+    // a bed the dressing named, with its cover's colour
+    shape("anchor-7","Mattress on the floor",[0.9,1.9,0.5],[5.4,1.2,0.25],"pine",{anchorId:"mat"})]};
+  const named={"anchor-4":{piece:"chair",second:"",faces:90},"anchor-5":{piece:"units",second:"oak"},"extra-0":{piece:"door",second:""},"anchor-7":{piece:"bed",second:"blue"},"anchor-9":{piece:"sofa"},"anchor-6":{piece:"spaceship"}};
+  const kept=JSON.stringify(scene), r=K.expand(scene,named), of=n=>r.parts.filter(p=>p.name===n);
+  assert.equal(JSON.stringify(scene),kept);
+  assert.deepEqual(plain(r.pieces.map(p=>[p.name,p.piece,p.kept])),[["Seat by the stove","chair",0],["Counter","units",1],["Way out","door",1],["Kitchen table","table",0],["Mattress on the floor","bed",0]]);
+  assert.deepEqual([...r.hide].sort(),["anchor-4","anchor-5","anchor-6","anchor-7","extra-0"],"what the dressing drew on a piece is still drawn");
+  // faces 90 = east: the chair's back rail is on its west side
+  assert.ok(topRail(r,"Seat by the stove").position[0]<0.85,"its front looks the way the dressing said");
+  assert.equal(of("Counter").at(-1).material,"oak","second is its other colour: the worktop"); assert.ok(of("Counter").filter(p=>near(p.size[1],0.018,0.001)).every(p=>p.position[1]<4.5),"with no word on its front, its back is to the wall");
+  assert.equal(of("Way out").length,7,"no panel over the pane the dressing drew");
+  assert.ok(of("Mattress on the floor").some(p=>p.material==="blue")&&of("Mattress on the floor").filter(p=>p.kind==="box").every(p=>p.material==="pine"),"a bed: colour is its frame, second its cover");
+  // with nothing named, the same set is read by its names alone
+  assert.deepEqual(plain(K.expand(scene).pieces.map(p=>p.piece)),["table"]);
+  // the size check the dressing asks before it keeps a kit piece
+  assert.ok(K.fitsBox("chair",[0.45,0.45,0.9],0)&&!K.fitsBox("chair",[3,0.45,0.9],0)&&K.fitsBox("units",[0.6,2,0.9],0)&&K.fitsBox("door",[0.05,0.9,2],0)&&K.fitsBox("bed",[1.9,1.4,0.5],0));
+  assert.ok(!K.fitsBox("spaceship",[1,1,1],0)&&!K.fitsBox("chair",null,0)&&!K.fitsBox("units",[2,0.6,0.9],1.5));
 });
 
 console.log(`${pass} passed, ${fail} failed`);

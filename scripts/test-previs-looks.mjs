@@ -198,7 +198,7 @@ await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
   assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 /* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
@@ -258,9 +258,9 @@ await test("12 depth is measured in the camera's own space: the same room is not
   // still never under 3 m; a span that is not numbers is ignored
   assert.equal(h.P.depthFar({objects:[],cameras:{TL:{position:[0.5,0.5,0.5]}}},{min:[0,0,0],max:[1,1,1]}),3); assert.equal(h.P.depthFar(room,{min:["a"],max:[]}),whole);
   // the facts ride with the light, and are not part of what a saved draft was made from
-  assert.ok(previs.includes("return {scene:out,light:light||known?{...(light||{}),place:facts}:null,dressed:isos.length>0,parts,iso:isos.join(\"|\")};"),"a set with no light and no facts still has none");
+  assert.ok(previs.includes("return {scene:out,light:light||known||named?{...(light||{}),place:facts,...(named?{kit}:{})}:null,dressed:isos.length>0,parts,iso:isos.join(\"|\")};"),"a set with no light, no facts and no named piece still has none");
   assert.ok(previs.includes("setKey:await C.hash(C.canonical({scene:built.scene,light:lightAsSaved(built.light)}))"),"a draft made before step 2 still matches its set");
-  assert.ok(previs.includes('Object.keys(light).forEach(k=>{if(k!=="place")own[k]=light[k];});')&&previs.includes("return Object.keys(own).length?own:null;"));
+  assert.ok(previs.includes('Object.keys(light).forEach(k=>{if(k!=="place"&&k!=="kit")own[k]=light[k];});')&&previs.includes("return Object.keys(own).length?own:null;"));
 });
 
 await test("13 a sheen: only metal, glass, gloss paint and tiles mirror the small sky", async()=>{
@@ -296,7 +296,7 @@ await test("14 a person in a shot's Previs is a jointed figure: two new shapes d
   assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its flat colours, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its flat colours, its plain jointed figures or it"));
   assert.ok(ai.includes("Each person is a plain jointed figure in one colour (a body, a head with a nose that shows which way they look, arms with hands, legs with shoes)"));
   for(const f of ["app/camera-angle-preview.js","app/shot-previs.js","app/shots.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 await test("15 the furniture kit: a chair of the set is drawn from its parts; the set keeps its shapes; clay covers the parts too", async()=>{
@@ -321,6 +321,13 @@ await test("15 the furniture kit: a chair of the set is drawn from its parts; th
   const bare=harness(), plainView=await bare.P.viewer(scene,null);
   plainView.render(bare.canvas(),{position:[0.5,0.5,1.5]},640,360);
   assert.equal(bare.drawn[0].meshes.filter(m=>/^anchor-3-/.test(m.id)).length,6); assert.deepEqual(JSON.parse(JSON.stringify(plainView.kit)),[]);
+  // stop 3: a piece the dressing named rides with the light (light.kit, by the box's id) and is drawn as that piece
+  const said=harness(); vm.runInContext(read("app/set-kit.js"),said.box,{filename:"set-kit.js"});
+  const stool=said.scene(); stool.objects.push({id:"anchor-9",anchorId:"stool",name:"Seat by the stove",kind:"box",material:"oak",size:[0.45,0.45,0.9],position:[3,1,0.45],rotation:[0,0,0]});
+  const told=await said.P.viewer(stool,{kit:{"anchor-9":{piece:"chair",second:""}}}); told.render(said.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  assert.deepEqual(JSON.parse(JSON.stringify(told.kit)),[{name:"Seat by the stove",piece:"chair",parts:10,kept:0}]); assert.ok(!said.drawn[0].meshes.some(m=>m.id==="anchor-9"));
+  const untold=await said.P.viewer(stool,null); assert.deepEqual(JSON.parse(JSON.stringify(untold.kit)),[],"nobody named it and its name says nothing: its box is drawn");
+  assert.ok(/expand\(scene,\(opts&&opts\.kit\)\|\|\(light&&light\.kit\)\|\|null\)/.test(previs)&&/const drawn=D\.applied\(out,mine,/.test(previs)&&/Object\.assign\(kit,drawn\.kit\)/.test(previs),"scene() gathers the named pieces of every card of the place");
   const broken=harness(); broken.box.KinolotSetKit={expand(){ throw new Error("no"); }};
   const safe=await broken.P.viewer(scene,null); safe.render(broken.canvas(),{position:[0.5,0.5,1.5]},640,360);
   assert.equal(broken.drawn[0].meshes.filter(m=>/^anchor-3-/.test(m.id)).length,6,"a fault in the kit never stops a drawing");

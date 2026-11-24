@@ -89,7 +89,7 @@
        kitchen units) is drawn as the kit's piece, at the size the set gives it, in place of its plain shapes. The
        set's own data is not touched: every check goes on reading the shapes it always read (set-kit.js). */
     let fitted=null;
-    try{fitted=root.KinolotSetKit?root.KinolotSetKit.expand(scene):null;}catch(_){fitted=null;}
+    try{fitted=root.KinolotSetKit?root.KinolotSetKit.expand(scene,(opts&&opts.kit)||(light&&light.kit)||null):null;}catch(_){fitted=null;}
     if(fitted&&fitted.parts.length)scene={...scene,objects:scene.objects.filter(o=>!fitted.hide.has(o.id)).concat(fitted.parts),materials:{...scene.materials,...fitted.materials}};
     // which object wears each material: the builder's plain "floor" and "wall" are told apart by it
     const worn={};scene.objects.forEach(item=>{if(!worn[item.material])worn[item.material]=String(item.name||"");});
@@ -358,7 +358,7 @@
   function scene(location,list,at){
     if(!root.KinolotCloudRender||!root.KinolotSetDressing)throw new Error("The 3D view did not load. Refresh this page.");
     const D=root.KinolotSetDressing,built=root.KinolotCloudRender.buildScene(location,list,at||undefined);
-    const where=D.place(location,list),count=d=>Object.values(d.objects).reduce((n,l)=>n+l.length,0)+d.extras.reduce((n,e)=>n+e.parts.length,0);
+    const where=D.place(location,list),count=D.count,kit={};
     let out=built,parts=0,light=null;const isos=[];
     where.family.forEach((member,k)=>{
       // the card on screen may be newer than the film's saved list
@@ -366,18 +366,21 @@
       const kept=card&&card.previs?D.saved(card,built):null;if(!kept)return;
       const mine=D.own(kept.dressing,built,where,card.id).dressing,n=count(mine);
       if(!n&&!Object.keys(mine.surfaces).length)return;
-      out=D.apply(out,mine,where.family.length>1&&k?String(k):"");
+      // (the kit pieces a dressing named travel beside the set, by the id of each one's box: set-dressing.js applied)
+      const drawn=D.applied(out,mine,where.family.length>1&&k?String(k):"");
+      out=drawn.scene;Object.assign(kit,drawn.kit);
       parts+=n;isos.push(where.family.length>1?card.id+":"+kept.iso:kept.iso);
       if(!light)light=kept.dressing.light;   // the place's own light first (it comes first), else the first room's
     });
     // (the place's own facts for the drawing ride with its light: where daylight comes in, and the card's own space)
     const facts=placeFacts(location,list),known=facts.windows.length>0||!!facts.span;
-    return {scene:out,light:light||known?{...(light||{}),place:facts}:null,dressed:isos.length>0,parts,iso:isos.join("|")};
+    const named=Object.keys(kit).length>0;
+    return {scene:out,light:light||known||named?{...(light||{}),place:facts,...(named?{kit}:{})}:null,dressed:isos.length>0,parts,iso:isos.join("|")};
   }
   // the light as the dressing saved it (null when the set is not dressed), without the place's facts added for drawing
   function lightAsSaved(light){
     if(!light||typeof light!=="object")return null;
-    const own={};Object.keys(light).forEach(k=>{if(k!=="place")own[k]=light[k];});
+    const own={};Object.keys(light).forEach(k=>{if(k!=="place"&&k!=="kit")own[k]=light[k];});
     return Object.keys(own).length?own:null;
   }
   /* WHAT THE DRAWING NEEDS TO KNOW OF THE PLACE, from its floor plan (never throws; an unknown is left out):

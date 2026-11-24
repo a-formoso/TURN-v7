@@ -562,3 +562,118 @@ test('a dressing that takes too long is asked once more, lighter, before the use
   assert.ok(ai.includes('if(!opts.quietTimeout && typeof window.appToast==="function") window.appToast(msg,"error");'));
   assert.ok(ai.includes('if(!(slow && opts.quietTimeout) && typeof window.appToast==="function") window.appToast(msg,"error");'));
 });
+
+/* KIT PIECES (owner 2026-11-24, the Previs look brief, step 4, stop 3): the dressing NAMES a thing the furniture kit
+   can draw whole, instead of writing its shapes. The set keeps the thing as the one box it was; the choice travels
+   beside the set by the box's id, so the set stays a valid set and every check reads what it always read. */
+const kb={console,crypto,TextEncoder,URL};kb.window=kb;vm.createContext(kb);
+for(const f of ['blender-render-contract.js','set-kit.js','set-dressing.js'])vm.runInContext(readFileSync('app/'+f,'utf8'),kb);
+const DK=kb.KinolotSetDressing,KK=kb.KinolotSetKit;
+const named=()=>({
+  palette:{steel:['#c8c8c8',.4,.6],carpet:['#6b5a48',.95],magnolia:['#efe6cf',.9]},
+  surfaces:{},
+  objects:{
+    radiator:{kit:'radiator',colour:'steel',second:'carpet',faces:90,parts:[['box',[.3,.1,.02],[0,0,.59],'magnolia']]},
+    ghost:{kit:'chair',colour:'steel'}},
+  extras:[
+    {name:'Hall door',at:[2,3.9,0],turn:0,kit:'door',size:[.8,.05,2],colour:'magnolia',parts:[['box',[.3,.02,.4],[0,.035,1.5],'steel']]},
+    {name:'Skirting north',at:[2,3.95,0],turn:0,kit:'skirting',size:[3,.02,.1],colour:'magnolia'},
+    {name:'Door on the camera',at:[.5,.5,0],turn:0,kit:'door',size:[.8,.05,2],colour:'magnolia'},
+    {name:'No size',at:[1,3,0],turn:0,kit:'door',colour:'magnolia'},
+    {name:'A spaceship',at:[1,3,0],turn:0,kit:'spaceship',size:[1,1,1],colour:'magnolia'},
+    {name:'A door as wide as a bus',at:[1,3,0],turn:0,kit:'door',size:[9,.05,2],colour:'magnolia'}],
+  light:{time:'day'}});
+
+test('kit pieces: the dressing names a piece; only a real piece of the right size is kept',()=>{
+  assert.deepEqual(copy(DK.KIT).sort(),Object.keys(KK.PIECES).sort(),'the dressing knows exactly the pieces the kit has');
+  const s=scene(),before=JSON.stringify(s),{dressing,report}=DK.normalise(named(),s);
+  assert.equal(JSON.stringify(s),before);
+  assert.deepEqual(copy(dressing.pieces),{radiator:{kit:'radiator',colour:'steel',second:'carpet',faces:90}});
+  assert.equal(dressing.objects.radiator.length,1,'what is fixed on it is still written in parts');
+  assert.deepEqual(copy(dressing.extras.map(e=>[e.name,e.kit&&e.kit.kit,e.size||null,e.parts.length])),[['Hall door','door',[.8,.05,2],1],['Skirting north','skirting',[3,.02,.1],0]]);
+  for(const word of ['kept as built','it would stand on a camera','a kit piece needs its size','is not a kit piece','not the size of a door'])
+    assert.ok(report.left.some(line=>line.includes(word)),'says: '+word);
+  assert.equal(report.kit,3);assert.equal(report.parts,5,'a kit piece counts as one shape: 3 pieces and 2 written parts');assert.equal(DK.count(dressing),5);
+  // a block that is not the size of the piece named for it stays as built, and says so
+  const wrong=DK.normalise({palette:{},objects:{radiator:{kit:'chair'}}},scene());
+  assert.deepEqual(copy(wrong.dressing.pieces),{});assert.ok(wrong.report.left.some(l=>l.includes('not the size of a chair')));
+  // without the kit loaded (an older page), a named piece is kept and simply drawn as its box
+  assert.deepEqual(copy(D.normalise({palette:{},objects:{radiator:{kit:'chair'}}},scene()).dressing.pieces),{radiator:{kit:'chair',colour:'',second:''}});
+});
+
+test('kit pieces: the set keeps one box for each, still a valid set; the choice travels beside it',()=>{
+  const s=scene(),{dressing}=DK.normalise(named(),s),{scene:dressed,kit}=DK.applied(s,dressing);
+  C.validateScene(dressed);
+  assert.deepEqual(copy(DK.apply(s,dressing)),copy(dressed),'apply() is the same set');
+  const by=id=>dressed.objects.find(o=>o.id===id),block=by('anchor-0');
+  assert.deepEqual(copy([block.size,block.position,block.kind,block.anchorId]),[[1,.12,.6],[.2,2,.55],'box','radiator'],'the floor-plan object is the box it was');
+  assert.equal(block.material,'d_steel','in its colour');
+  assert.ok(Object.keys(block).every(k=>['id','name','anchorId','basis','position','rotation','size','kind','material'].includes(k)),'no new field on a shape');
+  const door=dressed.objects.find(o=>o.name==='Hall door'),pane=dressed.objects.find(o=>o.name==='Hall door · 2');
+  assert.deepEqual(copy([door.size,door.position,door.kind,door.material]),[[.8,.05,2],[2,3.9,1],'box','d_magnolia']);assert.ok(pane,'what was drawn on it follows, numbered from 2');
+  assert.deepEqual(copy(kit),{'anchor-0':{piece:'radiator',second:'d_carpet',faces:90},[door.id]:{piece:'door',second:''},[dressed.objects.find(o=>o.name==='Skirting north').id]:{piece:'skirting',second:''}});
+  // the drawing swaps each box for its piece, and keeps what was drawn on it
+  const drawn=KK.expand(dressed,kit);
+  assert.deepEqual(copy(drawn.pieces.map(p=>[p.name,p.piece,p.kept])),[['Radiator','radiator',1],['Bed','bed',0],['Hall door','door',1],['Skirting north','skirting',0]],'(the bed nobody named is still read by its name)');
+  assert.ok(drawn.hide.has('anchor-0')&&drawn.hide.has(door.id)&&!drawn.hide.has(pane.id));
+  // faces 90: the radiator's fins are on its east side
+  const fins=drawn.parts.filter(p=>p.name==='Radiator'&&Math.abs(p.size[2]-.57)<.001);
+  assert.ok(fins.length>=6&&fins.every(p=>p.position[0]>.2),'its front looks the way the dressing said');
+});
+
+test('kit pieces: kept with the location and read back the same; a room keeps only its own',()=>{
+  const s=scene(),{dressing}=DK.normalise(named(),s),packed=DK.pack(dressing,{iso:'2026-11-24T10:00:00.000Z',engine:DK.MODEL});
+  assert.deepEqual(copy(packed.pieces),{radiator:['radiator','steel','carpet',90]});
+  assert.deepEqual(copy(packed.extras.map(e=>[e.kit,e.size])),[[['door','magnolia'],[.8,.05,2]],[['skirting','magnolia'],[3,.02,.1]]]);
+  const back=DK.saved({previs:copy(packed)},s);
+  assert.deepEqual(copy(back.dressing.pieces),copy(dressing.pieces));assert.deepEqual(copy(back.dressing.extras),copy(dressing.extras));
+  assert.deepEqual(copy(DK.applied(s,back.dressing).kit),copy(DK.applied(s,dressing).kit));
+  // faces 0 (north) is kept, not trimmed away
+  assert.deepEqual(copy(DK.pack({...dressing,pieces:{radiator:{kit:'radiator',colour:'',second:'',faces:0}}},{iso:'x'}).pieces),{radiator:['radiator','','',0]});
+  // a dressing saved before kit pieces is read as it always was
+  const old=DK.saved({previs:{v:1,iso:'x',engine:'',palette:{steel:['#c8c8c8']},surfaces:{},objects:{radiator:[['box',[.9,.08,.5],[0,0,.3],'steel']]},extras:[],light:{}}},s);
+  assert.deepEqual(copy(old.dressing.pieces),{});assert.equal(old.dressing.objects.radiator.length,1);
+  // two spaces on one plan: the hall keeps its radiator's piece, the other space does not
+  const where={owner:{id:'place'},spaces:[{id:'hall',name:'Hall',footprint:[[0,0],[4,0],[4,4],[0,4]],top:2.4},{id:'yard',name:'Yard',footprint:[[10,0],[14,0],[14,4],[10,4]],top:null}]};
+  assert.deepEqual(copy(Object.keys(DK.own(dressing,s,where,'hall').dressing.pieces)),['radiator']);
+  assert.deepEqual(copy(Object.keys(DK.own(dressing,s,where,'yard').dressing.pieces)),[]);
+});
+
+test('kit pieces: what is fixed on a piece may stand above it (a tap over a worktop), but not beside it',()=>{
+  const s=scene();s.objects.push({id:'anchor-1',name:'Counter',anchorId:'counter',basis:'design',position:[2,3.6,.45],size:[2,.6,.9],rotation:[0,0,0],kind:'box',material:'dressing'});
+  const tap=[['box',[.5,.4,.02],[.4,0,.9],'steel'],['cyl',[.03,.03,.2],[.4,-.22,1],'steel']];
+  const asKit=DK.normalise({palette:{steel:['#c8c8c8']},objects:{counter:{kit:'units',colour:'steel',parts:copy(tap)}}},s);
+  assert.deepEqual(copy(asKit.dressing.objects.counter.map(p=>p.at[2])),[.9,1],'the sink lies on the worktop and the tap stands on it, where they were written');
+  assert.ok(!asKit.report.left.some(l=>l.includes('fitted')));
+  const wide=DK.normalise({palette:{},objects:{counter:{kit:'units',parts:[['box',[3,.4,.02],[0,0,.9],'']]}}},s);
+  assert.ok(wide.dressing.objects.counter[0].size[0]<=2&&wide.report.left.some(l=>l.includes('fitted')),'never wider than the saved box');
+  // the same parts on an object drawn shape by shape stay inside its saved height, as before
+  const asParts=DK.normalise({palette:{steel:['#c8c8c8']},objects:{counter:copy(tap)}},s);
+  assert.ok(asParts.dressing.objects.counter.every(p=>p.at[2]+p.size[2]/2<=.902)&&asParts.report.left.some(l=>l.includes('fitted')));
+});
+
+test('kit pieces: a lamp written on the ceiling hangs down from there; one written low stands',()=>{
+  const lamps={palette:{paper:['#e8e0c8',.8]},extras:[{name:'Hall pendant',at:[2,2,2.4],turn:0,kit:'lamp',size:[.3,.3,.5],colour:'paper'},
+    {name:'Floor lamp',at:[3,1,0],turn:0,kit:'lamp',size:[.35,.35,1.6],colour:'paper'}]};
+  const s=scene(),{dressing,report}=DK.normalise(lamps,s),{scene:dressed,kit}=DK.applied(s,dressing);
+  assert.equal(report.kit,2);
+  const pendant=dressed.objects.find(o=>o.name==='Hall pendant'),floor=dressed.objects.find(o=>o.name==='Floor lamp');
+  assert.deepEqual(copy(pendant.position),[2,2,2.15],'from 2.4 m down to 1.9 m: under the ceiling, never above it');
+  assert.deepEqual(copy(floor.position),[3,1,.8]);
+  const drawn=KK.expand(dressed,kit),of=n=>drawn.parts.filter(p=>p.name===n);
+  assert.ok(of('Hall pendant').some(p=>Math.abs(p.size[0]-.09)<.001)&&of('Hall pendant').every(p=>p.position[2]<=2.401),'a pendant: a ceiling rose at the top, nothing above the point it hangs from');
+  assert.ok(of('Floor lamp').some(p=>Math.abs(p.size[0]-.26)<.001),'a floor lamp: its base plate');
+  assert.ok(/A lamp that hangs: at = the point on the ceiling it hangs from/.test(DK.prompt({},100)));
+});
+
+test('kit pieces: the engine is told to name them, never to draw them in parts',()=>{
+  assert.ok(/EVERY listed opening of kind door gets its door leaf, and every one of kind window or glass its frame and glass/.test(DK.prompt({},100)),'no doorway is left without its door');
+  const text=DK.prompt({},100),at=text.indexOf('KIT PIECES.'),kitText=text.slice(at,text.indexOf('A PART is an array'));
+  assert.ok(at>0);
+  for(const piece of DK.KIT)assert.ok(new RegExp('(^|[^a-z])'+piece+'([^a-z]|$)').test(kitText),'names '+piece);
+  assert.ok(/NEVER draw one of them in parts/.test(kitText)&&/counts as ONE part/.test(kitText)&&/\{"kit":"chair","colour":palette name,"second":palette name\}/.test(kitText));
+  assert.ok(/"kit":"door","size":\[width,depth,height\]/.test(kitText),'an extra gives its size');
+  assert.ok(/ONLY for what is fixed on it that the kit does not draw/.test(kitText));
+  assert.ok(/NOTHING LOOSE AND NOTHING INVENTED/.test(text),'and still nothing invented');
+  assert.ok(!/claude|anthropic|openai|gemini|three\.?js|kinolot|\bMUSE\b/i.test(kitText));
+});

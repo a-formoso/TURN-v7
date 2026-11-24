@@ -16,6 +16,18 @@
      shapes in 60 to 130 s. A set is now asked for in 100 parts, and a call that still takes too long is asked ONCE
      more, lighter (RETRY parts), before the user hears of it: the first call's held credits were given back. */
   const CALL={parts:100,effort:"low",ms:140000,retryParts:60};
+  /* KIT PIECES (owner 2026-11-24, the Previs look brief, step 4, stop 3: "the dressing names kit pieces"). For a thing
+     the furniture kit can draw whole (set-kit.js), the engine does not write shapes: it NAMES the piece and gives its
+     colours. The set keeps that thing as the one plain box it was (so every check reads what it always read, and the
+     set stays inside its format), and the choice travels beside the set, by the box's id: applied() returns
+     {scene, kit:{id:{piece, second, faces}}} and the drawing swaps the box for the piece.
+     KIT is the kit's own list (a test keeps the two equal). */
+  const KIT=["chair","table","units","door","window","sofa","bed","shelves","cooker","fridge","skirting","radiator","lamp","rug","curtains"];
+  /* WHERE A FREE KIT PIECE'S BOX STANDS. `at` is the centre of its base, as for every extra. One exception, read
+     from the first paid run (2026-11-24: both pendants were written with `at` on the ceiling and drawn above it): a
+     lamp written at 1.5 m or higher HANGS from `at`, down by its height; lower, it stands on `at`. → its base z */
+  const HANGS_FROM=1.5,KIT_ABOVE=0.4;
+  const kitBase=(piece,at,size)=>piece==="lamp"&&at[2]>=HANGS_FROM?at[2]-size[2]:at[2];
   const RAD=Math.PI/180;
   const finite=n=>typeof n==="number"&&Number.isFinite(n);
   const tidy=(s,max=160)=>String(s==null?"":s).replace(/[\u0000-\u001f]/g," ").trim().slice(0,max);
@@ -156,13 +168,36 @@
       });
       return out;
     };
-    const objects={};
-    Object.entries(src.objects&&typeof src.objects==="object"&&!Array.isArray(src.objects)?src.objects:{}).forEach(([id,list])=>{
-      const block=seen.blocks.get(id);
+    /* A kit piece as it is written ({"kit":"chair","colour":..,"second":..,"faces":..}) or as it is saved
+       ([piece, colour, second, faces]) -> {kit, colour, second, faces?}; null when there is none or it is not one.
+       box = [width, depth, height] and the height its base stands at: a "chair" 3 m wide is not drawn as one. */
+    const kitOf=(holder,what,box,base)=>{
+      const k=holder&&holder.kit;
+      const a=Array.isArray(k)?k:typeof k==="string"?[k,holder.colour||holder.color||holder.material,holder.second,holder.faces]
+        :k&&typeof k==="object"?[k.kit,k.colour,k.second,k.faces]:null;
+      if(!a)return null;
+      const piece=String(a[0]||"").toLowerCase();
+      if(!KIT.includes(piece)){note(what,"\""+tidy(a[0],24)+"\" is not a kit piece; left as built");return null;}
+      if(budget<=0){note(what,"over the limit of parts");return null;}
+      const K=root.KinolotSetKit;
+      if(K&&typeof K.fitsBox==="function"&&!K.fitsBox(piece,box,base)){note(what,"not the size of a "+piece+"; left as built");return null;}
+      const faces=a[3]==null||a[3]===""||!Number.isFinite(Number(a[3]))?null:clamp(a[3],-720,720,0);
+      budget--;
+      return {kit:piece,colour:material(tidy(a[1],40),what),second:material(tidy(a[2],40),what),...(faces==null?{}:{faces})};
+    };
+    const objects={},pieces={};
+    const written=src.objects&&typeof src.objects==="object"&&!Array.isArray(src.objects)?src.objects:{};
+    const kept=src.pieces&&typeof src.pieces==="object"&&!Array.isArray(src.pieces)?src.pieces:{};
+    [...new Set([...Object.keys(written),...Object.keys(kept)])].forEach(id=>{
+      const value=written[id],block=seen.blocks.get(id);
       if(!block)return note("Object "+id,"not a plain floor-plan block; kept as built");
-      const parts=takeParts(list,block.name,()=>"");
-      if(parts.length&&fit(parts,block.size))note(block.name,"fitted to its saved size");
-      if(parts.length)objects[id]=parts;
+      const named=value&&typeof value==="object"&&!Array.isArray(value);
+      const kit=kitOf(named&&value.kit!=null?value:kept[id]!=null?{kit:kept[id]}:null,block.name,block.size,block.position[2]-block.size[2]/2);
+      const parts=takeParts(named?value.parts:value,block.name,()=>"");
+      // what is fixed ON a kit piece stands above it (a tap over a worktop): it may rise KIT_ABOVE over the saved box
+      if(parts.length&&fit(parts,kit?[block.size[0],block.size[1],block.size[2]+KIT_ABOVE]:block.size))note(block.name,"fitted to its saved size");
+      if(kit)pieces[id]=kit;
+      if(parts.length||kit)objects[id]=parts;
     });
     const extras=[];
     (Array.isArray(src.extras)?src.extras:[]).slice(0,LIMITS.extras).forEach((piece,i)=>{
@@ -172,25 +207,43 @@
       if(at[0]<seen.low[0]-m||at[0]>seen.high[0]+m||at[1]<seen.low[1]-m||at[1]>seen.high[1]+m||at[2]<seen.low[2]-5||at[2]>seen.high[2]+40)
         return note(name,"too far from the floor plan");
       const turn=clamp(piece.turn,-720,720,0),rz=-turn*RAD;
+      // a kit piece: one box of the size written, standing on `at`; never on a camera
+      let kit=null,size=null;
+      if(piece&&piece.kit!=null){
+        size=vec(piece.size,3,LIMITS.sizeMin,LIMITS.sizeMax);
+        if(!size)note(name,"a kit piece needs its size; left out");
+        else{
+          const what=String(Array.isArray(piece.kit)?piece.kit[0]:typeof piece.kit==="object"?piece.kit.kit:piece.kit||"").toLowerCase(),z=kitBase(what,at,size);
+          if(cameras.some(c=>holds(c,[at[0],at[1],z+size[2]/2],[0,0,rz],size,LIMITS.cameraClear)))note(name,"it would stand on a camera");
+          else kit=kitOf(piece,name,size,z);
+        }
+      }
       const parts=takeParts(piece.parts,name,p=>{
         const off=turnXY(p.at,rz),centre=[at[0]+off[0],at[1]+off[1],at[2]+p.at[2]];
         const rotation=[p.tiltX*RAD,p.tiltY*RAD,rz-p.turn*RAD];
         if(cameras.some(c=>holds(c,centre,rotation,p.size,LIMITS.cameraClear)))return "it would stand on a camera";
         return "";
       });
-      if(parts.length)extras.push({name,at,turn,parts});
+      if(parts.length||kit)extras.push({name,at,turn,parts,...(kit?{kit,size}:{})});
     });
     const l=src.light&&typeof src.light==="object"?src.light:{},sun=l.sun&&typeof l.sun==="object"?l.sun:{};
     const light={time:["day","dusk","night"].includes(l.time)?l.time:"day",sky:hexOf(l.sky)||"",
       sun:{from:clamp(sun.from,-720,720,200),height:clamp(sun.height,2,89,38),colour:hexOf(sun.colour||sun.color)||"#fff4e0",power:clamp(sun.power,0,3,1)},
       fill:clamp(l.fill,0,2,1),
       lamps:(Array.isArray(l.lamps)?l.lamps:[]).slice(0,LIMITS.lamps).map(x=>({at:vec(x&&x.at,3,-10000,10000),colour:hexOf(x&&(x.colour||x.color))||"#ffd9a0",power:clamp(x&&x.power,0,3,1)})).filter(x=>x.at)};
-    const count=Object.values(objects).reduce((n,p)=>n+p.length,0)+extras.reduce((n,p)=>n+p.parts.length,0);
-    return {dressing:{palette,surfaces,objects,extras,light},report:{parts:count,objects:Object.keys(objects).length,extras:extras.length,left}};
+    const dressing={palette,surfaces,objects,pieces,extras,light};
+    return {dressing,report:{parts:count(dressing),objects:Object.keys(objects).length,extras:extras.length,kit:Object.keys(pieces).length+extras.filter(e=>e.kit).length,left}};
+  }
+  // how many shapes a dressing holds: each written part, and one for each kit piece (its box)
+  function count(d){
+    return Object.values(d&&d.objects||{}).reduce((n,p)=>n+p.length,0)+Object.keys(d&&d.pieces||{}).length
+      +(d&&d.extras||[]).reduce((n,e)=>n+e.parts.length+(e.kit?1:0),0);
   }
 
-  /* The built set with its dressing on: same contract as the set itself, so the same views draw it. */
-  function apply(scene,dressing,tag){
+  /* The built set with its dressing on: same contract as the set itself, so the same views draw it.
+     applied() also returns the kit pieces the dressing named, by the id of each one's box. */
+  const apply=(scene,dressing,tag)=>applied(scene,dressing,tag).scene;
+  function applied(scene,dressing,tag){
     tag=tag?String(tag).replace(/[^A-Za-z0-9]/g,"").slice(0,12):"";
     const seen=survey(scene),materials={...scene.materials},objects=[];
     const name=key=>"d"+tag+"_"+key,idOf=(kind,k)=>kind+"-"+(tag?tag+"-":"")+k;
@@ -198,9 +251,14 @@
       materials[name(key)]={baseColor:colour(m.colour),metallic:m.metal,roughness:m.roughness,...(m.glow>0?{emissionStrength:round(m.glow*2,2)}:{})};
     });
     const mat=key=>key&&materials[name(key)]?name(key):"";
-    const surfaceOf={};
+    const surfaceOf={},kit={},pieces=dressing.pieces||{};
+    const choice=k=>({piece:k.kit,second:mat(k.second),...(Number.isFinite(k.faces)?{faces:k.faces}:{})});
     seen.spaces.forEach(s=>{surfaceOf[s.index]=(dressing.surfaces||{})[s.name]||{};});
     scene.objects.forEach(o=>{
+      if(o.anchorId&&pieces[o.anchorId]&&seen.blocks.get(o.anchorId)===o){
+        // a kit piece: the object stays the one box it was, in its colour; the drawing swaps it for the piece
+        kit[o.id]=choice(pieces[o.anchorId]);objects.push({...o,material:mat(pieces[o.anchorId].colour)||o.material});return;
+      }
       if(o.anchorId&&(dressing.objects||{})[o.anchorId]&&seen.blocks.get(o.anchorId)===o)return;   // redrawn below
       const found=/^(floor|wall|ceiling)-(\d+)/.exec(o.id);
       const pick=found?mat((surfaceOf[Number(found[2])]||{})[found[1]==="wall"?"walls":found[1]]):"";
@@ -218,10 +276,19 @@
       const base=[block.position[0],block.position[1],block.position[2]-block.size[2]/2];
       parts.forEach((p,i)=>add(idOf("dress",n++),block.name+" \u00b7 "+(i+1),base,block.rotation[2],p,{anchorId:id}));
     });
-    (dressing.extras||[]).forEach(piece=>piece.parts.forEach((p,i)=>
-      add(idOf("extra",n++),piece.name+(piece.parts.length>1?" \u00b7 "+(i+1):""),piece.at,-piece.turn*RAD,p,{})));
+    (dressing.extras||[]).forEach(piece=>{
+      if(piece.kit&&piece.size){
+        // its box first, under the piece's own name; what the dressing drew on it follows, numbered from 2
+        const id=idOf("extra",n++);kit[id]=choice(piece.kit);
+        objects.push({id,name:tidy(piece.name,160),position:[piece.at[0],piece.at[1],kitBase(piece.kit.kit,piece.at,piece.size)+piece.size[2]/2].map(v=>round(v)),size:piece.size.map(v=>round(v)),
+          rotation:[0,0,round(-piece.turn*RAD,4)],kind:"box",material:mat(piece.kit.colour)||"dressing",basis:"design"});
+        piece.parts.forEach((p,i)=>add(idOf("extra",n++),piece.name+" \u00b7 "+(i+2),piece.at,-piece.turn*RAD,p,{}));
+        return;
+      }
+      piece.parts.forEach((p,i)=>add(idOf("extra",n++),piece.name+(piece.parts.length>1?" \u00b7 "+(i+1):""),piece.at,-piece.turn*RAD,p,{}));
+    });
     const notes=[...scene.notes,"Dressing is a design proposal read from the card and the screenplay, not a survey."].slice(0,40);
-    return {...scene,notes,objects,materials};
+    return {scene:{...scene,notes,objects,materials},kit};
   }
 
   /* ONE PLACE, ONE SET (owner 2026-11-16: a place's rooms are "an integral part of the same location"). The floor plan
@@ -264,7 +331,8 @@
     const within=(x,p)=>inside(x.footprint,p)&&x.footprint.every((a,i)=>near(p,a,x.footprint[(i+1)%x.footprint.length])>=0.2)&&(x.top==null||!(p[2]>=x.top-0.05));
     const mineFree=p=>{const x=spaces.filter(sp=>within(sp,p)).sort((a,b)=>area(a.footprint)-area(b.footprint))[0]||null;return x?x.id===memberId:memberId===ownerId;};
     const extras=(dressing.extras||[]).filter(e=>{const ok=mineFree(e.at);if(!ok&&left.length<40)left.push(tidy(e.name,80)+": "+elsewhere);return ok;});
-    return {dressing:{...dressing,surfaces,objects,extras},left};
+    const pieces=Object.fromEntries(Object.entries(dressing.pieces||{}).filter(([id])=>id in objects));
+    return {dressing:{...dressing,surfaces,objects,pieces,extras},left};
   }
 
   /* What the engine reads: the film, the card, the screenplay of the scenes set here, and the built floor plan. */
@@ -317,20 +385,26 @@
       +"WHAT YOU WRITE (JSON only):\n"
       +"1. palette: up to "+LIMITS.palette+" named materials, \"name\":[\"#rrggbb\", roughness 0-1, metal 0-1, glow 0-3]. Glow only for what gives light by day too: a screen, a lit sign. By day a window is dark glass.\n"
       +"2. surfaces: for each space by its exact name, the palette names of its floor, walls and ceiling. An open-air space has a floor only (its ground).\n"
-      +"3. objects: for floor-plan objects listed with \"dress\":true, object id -> parts that redraw it as the real thing instead of a plain block (a wheelie bin with its lid and wheels, a radiator with its panel, a hedge that is uneven). Origin = the centre of the object's base. The parts stay inside its saved size: x within half its width, y within half its depth, z from 0 to its height. Redraw every one of them: an object left out stays a plain block, which reads as nothing. Only a thing that truly is a plain block (a step, a slab) may be left out.\n"
+      +"3. objects: for floor-plan objects listed with \"dress\":true, object id -> parts that redraw it as the real thing instead of a plain block (a wheelie bin with its lid and wheels, a radiator with its panel, a hedge that is uneven). Origin = the centre of the object's base. The parts stay inside its saved size: x within half its width, y within half its depth, z from 0 to its height. Redraw every one of them: an object left out stays a plain block, which reads as nothing. Only a thing that truly is a plain block (a step, a slab) may be left out. An object that IS a kit piece (below) is not drawn in parts: object id -> the kit piece.\n"
       /* NOTHING INVENTED (owner 2026-11-23: "we don't need to dress the set by adding things that wasn't meant to be
          there originally"): extras are the FIXED parts of the place that the floor plan does not hold, never loose
          things. What stands or lies loose in the place is a floor-plan object already; if it is not one, it is not
          in the set. (Before: "pictures, rugs, curtains, shelves, lamps" were asked for, and mugs, papers and a
          laptop came with them.) */
-      +"4. extras: ONLY the fixed parts of the place that the floor plan does not hold. Outdoors: the building fronts with their storeys, windows, doors and roofs; the neighbours; pavement, kerb and road; fences, gates, street lamps, drainpipes. Indoors: door leaves and frames, window frames and glass in the listed openings, skirting and picture rails, fitted cupboards and units, and the light fittings fixed to a ceiling or a wall. NOTHING LOOSE AND NOTHING INVENTED: no furniture, ornaments, crockery, papers, books, screens, bags, clothes, cushions, rugs, pictures, plants or clutter of any kind. Whatever stands or lies loose in this place is a floor-plan object already; if the floor plan does not list it, it is not in this set. Each: {\"name\":\"...\",\"at\":[x,y,z],\"turn\":degrees,\"parts\":[...]} where at = the centre of its base in set coordinates.\n"
+      +"4. extras: ONLY the fixed parts of the place that the floor plan does not hold. Outdoors: the building fronts with their storeys, windows, doors and roofs; the neighbours; pavement, kerb and road; fences, gates, street lamps, drainpipes. Indoors: door leaves and frames, window frames and glass in the listed openings, skirting and picture rails, fitted cupboards and units, and the light fittings fixed to a ceiling or a wall. NOTHING LOOSE AND NOTHING INVENTED: no furniture, ornaments, crockery, papers, books, screens, bags, clothes, cushions, rugs, pictures, plants or clutter of any kind. Whatever stands or lies loose in this place is a floor-plan object already; if the floor plan does not list it, it is not in this set. Each: {\"name\":\"...\",\"at\":[x,y,z],\"turn\":degrees,\"parts\":[...]} where at = the centre of its base in set coordinates. A fixed part that IS a kit piece (a door leaf, a window, a run of units, a radiator, a skirting board, a light fitting) is written as the kit piece, with its size.\n"
       +"5. light: the master view is in plain DAYLIGHT; the film's own hours (night, dawn, rain) are made later as variants of it. Write {\"time\":\"day\",\"sky\":\"#rrggbb\",\"sun\":{\"from\":compass degrees the light comes from,\"height\":degrees above the horizon,\"colour\":\"#rrggbb\",\"power\":0-3},\"fill\":0-2,\"lamps\":[{\"at\":[x,y,z],\"colour\":\"#rrggbb\",\"power\":0-3}]} for the daylight this film's world has (an overcast city is a pale sky, a weak sun and a strong fill). Under lamps list where the light fittings are (a street lamp's head, a hall pendant); by day they are drawn unlit.\n\n"
+      /* KIT PIECES (stop 3): the engine names the piece; the app draws it whole (set-kit.js). Fewer shapes to write,
+         so the call is shorter, and every chair in every film is built the same careful way. */
+      +"KIT PIECES. The app draws these things whole, from all their parts, at the size given. NEVER draw one of them in parts; name it:\n"
+      +"chair (an upright chair: legs, seat, back rails) \u00b7 table (any square-cornered table: top, legs, rails) \u00b7 sofa \u00b7 bed (frame, mattress, pillows, cover) \u00b7 shelves (a bookcase or shelving unit; it gets books when its name says books) \u00b7 units (a run of kitchen base units: doors, handles, plinth, worktop) \u00b7 cooker \u00b7 fridge \u00b7 radiator \u00b7 lamp (hanging, standing or on a table: the app tells which from where it is) \u00b7 rug \u00b7 curtains \u00b7 door (one door leaf with its panels and handle) \u00b7 window (frame, glass and sill) \u00b7 skirting (one run of skirting board).\n"
+      +"For a listed object: object id -> {\"kit\":\"chair\",\"colour\":palette name,\"second\":palette name}. For an extra: {\"name\":\"...\",\"at\":[x,y,z],\"turn\":degrees,\"kit\":\"door\",\"size\":[width,depth,height],\"colour\":palette name}. A lamp that hangs: at = the point on the ceiling it hangs from, and it hangs down from there by its height. colour = what most of it is made of. second (optional) = its other colour: a seat pad, a worktop, a bed's cover, a lamp's base. \"faces\":compass degrees (optional, objects only) = the way its front looks when that is not the object's own facing: a chair's seat towards its table, a unit's doors into the room. Add \"parts\" to a kit piece ONLY for what is fixed on it that the kit does not draw: a sink, a tap and a hob in a worktop (they may stand up to 0.4 m above the object's saved height); a letter plate, a number or a glass pane in a door. A kit piece counts as ONE part. Use a kit piece only when the thing really is one and has its real size (a bench, an armchair, a round table, a car door or a shop window is drawn in parts).\n\n"
       +"A PART is an array: [shape,[width,depth,height],[x,y,z],material,turn,tiltX,tiltY]. Sizes in metres. [x,y,z] is the part's CENTRE measured from its piece's origin (z up from the base). turn, tiltX and tiltY are optional degrees: tiltX leans the part about its width axis, tiltY about its depth axis.\n"
       +"Shapes: \"box\"; \"cyl\" (an upright cylinder: width and depth are its diameters); \"wedge\" (a ramp or half a pitched roof: full height on its facing side, +y, and none on the other); \"cushion\" (a soft rounded block: seats, pillows, bushes, bin bags); \"cloth\" (a draped cover over its box: a bedspread, a tablecloth); \"ring\" (a flat ring).\n"
-      +"Example, a closed door leaf 0.9 m wide and 2 m tall with a glass panel on its facing side: [\"box\",[0.9,0.05,2],[0,0,1],\"door\"],[\"box\",[0.5,0.02,0.7],[0,0.035,1.45],\"glass\"].\n\n"
+      +"Example, a closed front door 0.9 m wide and 2 m tall with a glass panel on its facing side, in the opening at [1.2,0,0] of a south wall: {\"name\":\"Front door\",\"at\":[1.2,0,0],\"turn\":180,\"kit\":\"door\",\"size\":[0.9,0.05,2],\"colour\":\"door\",\"parts\":[[\"box\",[0.5,0.02,0.7],[0,0.035,1.45],\"glass\"]]}.\n\n"
       +"RULES\n"
-      +"- Real-world sizes. Build each thing from 1 to 12 parts and spend the parts where the four cameras look: on making each listed object read as the real thing, and on the fixed parts of the place. Never more than "+maxParts+" parts in all, and never an object added to fill the set: a room is as full as its floor plan says.\n"
+      +"- Real-world sizes. Build each thing that is not a kit piece from 1 to 12 parts and spend the parts where the four cameras look: on making each listed object read as the real thing, and on the fixed parts of the place. Never more than "+maxParts+" parts in all, and never an object added to fill the set: a room is as full as its floor plan says.\n"
       +"- A wall with windows: one box for the wall, then each window as a thin glass box 0.02 m proud of the wall's outer face with a frame round it. Never build the inside of a building the cameras cannot enter.\n"      +"- A room's own walls are already built, 0.15 m thick on its outline, in the room's wall colour on both faces. Where a room wall is also the outside of a building, cover it: put your building front's outer face at least 0.1 m outside the room's outline, with a gap exactly where the room's opening is.\n"
+      +"- EVERY listed opening of kind door gets its door leaf, and every one of kind window or glass its frame and glass: one extra each, a kit door or a kit window, at the opening's own centre, width and height (a window's at is the centre of its sill). The floor plan has cut the hole and nothing more. An arch gets nothing.\n"
       +"- Keep every listed opening clear to see and walk through; a door leaf stands open or closed as the screenplay has it. Put nothing within 0.6 m of a camera position and nothing large between a camera and the middle of the set.\n"
       +"- An open-air set needs its edges: what stands on every side the cameras can see (the fronts opposite, the road, the roof line) so that no view ends in empty space.\n"
       +"- No people and no animals. No vehicles unless the location itself is one or the card names one as permanent.\n"
@@ -346,12 +420,15 @@
   const SAVED_MAX=16000,SHORT={cylinder:"cyl",torus:"ring"};
   function pack(dressing,info){
     const trim=(a,least)=>{while(a.length>least&&!a[a.length-1])a.pop();return a;};
+    // a kit piece as it is kept: [piece, colour, second, faces] (faces kept even when it is 0, north)
+    const kitRow=k=>Number.isFinite(k.faces)?[k.kit,k.colour||"",k.second||"",k.faces]:trim([k.kit,k.colour||"",k.second||""],1);
     const parts=list=>list.map(p=>trim([SHORT[p.kind]||p.kind,p.size,p.at,p.material,p.turn,p.tiltX,p.tiltY],4));
     const out={v:1,iso:(info&&info.iso)||new Date().toISOString(),engine:(info&&info.engine)||"",
       palette:Object.fromEntries(Object.entries(dressing.palette).map(([k,m])=>[k,trim([m.colour,m.roughness,m.metal,m.glow],2)])),
       surfaces:dressing.surfaces,
       objects:Object.fromEntries(Object.entries(dressing.objects).map(([k,list])=>[k,parts(list)])),
-      extras:dressing.extras.map(e=>({name:e.name,at:e.at,turn:e.turn,parts:parts(e.parts)})),
+      ...(Object.keys(dressing.pieces||{}).length?{pieces:Object.fromEntries(Object.entries(dressing.pieces).map(([k,v])=>[k,kitRow(v)]))}:{}),
+      extras:dressing.extras.map(e=>({name:e.name,at:e.at,turn:e.turn,parts:parts(e.parts),...(e.kit?{kit:kitRow(e.kit),size:e.size}:{})})),
       light:dressing.light};
     if(JSON.stringify(out).length>SAVED_MAX)throw new Error("This dressing is too large to keep. Dress the set again.");
     return out;
@@ -417,11 +494,12 @@
     if(!parsed||typeof parsed!=="object")throw new Error("The dressing came back incomplete. Nothing was changed.");
     const first=normalise(parsed,scene),cut=own(first.dressing,scene,place(location,ctx.locations),location.id);
     // what is kept is this card's own space; the report counts what is kept
-    const count=d=>Object.values(d.objects).reduce((n,l)=>n+l.length,0)+d.extras.reduce((n,e)=>n+e.parts.length,0);
-    const checked={dressing:cut.dressing,report:{...first.report,parts:count(cut.dressing),objects:Object.keys(cut.dressing.objects).length,extras:cut.dressing.extras.length,left:first.report.left.concat(cut.left)}};
+    const checked={dressing:cut.dressing,report:{...first.report,parts:count(cut.dressing),objects:Object.keys(cut.dressing.objects).length,extras:cut.dressing.extras.length,
+      kit:Object.keys(cut.dressing.pieces||{}).length+cut.dressing.extras.filter(e=>e.kit).length,left:first.report.left.concat(cut.left)}};
     if(!checked.report.parts&&!Object.keys(checked.dressing.surfaces).length)throw new Error("The dressing came back empty. Nothing was changed.");
-    return {...checked,scene:apply(scene,checked.dressing),written:parsed,promptLength:text.length,answerLength:String(raw&&raw.text||raw||"").length};
+    const drawn=applied(scene,checked.dressing);
+    return {...checked,scene:drawn.scene,kit:drawn.kit,written:parsed,promptLength:text.length,answerLength:String(raw&&raw.text||raw||"").length};
   }
 
-  root.KinolotSetDressing={MODEL,LIMITS,CALL,SAVED_MAX,RATE,estimate,place,own,pack,saved,colour,part,fit,survey,normalise,apply,brief,prompt,draft};
+  root.KinolotSetDressing={MODEL,LIMITS,CALL,KIT,SAVED_MAX,RATE,estimate,place,own,pack,saved,colour,part,fit,survey,normalise,count,apply,applied,brief,prompt,draft};
 })(typeof window!=="undefined"?window:globalThis);

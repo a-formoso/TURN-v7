@@ -9,7 +9,11 @@
    them as before. Only the DRAWING swaps a thing for its kit piece: expand(scene) finds each thing the kit knows by
    its name, measures the box its shapes fill (its envelope), and returns the piece's parts to draw in place of them.
      pieceOf(name)          → which piece a thing is, from its name ("" when the kit has none for it)
-     expand(scene)          → {hide:Set of object ids not to draw, parts:[objects to draw instead], materials:{}, pieces:[{name, piece, parts}]}
+     expand(scene, named)   → {hide:Set of object ids not to draw, parts:[objects to draw instead], materials:{}, pieces:[{name, piece, parts}]}
+   STOP 3 (owner 2026-11-24): THE DRESSING NAMES THE PIECE. named = {object id: {piece, second, faces}} (set-dressing.js
+   applied): the thing the dressing said is a chair IS a chair, whatever it is called; its one box gives the size, its
+   material the colour, second its other colour, faces (compass degrees) the way its front looks when the dressing
+   said so. What the dressing drew on it (a sink in a worktop) stays. A thing nobody named is still read by its name.
      PIECES[piece](w, d, h, o) → the piece's parts in its own frame (below)
    A PART is [kind, [width, depth, height], [x, y, z], material, turn]: x across the piece, y along its depth with +y
    its front, z up from the floor it stands on; [x, y, z] is the part's centre; material is "main" (the thing's own
@@ -310,6 +314,14 @@
     curtains:e=>e.w>=0.4&&e.w<=5&&e.d<=0.45&&e.h>=0.8&&e.h<=3.2};
   // a thing whose width is its long side whichever way its shapes were drawn; a bed's length is its long side
   const LONG={units:1,sofa:1,radiator:1,skirting:1,curtains:1,shelves:1};
+  // is a plain box [width, depth, height], its base at that height, the size of this piece? (set-dressing.js asks)
+  function fitsBox(piece,size,base){
+    if(!PIECES[piece]||!FITS[piece]||!Array.isArray(size)||size.length<3) return false;
+    let w=Math.abs(Number(size[0])), d=Math.abs(Number(size[1])); const h=Math.abs(Number(size[2]));
+    const flat=piece==="door"||piece==="window";
+    if(((LONG[piece]||flat)&&d>w)||(piece==="bed"&&w>d)){ const t=w; w=d; d=t; }
+    return [w,d,h].every(Number.isFinite)&&!!FITS[piece]({w,d,h,base:Number(base)||0});
+  }
 
   /* THE BOX A THING'S SHAPES FILL, in its own frame: its turn about Z (the turn most of its bulk has), then how far
      its shapes reach across, along and up. whole = one shape alone is the thing (a door's leaf, a window's pane):
@@ -479,7 +491,8 @@
     return key;
   }
 
-  function expand(scene){
+  function expand(scene,named){
+    named=named&&typeof named==="object"?named:{};
     const out={hide:new Set(),parts:[],materials:{},pieces:[]};
     const objects=arr(scene&&scene.objects), groups=[], byAnchor=new Map();
     let open=null;
@@ -500,10 +513,15 @@
     });
     const found=[];
     groups.forEach(g=>{
-      const piece=pieceOf(g.name); if(!piece||!PIECES[piece]) return;
+      // the box the dressing named, if it named one; else what the thing's own name says
+      const box=g.items.find(o=>named[o.id]&&PIECES[named[o.id].piece]), said=box?named[box.id]:null;
+      const piece=said?said.piece:pieceOf(g.name); if(!piece||!PIECES[piece]) return;
       const flat=piece==="door"||piece==="window";
-      if(flat&&g.anchor) return;                                   // an opening's own anchor is its frame, not a leaf
-      const cut=split(piece,g.items); if(!cut||!cut.structure.length) return;
+      if(flat&&g.anchor&&!said) return;                            // an opening's own anchor is its frame, not a leaf
+      const cut=said?{structure:[box],kept:g.items.filter(o=>o!==box),said,
+        options:piece==="bed"?{roles:said.second?{frame:box.material,cover:said.second}:{cover:box.material}}:said.second?{second:said.second}:{}}
+        :split(piece,g.items);
+      if(!cut||!cut.structure.length) return;
       let e=envelope(cut.structure,flat);
       if((LONG[piece]&&e.d>e.w)||(piece==="bed"&&e.w>e.d)) e=turned(e,Math.PI/2);
       if(!FITS[piece](e)) return;
@@ -513,7 +531,13 @@
     const walls=objects.filter(o=>o&&/^wall-/.test(String(o.id||""))&&Array.isArray(o.position)&&Array.isArray(o.size));
     let count=0;
     found.forEach(f=>{
-      const g=f.g, piece=f.piece, cut=f.cut, e=facing(piece,f.e,cut.structure,tables,walls);
+      const g=f.g, piece=f.piece, cut=f.cut;
+      // the dressing said which way it looks: the nearest of the box's own sides to that (a long thing has two)
+      let e=null;
+      if(cut.said&&Number.isFinite(cut.said.faces)){
+        const a=cut.said.faces*Math.PI/180, v=local(f.e,[f.e.centre[0]+Math.sin(a),f.e.centre[1]+Math.cos(a)]);
+        e=turned(f.e,frontTo(LONG[piece]||piece==="bed"||f.flat?[0,v[1]]:v));
+      }else e=facing(piece,f.e,cut.structure,tables,walls);
       const tone=f.flat?{main:cut.structure[0].material,second:""}:colours(cut.structure), c=Math.cos(e.turn), s=Math.sin(e.turn);
       const glazed=piece==="door"&&!cut.kept.length&&(/\b(glass|glazed|frosted|pane)\b/i.test(g.name));
       const more={base:e.base,seed:g.name+"@"+Math.round(e.centre[0]*10)+","+Math.round(e.centre[1]*10),books:piece==="shelves"&&/book/i.test(g.name),
@@ -535,5 +559,5 @@
     return out;
   }
 
-  root.KinolotSetKit={PIECES,MATERIALS,FITS,pieceOf,envelope,split,facing,wallNear,seeded,expand};
+  root.KinolotSetKit={PIECES,MATERIALS,FITS,fitsBox,pieceOf,envelope,split,facing,wallNear,seeded,expand};
 })(typeof window!=="undefined"?window:globalThis);
