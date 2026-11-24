@@ -551,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -683,7 +683,7 @@ test("16. an end frame is guided by the drawing of how its shot ends, when the s
   assert.ok(comp.includes("if(pm && pm.previs && pm.previs.pose && typeof window.shotPrevisForFrame===\"function\"){"));
   assert.ok(shotsUi.includes('if(mode==="edit") return opts.buildEdit ? opts.buildEdit(gopts&&gopts.editInstruction||"",refs,runModel,gopts) : "";'));
   for(const t of ['out += "\\n\\nImage "+n+" is a 3D LAYOUT of this SAME shot as it ENDS, drawn to scale through the same camera:',
-    "const n = (Array.isArray(resolvedRefs) ? resolvedRefs.length : 0)+2;","Take ONLY positions from it: never its flat colours, its plain jointed figures or its boxes."])
+    "const n = (Array.isArray(resolvedRefs) ? resolvedRefs.length : 0)+2;","Take ONLY positions from it: never its drawn surfaces, its plain jointed figures or its boxes."])
     assert.ok(shotsUi.includes(t),t);
 });
 

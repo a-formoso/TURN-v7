@@ -338,7 +338,7 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
          out += "\n\nImage "+n+" is a 3D LAYOUT of this SAME shot as it ENDS, drawn to scale through the same camera: it shows where each person and each thing is by then, and each door as it stands. "
            +(lg.length ? "ITS STAND-INS: "+lg.join(" ")+" " : "")
            +"The pale panel on a figure's head is its face. Move each person and each thing to where Image "+n+" puts it, at that size in the frame and facing that way, and set each door as it shows; someone it no longer shows has left the frame. "
-           +"Take ONLY positions from it: never its flat colours, its plain jointed figures or its boxes. Everything Image "+n+" leaves where it was stays exactly as in Image 1.";
+           +"Take ONLY positions from it: never its drawn surfaces, its plain jointed figures or its boxes. Everything Image "+n+" leaves where it was stays exactly as in Image 1.";
        }
        return out;
     },

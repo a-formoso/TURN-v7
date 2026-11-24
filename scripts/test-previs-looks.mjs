@@ -134,9 +134,9 @@ await test("4 the sheet and the viewer take the look; the Colour sheet, with no 
   h.drawn.length=0;
   const odd=await h.P.viewer(h.scene(),null,{look:"wireframe"}); odd.render(h.canvas(),{position:[0,0,1]},320,180);
   assert.equal(odd.look,""); assert.equal(h.drawn[0].override,null);
-  assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options.look,renderer});"));
-  assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:!!(options&&options.surfaces),renderer});"));
-  assert.ok(previs.includes("const kit=root.KinolotSetSurfaces||null,S=!look&&opts&&opts.surfaces&&kit||null;"),"a look has no painted surfaces");
+  assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options.look,surfaces:options.surfaces,renderer});"));
+  assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:options&&options.surfaces,renderer});"));
+  assert.ok(previs.includes('const kit=root.KinolotSetSurfaces||null;let S=!look&&!(opts&&opts.surfaces===false)&&kit&&typeof kit.material==="function"&&kit||null;'),"a look has no painted surfaces");
 });
 
 await test("5 one 3D view draws a single frame in a look and is put back as it was (the location card)", async()=>{
@@ -198,7 +198,7 @@ await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
   assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 /* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
@@ -268,7 +268,8 @@ await test("13 a sheen: only metal, glass, gloss paint and tiles mirror the smal
   h.box.KinolotSetSurfaces={sky:()=>sky,kindOf:id=>({steel:"metal",pane:"glass",door:"gloss",lino:"tile",wall:"paint",rug:"carpet"})[id]||"plain"};
   const room=h.scene(); room.materials={steel:{baseColor:[0.3,0.3,0.3],roughness:0.3,metallic:0.8},pane:{baseColor:[0.02,0.03,0.04],roughness:0.1},door:{baseColor:[0.8,0.8,0.7]},lino:{baseColor:[0.4,0.3,0.2]},wall:{baseColor:[0.7,0.6,0.5]},rug:{baseColor:[0.2,0.1,0.1]}};
   room.objects=Object.keys(room.materials).map((m,i)=>({id:"o"+i,name:m,kind:"box",material:m,size:[1,1,1],position:[i,0,0.5],rotation:[0,0,0]}));
-  const view=await h.P.viewer(room,null); view.render(h.canvas(),{position:[0,-3,1.5]},640,360);
+  // (the sheen is what a FLAT-colour drawing has; a painted one gets its mirror from each surface's own painter)
+  const view=await h.P.viewer(room,null,{surfaces:false}); view.render(h.canvas(),{position:[0,-3,1.5]},640,360);
   const by={}; h.drawn[0].meshes.forEach((m,i)=>{ by[Object.keys(room.materials)[i]]=m.material; });
   assert.deepEqual(Object.keys(by).map(k=>[k,by[k].envMap?by[k].envMapIntensity:0]),[["steel",1.1],["pane",1.6],["door",0.5],["lino",0.4],["wall",0],["rug",0]]);
   // clay and depth mirror nothing; and with no sky to mirror (the kit is not there) the set is drawn as before
@@ -293,10 +294,10 @@ await test("14 a person in a shot's Previs is a jointed figure: two new shapes d
   assert.ok(shot.includes('add=(part,kind,centre,size,rot,m)=>objects.push({id:"fig-"+id+"-"+part,'));
   // what the image engine and its check are told: figures, never block figures
   for(const src of [shot,ai,shots,shotsUi,shotUi]) assert.ok(!/block figure/.test(src.replace(/\/\*[\s\S]*?\*\//g,"").replace(/\/\/.*$/gm,"")),"no block figure left in what is said");
-  assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its flat colours, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its flat colours, its plain jointed figures or it"));
+  assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its drawn surfaces, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its drawn surfaces, its plain jointed figures or it"));
   assert.ok(ai.includes("Each person is a plain jointed figure in one colour (a body, a head with a nose that shows which way they look, arms with hands, legs with shoes)"));
   for(const f of ["app/camera-angle-preview.js","app/shot-previs.js","app/shots.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 await test("15 the furniture kit: a chair of the set is drawn from its parts; the set keeps its shapes; clay covers the parts too", async()=>{
@@ -331,6 +332,44 @@ await test("15 the furniture kit: a chair of the set is drawn from its parts; th
   const broken=harness(); broken.box.KinolotSetKit={expand(){ throw new Error("no"); }};
   const safe=await broken.P.viewer(scene,null); safe.render(broken.canvas(),{position:[0.5,0.5,1.5]},640,360);
   assert.equal(broken.drawn[0].meshes.filter(m=>/^anchor-3-/.test(m.id)).length,6,"a fault in the kit never stops a drawing");
+});
+
+await test("16 painted surfaces on every Colour drawing: the sheet, the viewer and a shot's drawing; never clay or depth", async()=>{
+  const painted=()=>{ const h=harness(), log={materials:[],laid:[],dome:{isDome:true}};
+    h.box.KinolotSetSurfaces={kindOf:()=>"plain",sky:()=>({texture:{sky:true},dome:log.dome,dispose(){}}),
+      material:(T,id,m,name,env,owned)=>{ const made=new T.MeshStandardMaterial({painted:id,env:!!env}); log.materials.push([id,name]); owned.push(made); return made; },
+      layUV:(T,geometry,size)=>{ log.laid.push(geometry.of); }};
+    return {h,log}; };
+  // Colour, asked for nothing: every material painted, every shape laid at its real size, the sky put behind
+  let {h,log}=painted(); let view=await h.P.viewer(h.scene(),null); view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  assert.deepEqual(log.materials.map(x=>x[0]).sort(),["oak","red","skin","wall"]); assert.deepEqual(log.laid.sort(),["fig-ana","floor-0","prop-keys","wall-0"]);
+  assert.ok(h.drawn[0].meshes.filter(m=>m.id).every(m=>m.material.painted),"each shape wears its painted surface");
+  assert.equal(log.materials.find(x=>x[0]==="oak")[1],"Room floor","the painter is told what wears the material: a floor is boards, a wall is paint");
+  // the same drawing in clay (asked at draw time): the set goes white, the painted materials come back after
+  view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360,"clay");
+  assert.ok(h.drawn[1].meshes.filter(m=>m.id&&!m.own).every(m=>!m.material.painted)); view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  assert.ok(h.drawn[2].meshes.filter(m=>m.id).every(m=>m.material.painted)); view.dispose();
+  // the Previs sheet too
+  ({h,log}=painted()); await h.P.sheet(h.scene(),null,{}); assert.equal(log.materials.length,4,"the sheet is painted"); assert.equal(log.laid.length,4);
+  // a view built as clay or depth, and one that asks for flat colours, paint nothing
+  for(const options of [{look:"clay"},{look:"depth"},{surfaces:false}]){
+    ({h,log}=painted()); view=await h.P.viewer(h.scene(),null,options); view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
+    assert.equal(log.materials.length+log.laid.length,0,JSON.stringify(options)); view.dispose();
+  }
+  // a surface that cannot be painted never stops a drawing: flat colours instead
+  ({h,log}=painted()); h.box.KinolotSetSurfaces.material=()=>{ throw new Error("no canvas"); };
+  view=await h.P.viewer(h.scene(),null); view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  assert.equal(new Set(h.drawn[0].meshes.filter(m=>m.id).map(m=>m.material)).size,4); assert.ok(h.drawn[0].meshes.every(m=>m.material.kind==="standard"));
+  // who asks: a shot's drawing and the location card both draw through viewer(); nobody turns the surfaces off
+  assert.ok(shot.includes("P.viewer(scene, built.light, {look:o.look})")||/P\.viewer\(scene,\s*built\.light,\s*\{\s*look:\s*o\.look\s*\}\)/.test(shot),"a shot's drawing");
+  assert.ok(![shot,shotUi,stepUi,face].some(t=>/surfaces:\s*false/.test(t)),"no drawing of the app asks for flat colours");
+  // the kit's own materials have their surfaces
+  const sb={document:{createElement:()=>({getContext:()=>({})})}}; sb.window=sb; vm.createContext(sb); vm.runInContext(read("app/set-surfaces.js"),sb,{filename:"set-surfaces.js"});
+  const kind=sb.KinolotSetSurfaces.kindOf;
+  assert.deepEqual(["kit_steel","kit_glass","kit_linen","kit_cover","kit_book3","kit_worktop","kit_dark","kit_bulb","d_oak_kitshade","d_darkdoor_kitshade"].map(id=>kind(id,"")),["metal","glass","fabric","fabric","paper","gloss","plain","lamp","wood","gloss"]);
+  // the words: the image engine is told the drawn surfaces are stand-ins, and the help assistant knows
+  assert.ok(previs.includes("The sheet's drawn surfaces and simple light only point to materials and the hour;")&&!/flat colours, plain jointed/.test(ai+read("app/shots.jsx")+read("app/shots-ui.jsx")));
+  assert.ok(ai.split("\n").filter(l=>l.startsWith("APP_FEATURES.push")&&/PAINTED SURFACES EVERYWHERE \(2026-11-24\): every Colour drawing of a set is painted the same way/.test(l)).length===1);
 });
 
 console.log(pass+" passed, "+fail+" failed");

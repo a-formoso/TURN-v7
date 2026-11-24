@@ -167,7 +167,7 @@ test("7 the looks and the pack: Colour, Clay, Depth, drawn by the viewer's own l
   assert.deepEqual(K.PEOPLE.map(k=>[k.id,k.colour,k.height]),[["A",0xD08A2E,1.66],["B",0x3E73B8,1.72]]);
   // the viewer: surfaces on request, a look and a cast per drawing; the set itself is put back as it was
   // (the looks themselves are tested in test-previs-looks.mjs)
-  assert.ok(previs.includes("async function viewer(scene,light,options){")&&previs.includes("const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:!!(options&&options.surfaces),renderer});"));
+  assert.ok(previs.includes("async function viewer(scene,light,options){")&&previs.includes("const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:options&&options.surfaces,renderer});"));
   assert.ok(previs.includes("render(canvas,pose,width,height,look,cast){"));
   assert.ok(previs.includes("rig.meshes.forEach(m=>{if(m.userData.own)return;swapped.push([m,m.material]);m.material=clay;});"),"clay: the set in white, what stands in it as it is");
   assert.ok(previs.includes("rig.three.overrideMaterial=depth;"));
@@ -175,8 +175,8 @@ test("7 the looks and the pack: Colour, Clay, Depth, drawn by the viewer's own l
   assert.ok(previs.includes("renderer.shadowMap.needsUpdate=true;"),"a stand-in that moved casts its shadow again");
   assert.ok(previs.includes("renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));"),"the plain view is drawn as it always was");
   assert.ok(previs.includes("if(clay)clay.dispose();if(depth)depth.dispose();")&&previs.includes("actors.forEach(g=>root.KinolotSetSurfaces.disposeMannequin(g));"));
-  // the Previs sheet and the shot drawings keep their plain look: only a view that asks gets surfaces
-  assert.ok(previs.includes("const kit=root.KinolotSetSurfaces||null,S=!look&&opts&&opts.surfaces&&kit||null;"));
+  // since 2026-11-24 every Colour drawing has painted surfaces; {surfaces:false} asks for flat colours
+  assert.ok(previs.includes('const kit=root.KinolotSetSurfaces||null;let S=!look&&!(opts&&opts.surfaces===false)&&kit&&typeof kit.material==="function"&&kit||null;'));
 });
 
 /* the surfaces: which one a material gets, and where it is laid */
@@ -347,7 +347,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{
@@ -355,7 +355,7 @@ test("12 Frances knows the set card, in plain words", ()=>{
   const fact=ai.slice(at,ai.indexOf("\n",at));
   for(const s of ["THE SET CARD is the top of every place's card","COLOUR, CLAY, DEPTH","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
     "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","The render style is chosen there too","DRESSING RUNS BY ITSELF","It adds nothing loose and nothing invented",
-    "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","The Previs sheet and the drawings of shots keep their plain look"]) assert.ok(fact.includes(s),s);
+    "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","every Colour drawing of a set is painted the same way, on the set card, on the Previs sheet and on a shot's drawing"]) assert.ok(fact.includes(s),s);
   assert.ok(!/credit|\bTURN\b|MUSE|Claude|Anthropic|three\.js|WebGL/i.test(fact));
 });
 

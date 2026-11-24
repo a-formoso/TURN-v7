@@ -5,8 +5,8 @@
    the surface its own material names: brick with mortar, planks, tile, carpet, grass, tarmac, paving, slate, glass
    that mirrors the sky, metal, painted walls with a grain. Every surface is painted in code from the material's own
    colour (no image file, no model call) and laid at its real size in metres, whatever the shape's size.
-   Used by the location card's set card only (KinolotPrevis.viewer with {surfaces:true}); the Previs sheet and the
-   shot drawings the image engine follows keep their plain look.
+   Used by every Colour drawing of a set since 2026-11-24 (the location card, the Previs sheet, a shot's drawing):
+   set-previs.js build(); {surfaces:false} asks for flat colours. Clay and Depth never use them.
      kindOf(id, name)                 → which surface a material is, from its id and the object's name
      material(T, id, m, env)          → a three.js material for one of the set's materials
      layUV(T, geometry, size)         → lays the surface at real size on a shape (its size in metres)
@@ -22,6 +22,8 @@
   /* WHICH SURFACE: the first rule the material's id matches (the dressing names its materials: d_brick, d2_lam,
      d_upvc ...), then the object's own name for the builder's plain "floor" and "wall". */
   const RULES=[
+    // the furniture kit's own materials (set-kit.js): bedding, book spines, a worktop, a dark plinth
+    [/^kit_(linen|cover)/,"fabric"],[/^kit_book/,"paper"],[/^kit_worktop/,"gloss"],[/^kit_dark/,"plain"],
     [/lampglass|shade|bulb/,"lamp"],[/glass|glaz/,"glass"],
     [/brick|stock/,"brick"],[/slate|rooftile|roof/,"slate"],[/asphalt|tarmac|road/,"asphalt"],
     [/slab|pav|flag/,"slab"],[/conc|coping|kerb|stone|cement|render/,"concrete"],
@@ -34,7 +36,8 @@
     [/upvc|gloss|enamel|plastic|rad$|white|door|bin|car$/,"gloss"],
     [/magnolia|wall|hallw|cream|ceil|paint|plaster|oat/,"paint"],[/paper|card|photo|board/,"paper"]];
   function kindOf(id,name){
-    const s=String(id||"").toLowerCase().replace(/^d\d*_/,"");
+    // (a kit piece's darker tone of a material, "<material>_kitshade", is that material's own surface)
+    const s=String(id||"").toLowerCase().replace(/_kitshade$/,"").replace(/^d\d*_/,"");
     for(const r of RULES) if(r[0].test(s)) return r[1];
     const n=String(name||"").toLowerCase();
     if(/\bfloor\b/.test(n)) return "planks";

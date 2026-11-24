@@ -78,7 +78,11 @@
     if(look==="clay")light={...(light||{}),time:"day",sky:undefined,lamps:[],sun:light&&light.sun&&light.sun.power>0?light.sun:undefined};
     const time=light&&light.time||"day";
     three.background=new T.Color(look==="clay"?CLAY.ground:look==="depth"?0x000000:light&&light.sky||SKY[time]);
-    const kit=root.KinolotSetSurfaces||null,S=!look&&opts&&opts.surfaces&&kit||null;
+    /* PAINTED SURFACES ON EVERY COLOUR DRAWING (owner 2026-11-24, the Previs look brief, step 4, stop 4: "textures on
+       the Colour drawing: yes"). Until then only the location card's set card painted them; the Previs sheet and a
+       shot's drawing were flat colour. Now brick, boards, tiles, carpet, wood grain and glass are drawn wherever the
+       set is drawn in Colour; {surfaces:false} asks for the flat colours. Clay and Depth never have them. */
+    const kit=root.KinolotSetSurfaces||null;let S=!look&&!(opts&&opts.surfaces===false)&&kit&&typeof kit.material==="function"&&kit||null;
     const place=(opts&&opts.place)||(light&&light.place)||null;
     const clay=look==="clay"?clayMaterial(T):null;if(clay)disposables.push(clay);
     /* A SHEEN (step 2): a small sky, light above and dark below, that only metal, glass, gloss paint and tiles
@@ -93,10 +97,12 @@
     if(fitted&&fitted.parts.length)scene={...scene,objects:scene.objects.filter(o=>!fitted.hide.has(o.id)).concat(fitted.parts),materials:{...scene.materials,...fitted.materials}};
     // which object wears each material: the builder's plain "floor" and "wall" are told apart by it
     const worn={};scene.objects.forEach(item=>{if(!worn[item.material])worn[item.material]=String(item.name||"");});
-    if(S){
-      if(dome)three.add(dome.dome);
+    // (a surface that cannot be painted never stops a drawing: the set is then drawn in its flat colours)
+    if(S)try{
       Object.entries(scene.materials).forEach(([id,m])=>{materials.set(id,S.material(T,id,m,worn[id]||"",dome&&dome.texture,disposables));});
-    }else Object.entries(scene.materials).forEach(([id,m])=>{
+      if(dome)three.add(dome.dome);
+    }catch(_){S=null;materials.clear();}
+    if(!S)Object.entries(scene.materials).forEach(([id,m])=>{
       const colour=new T.Color(...m.baseColor);
       const material=new T.MeshStandardMaterial({color:colour,roughness:m.roughness==null?0.8:m.roughness,metalness:m.metallic||0,side:T.DoubleSide,
         emissive:colour,emissiveIntensity:m.emissionStrength?Math.min(2.5,m.emissionStrength*0.35):0});
@@ -110,7 +116,7 @@
       const geometry=root.KinolotAnglePreview.geometry(T,item),mesh=new T.Mesh(geometry,clay&&!own?clay:materials.get(item.material));
       disposables.push(geometry);
       mesh.userData.own=own;
-      if(S)S.layUV(T,geometry,item.size);
+      if(S)try{S.layUV(T,geometry,item.size);}catch(_){}
       mesh.position.set(...item.position);mesh.scale.set(...item.size);
       const [x,y,z]=item.rotation;
       mesh.quaternion.setFromRotationMatrix(new T.Matrix4().makeRotationZ(z).multiply(new T.Matrix4().makeRotationY(y)).multiply(new T.Matrix4().makeRotationX(x)));
@@ -252,7 +258,7 @@
     try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
     catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
     // options.look: the sheet as clay or as depth (the Colour sheet, with no look, is what the image engine follows)
-    const rig=build(T,scene,light||null,{look:options.look,renderer});
+    const rig=build(T,scene,light||null,{look:options.look,surfaces:options.surfaces,renderer});
     try{
       renderer.setPixelRatio(1);renderer.setSize(w,h,false);renderer.outputColorSpace=T.SRGBColorSpace;
       renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=options.exposure||(rig.look==="clay"?CLAY.exposure:1);
@@ -284,8 +290,8 @@
     let renderer;
     try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
     catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
-    // options.look: the whole view built as clay or depth (a shot's Previs); options.surfaces: painted surfaces
-    const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:!!(options&&options.surfaces),renderer});
+    // options.look: the whole view built as clay or depth (a shot's Previs); options.surfaces:false = flat colours
+    const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:options&&options.surfaces,renderer});
     let w=0,h=0,dead=false,drawn=false;
     const exposure=rig.look==="clay"?CLAY.exposure:1;
     renderer.setPixelRatio(1);renderer.outputColorSpace=T.SRGBColorSpace;
@@ -512,7 +518,7 @@
       +"Do not add, remove or move buildings, objects or openings, and do not merge, swap, crop or reframe panels. Never replace a panel with a different or more flattering view of the place. "
       +"The four panels meet edge to edge: draw nothing along the lines where they meet, no post, frame, bar, border or gap. "
       +"Every object stands as its block stands in Image 1. Where the spec says that something happens to an object in one scene (it is knocked over, spilled, broken, trampled, moved or left open), do not draw that: draw the place as it normally is. "
-      +"The sheet's flat colours and simple light only point to materials and the hour; the finished look is the spec's render style"+(style?" ("+style+")":"")+". "
+      +"The sheet's drawn surfaces and simple light only point to materials and the hour; the finished look is the spec's render style"+(style?" ("+style+")":"")+". "
       +"No people, no text, no labels, no borders and no panel numbers.\n"
       +(drawn&&drawn.look?"Image 2 is the finished image of "+drawn.look+", the place this space is part of. Take from it the materials, the palette, the weather and the quality of light, so that the two belong to one place. Take NO layout, camera or object from Image 2: Image 1 alone decides those.\n":"")
       +(drawn&&drawn.scene?panelText(drawn.scene,drawn.views):"")
