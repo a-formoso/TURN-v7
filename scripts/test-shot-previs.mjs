@@ -551,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */

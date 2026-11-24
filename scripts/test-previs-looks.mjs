@@ -38,7 +38,7 @@ function harness(){
   class WebGLRenderer{ constructor(){ this.shadowMap={}; this.domElement={}; this.toneMappingExposure=1; }
     setPixelRatio(){} setSize(){} getContext(){ return {isContextLost:()=>false}; } dispose(){} forceContextLoss(){}
     render(scene,camera){ drawn.push({override:scene.overrideMaterial,ground:scene.background,exposure:this.toneMappingExposure,camera,
-      meshes:scene.children.filter(c=>c.isMesh).map(m=>({id:m.userData.id,material:m.material,own:!!m.userData.own})),
+      meshes:scene.children.filter(c=>c.isMesh).map(m=>({id:m.userData.id||m.geometry&&m.geometry.of,material:m.material,own:!!m.userData.own})),
       lights:scene.children.filter(c=>c.isLight).map(l=>l.type),rig:scene.children.filter(c=>c.isLight).map(l=>({type:l.type,power:l.power,at:[l.position.x,l.position.y,l.position.z],to:[l.target.position.x,l.target.position.y,l.target.position.z]}))}); } }
   const T={Color,Vector3,MeshStandardMaterial,ShaderMaterial,Scene,Mesh,HemisphereLight,AmbientLight,DirectionalLight,PointLight,SpotLight,Matrix4,Box3,WebGLRenderer,DoubleSide:2,SRGBColorSpace:"srgb",ACESFilmicToneMapping:4,PCFSoftShadowMap:2};
   const canvas=()=>({width:0,height:0,getContext:()=>({drawImage(){}}),toDataURL:()=>"data:image/png;base64,AAAA"});
@@ -198,7 +198,7 @@ await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
   assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 /* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
@@ -296,7 +296,34 @@ await test("14 a person in a shot's Previs is a jointed figure: two new shapes d
   assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its flat colours, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its flat colours, its plain jointed figures or it"));
   assert.ok(ai.includes("Each person is a plain jointed figure in one colour (a body, a head with a nose that shows which way they look, arms with hands, legs with shoes)"));
   for(const f of ["app/camera-angle-preview.js","app/shot-previs.js","app/shots.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261124-figures1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-figures1", "20261124-kit1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+});
+
+await test("15 the furniture kit: a chair of the set is drawn from its parts; the set keeps its shapes; clay covers the parts too", async()=>{
+  const h=harness(); vm.runInContext(read("app/set-kit.js"),h.box,{filename:"set-kit.js"});
+  const scene=h.scene(), legs=[[1,1],[1,-1],[-1,1],[-1,-1]];
+  scene.objects.push({id:"anchor-3-furniture-0",anchorId:"chair",name:"Kitchen chair \u00b7 seat",kind:"box",material:"oak",size:[0.45,0.45,0.06],position:[3,1,0.43],rotation:[0,0,0]},
+    {id:"anchor-3-furniture-1",anchorId:"chair",name:"Kitchen chair \u00b7 backrest",kind:"box",material:"oak",size:[0.45,0.04,0.44],position:[3,0.8,0.68],rotation:[0,0,0]},
+    ...legs.map((k,i)=>({id:"anchor-3-furniture-"+(i+2),anchorId:"chair",name:"Kitchen chair \u00b7 leg",kind:"box",material:"oak",size:[0.04,0.04,0.4],position:[3+k[0]*0.2,1+k[1]*0.2,0.2],rotation:[0,0,0]})));
+  const kept=JSON.stringify(scene);
+  const view=await h.P.viewer(scene,null);
+  assert.equal(JSON.stringify(scene),kept,"the set's own data is exactly as it was: every check reads the shapes it always read");
+  assert.deepEqual(JSON.parse(JSON.stringify(view.kit)),[{name:"Kitchen chair",piece:"chair",parts:10,kept:0}]);
+  view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  const ids=h.drawn[0].meshes.map(m=>m.id);
+  assert.equal(ids.filter(id=>/^kit-/.test(id)).length,10); assert.ok(!ids.some(id=>/^anchor-3-/.test(id)),"its six plain shapes are not drawn");
+  assert.ok(["floor-0","wall-0","fig-ana","prop-keys"].every(id=>ids.includes(id)),"the room, the person and the prop are drawn as before");
+  view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360,"clay");
+  const clay=h.drawn[1].meshes, white=clay.find(m=>m.id==="wall-0").material;
+  assert.ok(clay.filter(m=>/^kit-/.test(m.id)).every(m=>m.material===white&&!m.own),"in clay the chair is the set's one white");
+  view.dispose();
+  // without the kit (or with a kit that fails) the set is drawn as it always was
+  const bare=harness(), plainView=await bare.P.viewer(scene,null);
+  plainView.render(bare.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  assert.equal(bare.drawn[0].meshes.filter(m=>/^anchor-3-/.test(m.id)).length,6); assert.deepEqual(JSON.parse(JSON.stringify(plainView.kit)),[]);
+  const broken=harness(); broken.box.KinolotSetKit={expand(){ throw new Error("no"); }};
+  const safe=await broken.P.viewer(scene,null); safe.render(broken.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  assert.equal(broken.drawn[0].meshes.filter(m=>/^anchor-3-/.test(m.id)).length,6,"a fault in the kit never stops a drawing");
 });
 
 console.log(pass+" passed, "+fail+" failed");

@@ -85,6 +85,12 @@
        mirror. It is what makes a pane read as glass and a tap as steel; a wall or a cloth mirrors nothing. */
     let dome=null;
     if(!look&&kit&&opts&&opts.renderer)try{dome=kit.sky(T,opts.renderer,light&&light.sky||SKY[time]);disposables.push(dome);}catch(_){dome=null;}
+    /* THE FURNITURE KIT (step 4): a thing the kit knows by its name (a chair, a table, a door, a window, a run of
+       kitchen units) is drawn as the kit's piece, at the size the set gives it, in place of its plain shapes. The
+       set's own data is not touched: every check goes on reading the shapes it always read (set-kit.js). */
+    let fitted=null;
+    try{fitted=root.KinolotSetKit?root.KinolotSetKit.expand(scene):null;}catch(_){fitted=null;}
+    if(fitted&&fitted.parts.length)scene={...scene,objects:scene.objects.filter(o=>!fitted.hide.has(o.id)).concat(fitted.parts),materials:{...scene.materials,...fitted.materials}};
     // which object wears each material: the builder's plain "floor" and "wall" are told apart by it
     const worn={};scene.objects.forEach(item=>{if(!worn[item.material])worn[item.material]=String(item.name||"");});
     if(S){
@@ -159,7 +165,7 @@
     });
     const far=depthFar(scene,place&&place.span);
     if(look==="depth"){const depth=depthMaterial(T,far);disposables.push(depth);three.overrideMaterial=depth;}
-    return {three,meshes,look,far,dispose:()=>disposables.forEach(d=>d.dispose())};
+    return {three,meshes,look,far,kit:fitted?fitted.pieces:[],dispose:()=>disposables.forEach(d=>d.dispose())};
   }
   /* WHAT EACH PANEL SHOWS (2026-11-16: the owner's first draft from plain blocks did not follow the sheet, because
      nothing told the image engine which block is which thing). Rays through each camera's frame name what is seen,
@@ -308,7 +314,7 @@
       renderer.shadowMap.needsUpdate=true;   // someone moved: the sun's shadows are worked out again, once
     };
     return {
-      look:rig.look,far:rig.far,
+      look:rig.look,far:rig.far,kit:rig.kit,
       render(canvas,pose,width,height,look,cast){
         if(dead)throw new Error("This view was closed.");
         width=Math.max(16,Math.round(width||canvas.width||640));height=Math.max(9,Math.round(height||canvas.height||360));
