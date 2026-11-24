@@ -535,7 +535,7 @@ test("8 it asks first, says what it replaces as Re-draft does, shows its progres
     assert.ok(/\(i<=scene\.conf\?" on":""\)\}\)\)\)\)\)\)\),\n    \/\/ THE SCENE PLAN/.test(ui),"the brief no longer closes the card"); }
   assert.ok(ui.includes("disabled:!!draftingScene||!!renderBusy||!!planningScene,onClick:()=>onDraftScene(scene),"));
   // on a planned shot's card, in step 1: what it is for, how it starts, how it ends, how it hands off
-  assert.ok(ui.includes("sh.planned && _el(ShotPlanLines,{sh,ctx}),"));
+  assert.ok(ui.includes('slot("planLines", sh.planned && _el(ShotPlanLines,{sh,ctx})),'),"(in the beat-first layout the same lines sit under the open shot's first step)");
   for(const t of ['row("Purpose",sh.purpose),','row("Camera",sh.cameraPosition),','row("Starts",SP.stateText(sh.startState,names)),','row("Ends",SP.stateText(sh.endState,names)),','row("Hands off",SP.handoffText(sh.handoff)));'])
     assert.ok(ui.includes(t),"the shot card has "+t);
   // wired from the app to the tab; a read-only role gets no button
@@ -578,7 +578,7 @@ test("9 the brief, Frances's fact, the pipeline and the keys", ()=>{
   assert.ok(at('<script src="app/scene-plan.js?v=')<at('src="app/props.jsx?v=')&&at('<script src="app/scene-plan.js?v=')<at('src="app/shots.jsx?v='));
   assert.ok(at('src="app/locations-ui.jsx?v=')<at('src="app/shots-ui.jsx?v='),"the progress line's own file comes before the Shots tab");
   for(const f of ["scene-plan.js","shots.jsx","shots-ui.jsx","props.jsx","artroom.jsx","ai.jsx","script.jsx","app.jsx","styles.css"])
-    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 test("9b the shots are written a few beats at a time: whole beats up to six moments, a long beat in runs of six", ()=>{
@@ -842,7 +842,7 @@ test("11b a shot card builds its image prompt only when asked: a render, the Sta
   assert.equal(pack.chainPrompt,"CHAIN s1"); assert.equal(pack.opts.buildFromBase(),"CHAIN s1");
   assert.deepEqual(built,["final","chain"]);
   // the card's preview is its own small part, drawn only while the section is open
-  assert.ok(ui.includes('_el(CardFold,{label:"Shot prompt",defaultOpen:false},\n        _el(ShotPromptBox,{pack:framePack,isHead})),'));
+  assert.ok(ui.includes('slot("prompt", _el(CardFold,{label:"Shot prompt",defaultOpen:false},\n        _el(ShotPromptBox,{pack:framePack,isHead}))),'),"(still a folded section: built only when it is opened)");
   assert.ok(ui.includes("text: isHead ? pack.finalPrompt : pack.chainPrompt});"));
   const card=ui.slice(ui.indexOf("function ShotCard("),ui.indexOf("function ScenePlanBlock("));
   assert.ok(card.length>1000&&!/framePack\.(finalPrompt|chainPrompt)/.test(card),"the card itself never reads a prompt while drawing");

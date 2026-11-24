@@ -577,7 +577,28 @@ function shotFieldLabel(text, key){
     _el("span",{className:"obj-lab-rest"},t.slice(key.length)));
 }
 
-function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra, readOnly=false }){
+/* THE OPEN SHOT OF THE BEAT-FIRST LAYOUT (owner 2026-11-24, their design "Shots tab: a beat and its open shot").
+   Which picture a shot's card was left on (Previs, Clay, Depth or Frame), kept while the tab is open; and the notes
+   of a shot's drawing, sorted: what a check found, and what is only worth knowing. */
+const SHOT_FACE_VIEW = new Map();
+const SHOT_FACE_VIEWS = [
+  { id:"previs", name:"Previs", title:"This shot as it starts, drawn in code from the set" },
+  { id:"clay", name:"Clay", title:"The same drawing in one matt white: only shape, light and who stands where" },
+  { id:"depth", name:"Depth", title:"How far each thing is from the camera: near is light, far is dark" },
+  { id:"frame", name:"Frame", title:"This shot\u2019s frame, with its menu, its versions and its references" }];
+function shotFaceNotes(res, sh){
+  const found = [], know = [];
+  if(!res) return { found, know };
+  (res.notes||[]).forEach(t=>found.push(String(t)));
+  if(res.fits===false && !found.length) found.push("No camera position in this place frames the shot as planned.");
+  (res.missing||[]).forEach(t=>found.push(String(t).replace(/\.$/,"")+"."));
+  if((res.rough||[]).length) know.push("Drawn at a guessed size, since "+((res.rough.length>1)?"their cards have":"its card has")+" no measurements yet: "+res.rough.join(", ")+".");
+  if(sh && sh.move && sh.move!=="static") know.push("The camera moves in this shot: both pictures are from where it starts.");
+  return { found, know };
+}
+function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra, readOnly=false,
+  // the beat-first layout (owner 2026-11-24): face = this card is laid out as the design's open shot; faceOpen = it is the one showing
+  face=false, faceOpen=true }){
   const loc = ctx.location;
   // who/what is in frame is DERIVED from the action text (single source of truth) — the
   // old manual tags are gone; this is what the prompt + references actually use.
@@ -1354,8 +1375,24 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           (continuityNeedsRefresh?" · ":"")+"Director override — rendered from an unapproved continuity frame.")));
 
 
-  return _el("div",{className:"sheet-card shot-card"+(shotRunsHere(sh,batchActiveId)?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
-    _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
+  /* THE BEAT-FIRST LAYOUT (owner 2026-11-24). In it this card is the design's OPEN SHOT: a picture with four views,
+     the shot's name and camera words, five numbered steps and, folded away, everything else. Every part the card
+     had is still made below, exactly as before; slot() only moves it: in the old layout it stays where it was, in
+     the new one it is handed to the step it belongs to. A shot that is not the open one draws nothing. */
+  const KF = window.KinolotBeatCard;
+  const faceOn = !!(face && KF && window.ShotFacePicture && window.ShotPlanMap && window.ShotStep);
+  const [faceView, setFaceViewNow] = React.useState(()=> SHOT_FACE_VIEW.get(sh.id) || "");
+  const setFaceView = (v)=>{ SHOT_FACE_VIEW.set(sh.id, v); setFaceViewNow(v); };
+  const [advOpen, setAdvOpen] = React.useState(false);
+  const viewNow = faceView || (gen.genUrl ? "frame" : "previs");
+  const faceLook = viewNow==="clay" ? "clay" : viewNow==="depth" ? "depth" : "";
+  const useDraw = typeof window.useShotDrawing==="function" ? window.useShotDrawing : null;
+  const drawColour = useDraw ? useDraw(sh, ctx, sceneShots, "", faceOn && faceOpen) : {};
+  const drawLook = useDraw ? useDraw(sh, ctx, sceneShots, faceLook, faceOn && faceOpen && !!faceLook) : {};
+  const faceSlots = {};
+  const slot = (name, el)=>{ if(!faceOn) return el; faceSlots[name] = el; return null; };
+  const cardTree = _el("div",{className:"sheet-card shot-card"+(shotRunsHere(sh,batchActiveId)?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id},
+    slot("frame", _el(SheetFrame,{ gen:genGuarded, slotId:"shot-"+sh.id, name:beatLabel, avatarColor:"linear-gradient(135deg,#7a6cae,#2a2440)",
       initials, drafted:true, drafting:false, onDraft:()=>{}, entity:sh, onView,
       slotPlaceholder:"Generate or drop a frame", noun:"frame", dropToImport:true, onStop:onStopChain,
       referenceControls,
@@ -1400,30 +1437,30 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
           if(!ok) return;
         }
         onDelete(sh.id);
-      }, deleteLabel:"Delete shot" }),
+      }, deleteLabel:"Delete shot" })),
     _el("div",{className:"sheet-body"},
       /* Compact beat metadata stays in the real card body; its screenplay
          evidence is grouped in Scripted below, never in a duplicate preview. */
-      beatContext && _el("div",{className:"shot-beat-context"},beatContext),
+      slot("context", beatContext && _el("div",{className:"shot-beat-context"},beatContext)),
       shotStepGuide,
       _el(CardFold,{label:"1 \u00b7 What this frame shows",foldId:shotFoldId(1),defaultOpen:false,count:shotSteps[0].done?"\u2713 done":"next"},
       // The beat card supplies its full screenplay and presence evidence here.
       // Other callers retain their existing read-only source excerpt.
-      scriptedContent || ((beatText||sh.purpose||(sh.covers||[]).length>0) && _el("div",{className:"shot-beat-script",
+      slot("scripted", scriptedContent || ((beatText||sh.purpose||(sh.covers||[]).length>0) && _el("div",{className:"shot-beat-script",
         title:"This beat's SCREENPLAY text — the canon these shots film (until the scene is drafted, the beat summary stands in). Read-only here — edit the script in the Writers' Room."},
         _el("span",{className:"shot-beat-script-lab"},"Scripted"),
         beatText&&_el("span",{className:"shot-beat-script-body"},beatText),
-        _el(ShotPurpose,{sh}))),
+        _el(ShotPurpose,{sh})))),
       // a shot the scene plan wrote: what it is for, how it starts, how it ends, how it hands off (2026-11-22)
-      sh.planned && _el(ShotPlanLines,{sh,ctx}),
+      slot("planLines", sh.planned && _el(ShotPlanLines,{sh,ctx})),
       // where a beat's first shot starts from (2026-11-22): the end frame of the beat before it
-      (prevShot && prevShot.endFrameOf) && _el("div",{className:"shot-plan-from","data-testid":"shot-starts-from"},
-        "Starts from the end frame of beat "+prevShot.beatN+": the picture of how that beat ended."),
+      slot("startsFrom", (prevShot && prevShot.endFrameOf) && _el("div",{className:"shot-plan-from","data-testid":"shot-starts-from"},
+        "Starts from the end frame of beat "+prevShot.beatN+": the picture of how that beat ended.")),
       // the shot's TEXT layer, folded shut by default so the card reads compact —
       // SheetField commits on blur, so collapsing loses only uncommitted drafts.
       // The dropped-subjects warning forces the fold open: a warning hidden behind
       // a closed fold is a warning nobody sees.
-      _el(CardFold,{label:"Action \u00b7 composition \u00b7 dialogue",defaultOpen:!!dropped},
+      slot("words", _el(CardFold,{label:"Action \u00b7 composition \u00b7 dialogue",defaultOpen:!!dropped},
         // the action — what we see in this frame
         _el(SheetField,{label: shotFieldLabel(actionFromScript ? "Action \u2014 what we see in this frame (the screenplay's opening; edit it to use your own words)"
             : spOpening ? "Action \u2014 your words (the frame uses them instead of the screenplay's opening)" : "Action \u2014 what we see in this frame", "Action"),
@@ -1468,9 +1505,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         // the clip prompt's NEGATIVE block; frames don't read it, so it never stales one
         _el(SheetField,{label:shotFieldLabel("Must not happen \u2014 what the video take must avoid (optional)","Must not happen"),value:sh.mustNot||"",multiline:true,
           placeholder:"e.g. She never smiles. The cup stays on the table. Nobody looks into the lens.",
-          onCommit:v=>onUpdate(sh.id,{mustNot:v})})),
+          onCommit:v=>onUpdate(sh.id,{mustNot:v})}))),
 
-      _el(CardFold,{label:"In frame",defaultOpen:true},
+      slot("inFrame", _el(CardFold,{label:"In frame",defaultOpen:true},
         // read-only: derived from the action text, the single source the prompt uses —
         // no manual toggles to drift out of sync. Edit the ACTION to change who's in frame.
         _el("div",{className:"shot-inframe-auto"},
@@ -1489,29 +1526,29 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
         _el("div",{className:"shot-loc-note"},
           _el(Icon.globe,{s:12}),
           loc ? _el("span",null,"Location: ",_el("b",null,loc.name),(typeof stagingHasContent==="function"&&stagingHasContent(loc))?" \u00b7 depth grid inherited":" \u00b7 no depth grid staged")
-              : _el("span",null,"No location resolved for this scene \u2014 set the scene's slugline / pull locations.")))),
+              : _el("span",null,"No location resolved for this scene \u2014 set the scene's slugline / pull locations."))))),
       // the camera stays open by default (primary controls visible on every card)
       _el(CardFold,{label:"2 \u00b7 Camera",foldId:shotFoldId(2),defaultOpen:true,count:shotSteps[1].done?"\u2713 done":"next"},
       // cinematographer grammar
-      _el("div",{className:"shot-grammar-grid"},
+      slot("camera", _el(React.Fragment,null,_el("div",{className:"shot-grammar-grid"},
         _el(GrammarSelect,{label:"Size",value:sh.size,options:SHOT_SIZES,onChange:v=>onUpdate(sh.id,{size:v})}),
         _el(GrammarSelect,{label:"Angle",value:sh.angle,options:SHOT_ANGLES,onChange:v=>onUpdate(sh.id,{angle:v})}),
         _el(GrammarSelect,{label:"Move",value:sh.move,options:SHOT_MOVES,onChange:v=>onUpdate(sh.id,{move:v})}),
         _el(GrammarSelect,{label:"Lens",value:sh.lens,options:SHOT_LENSES,onChange:v=>onUpdate(sh.id,{lens:v})})),
       _el(ShotPovPicker,{sh,characters:characters||(((window.turnContinuity||{}).characters)||[]),onUpdate}),
-      _el(AdvancedCameraSettings,{sh,onUpdate})),
+      _el(AdvancedCameraSettings,{sh,onUpdate})))),
       // the shot drawn in code from the place's 3D set, before any image (2026-11-22; app/shot-previs-ui.jsx)
-      window.ShotPrevisFold && _el(window.ShotPrevisFold,{key:"previs-"+sh.id,sh,ctx,onView,beatLabel,sceneShots,
+      slot("previsFold", window.ShotPrevisFold && _el(window.ShotPrevisFold,{key:"previs-"+sh.id,sh,ctx,onView,beatLabel,sceneShots,
         // step 2: this shot's next Generate is made from the drawing; it goes through the scene's runner like any other
         onMake:readOnly ? null : makeFromPrevis,
-        makeDisabled:!!gen.gening || !!(batchActiveId && batchActiveId!==sh.id)}),
-      refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
+        makeDisabled:!!gen.gening || !!(batchActiveId && batchActiveId!==sh.id)})),
+      slot("refNote", refsLoaded && loc && !sh.referenceLocationsSet && !refImgs.some(r=>r.kind==="location") &&
         _el("div",{className:"shot-ref-quality-note"},
           (typeof locationUsesParentPlate==="function" && locationUsesParentPlate(loc))
             ? ((loc.name||"This room")+" borrows its parent's image, which isn't ready yet. Generate "+(((typeof locationParentOf==="function"&&locationParentOf(loc))||{}).name||"the parent location")+"'s image in Locations.")
-            : "No full-frame room & time or extra-space image is ready for this beat. Generate one in Locations — a cropped master image won't be used in its place."),
+            : "No full-frame room & time or extra-space image is ready for this beat. Generate one in Locations — a cropped master image won't be used in its place.")),
       // everything else, quiet and below the numbered parts (owner 2026-11-02: "make it simpler … in the right order")
-      _el("div",{className:"shot-head"},
+      slot("review", _el("div",{className:"shot-head"},
         // Keep the compact header for status and review controls. Frame approval lives
         // in the image's existing Options menu, where its effect can be explained.
         _el("div",{className:"shot-head-right"},
@@ -1542,16 +1579,134 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
               specFields:()=>({ action:(sh.action||""), composition:(sh.composition||"") }),
               // who is how big in this frame (scale plan step 4, 2026-10-28) — nothing for same-size human casts
               sizes:()=> (typeof qaTrueSizes==="function") ? qaTrueSizes(subjects) : [],
-              onApplySpec:(patch)=>onUpdate(sh.id, (patch && patch.action!=null && spOpening) ? { ...patch, actionByHand:true } : patch) })))),
+              onApplySpec:(patch)=>onUpdate(sh.id, (patch && patch.action!=null && spOpening) ? { ...patch, actionByHand:true } : patch) }))))),
       // the shot prompt has its own section (owner 2026-11-02), read-only, before the tools
-      _el(CardFold,{label:"Shot prompt",defaultOpen:false},
-        _el(ShotPromptBox,{pack:framePack,isHead})),
+      slot("prompt", _el(CardFold,{label:"Shot prompt",defaultOpen:false},
+        _el(ShotPromptBox,{pack:framePack,isHead}))),
       // the beat's end frame, on its last planned shot (2026-11-22)
-      (typeof shotEndFrameWanted==="function" && shotEndFrameWanted(sh, sceneShots||[]))
-        && _el(ShotEndFrame,{key:"end-"+sh.id,sh,sceneShots,ctx,onView,batchActiveId,onBatchDone,onGenerateShot,onStopChain,beatLabel,readOnly}),
+      slot("endFrame", (typeof shotEndFrameWanted==="function" && shotEndFrameWanted(sh, sceneShots||[]))
+        && _el(ShotEndFrame,{key:"end-"+sh.id,sh,sceneShots,ctx,onView,batchActiveId,onBatchDone,onGenerateShot,onStopChain,beatLabel,readOnly})),
       // (the shot card's last section, "More tools \u00b7 Blender", went on 2026-11-16, owner: "that should go too": first
       // its "Open this shot in Blender" button, then "Blender preview \u00b7 rough blockout". BlenderPreviewPanel stays in its file.)
       ));
+  if(!faceOn) return cardTree;
+  const res = drawColour.res || null;
+  const fNum = KF.number(sh), fName = KF.name(sh);
+  const fNotes = shotFaceNotes(res, sh);
+  const previsState = (!drawColour.able || !drawColour.ready) ? "none" : (res && res.start) ? (fNotes.found.length ? "notes" : "ok") : "";
+  const fSteps = KF.steps({ words:shotSteps[0].done, camera:shotSteps[1].done, previs:previsState, frame:shotSteps[2].done, approved:shotSteps[3].done, busy:!!gen.gening || waitingForShot });
+  const fChips = KF.chips(sh, { seconds:(typeof shotDur==="function") ? shotDur(sh) : sh.dur, lensMm:(res && res.pose) ? res.pose.lensMm : 0 });
+  const fAction = String((actionFromScript ? spOpening : sh.action) || beatText || "").trim();
+  const fChip = (key, text, cls)=> _el("span",{key,className:"sbc-chip"+(cls?" "+cls:"")},text);
+  // the small floor plan: the place as Locations draws it, this shot's camera and each person's mark
+  let fPlan = null;
+  if(res && res.pose && drawColour.loc && typeof locationSpatialPlanState==="function" && typeof locationFloorPlanScene==="function"){
+    try{ const st = locationSpatialPlanState(drawColour.loc, ctx.locations);
+      fPlan = KF.planModel(locationFloorPlanScene(st.owner, st.plan), drawColour.loc.id, res.pose, res.people, 324); }catch(e){ fPlan = null; }
+  }
+  const fHand = !!(res && res.source==="hand"), fFrom = (fHand && (res.from || (drawColour.cam && drawColour.cam.from))) || {};
+  const fBy = (drawColour.plan && drawColour.plan.camerasBy && drawColour.plan.camerasBy.label) || "the writing engine";
+  const fNoDrawing = drawColour.busy ? "Drawing this shot…"
+    : !drawColour.able ? "This scene has no scene plan yet. Plan it (Scene plan, above) and each shot gets a camera on the floor plan and a drawing."
+    : !drawColour.ready ? ((drawColour.loc && drawColour.loc.name) || "This place")+" has no floor plan yet. Draw it in Locations, and this shot can be drawn from its set."
+    : drawColour.err ? drawColour.err : "";
+  // what the frame will be made with: the references that are ticked and ready, in plain words
+  const fUses = (refsLoaded ? refImgs : []).filter(r=>{ if(!r || r.missing || r.pending) return false;
+      const seed = r.kind==="seed" || r.kind==="seed-pending";
+      return !(seed ? !!sh.anchor : (r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0)); })
+    // (a reference's own label can be long: "Hussain Flat — … at Dawn"; here only whose it is)
+    .map(r=>{ const nm = String(r.label||"").split(/ · | — | – | - | \(/)[0].trim();
+      return r.kind==="character" ? nm+"’s sheet" : r.kind==="location" ? nm+" image" : (r.kind==="seed" || r.kind==="seed-pending") ? "The frame before" : nm; })
+    .filter((t,i,a)=>t && a.indexOf(t)===i);
+  const fWhy = gen.genUrl ? [
+    characterSheetsChanged && "A character sheet changed since this frame was made.",
+    locationChanged && "The location changed since this frame was made.",
+    propDependenciesStale && "A prop changed since this frame was made.",
+    approvedButStale && "Approved, but out of date: this shot changed after you approved its frame.",
+    continuityNeedsRefresh && "Continuity needs a refresh: make this frame again, or the beat’s frames in order.",
+    seedWasUnapproved && "Made from a frame that was not approved yet."].filter(Boolean) : [];
+  const fPic = (f, lab)=> _el("figure",{className:"sbc-pair-pic"},
+    _el("img",{src:f.dataUrl,alt:lab+", drawn in code",role:"button",tabIndex:0,title:"View larger",
+      onClick:()=>onView && onView(f.dataUrl,{name:fNum+" · "+lab.toLowerCase()}),
+      onKeyDown:(e)=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onView && onView(f.dataUrl,{name:fNum+" · "+lab.toLowerCase()}); } }}),
+    _el("figcaption",null,lab));
+  const fCheck = res && res.start ? KF.checkLine(res) : null;
+  const fMake = ()=>{ setFaceView("frame"); return (res && res.start) ? makeFromPrevis() : genGuarded.generate(); };
+  return _el("div",{className:"sheet-card shot-card shot-face"+(shotRunsHere(sh,batchActiveId)?" batch-on":"")+(gen.gening?" gening":""),"data-shot-card":sh.id,"data-testid":"shot-face"},
+    _el(window.ShotFacePicture,{view:viewNow,onView:setFaceView,views:SHOT_FACE_VIEWS,drawing:faceLook?drawLook:drawColour,frame:faceSlots.frame,
+      tag:fNum+" · "+(viewNow==="clay"?"clay":viewNow==="depth"?"depth":"how it starts"),onLarger:onView}),
+    _el("div",{className:"sbc-title"},
+      _el("h3",{className:"sbc-shot-name","data-testid":"shot-face-name"},fNum+" · "+fName),
+      _el("div",{className:"sbc-chips"},fChips.map((t,i)=>fChip(i,t)))),
+    // 1 · What happens
+    _el(window.ShotStep,{step:fSteps[0]},
+      _el("p",{className:"sbc-text"},fAction || "Nothing is written for this shot yet."),
+      (spLine && spLine.text) && _el("div",{className:"sbc-lines"},
+        _el("span",null,(spLine.speaker ? String(spLine.speaker).toUpperCase()+": " : "")+String(spLine.text).trim())),
+      _el("div",{className:"sbc-inframe"},
+        _el("span",{className:"sbc-lab"},"In frame"),
+        subjects.map(c=>fChip("c"+c.id,c.name)), inProps.map(p=>fChip("p"+p.id,p.name)),
+        !(subjects.length+inProps.length) && _el("span",{className:"sbc-none"},"nobody and nothing named in the action")),
+      _el("details",{className:"sbc-more",open:!!dropped || undefined},
+        _el("summary",null,"Screenplay, plan and words"),
+        faceSlots.context, faceSlots.scripted, faceSlots.planLines, faceSlots.startsFrom, faceSlots.words)),
+    // 2 · Camera
+    _el(window.ShotStep,{step:fSteps[1]},
+      fPlan && _el(window.ShotPlanMap,{model:fPlan,label:"Where the camera stands for shot "+fNum}),
+      fPlan && _el("div",{className:"sbc-legend"},
+        _el("span",null,"Amber dot: the camera and where it looks"),
+        fPlan.people.map(p=>_el("span",{key:p.id},p.initial+": "+p.name+"’s mark"))),
+      res ? (fHand
+          ? _el("p",{className:"sbc-text","data-testid":"shot-face-hand"},_el("b",null,"Your angle")," from "+(String(fFrom.locationName||"").trim()||"a location")
+              +(String(fFrom.angleName||"").trim() ? ", saved as “"+String(fFrom.angleName).trim()+"”" : "")+".")
+          : _el("p",{className:"sbc-text"},res.source==="plan" ? "Placed by "+fBy+", checked against the set."
+              : res.source==="moved" ? "Placed by "+fBy+", then moved by the app." : "Placed by the app."))
+        : _el("p",{className:"sbc-text sbc-quiet"},fNoDrawing),
+      res && _el("span",{className:"sbc-mono","data-testid":"shot-face-camera"},KF.cameraLine(res)),
+      (fHand && !readOnly && typeof window.turnReturnPlannedCamera==="function" && window.ScenePlan) && _el("button",{type:"button",className:"sbc-btn fit","data-testid":"shot-face-return",
+        title:(drawColour.cam && drawColour.cam.planned) ? "Give this shot back the camera the scene plan placed for it. Your angle stays saved on its location." : "Remove your angle from this shot: the app finds a camera for it again. Your angle stays saved on its location.",
+        onClick:()=>window.turnReturnPlannedCamera(sh.sceneId, window.ScenePlan.shotCameraKey(sh))},"Return to the planned camera"),
+      _el("button",{type:"button",className:"sbc-link",onClick:()=>setAdvOpen(true)},"Change size, angle, move or lens")),
+    // 3 · Previs
+    _el(window.ShotStep,{step:fSteps[2]},
+      (res && res.start) ? _el("div",{className:"sbc-pair"+(res.end?"":" one")},
+          fPic(res.start, res.end ? "How it starts" : "Start and end"), res.end && fPic(res.end, "How it ends"))
+        : _el("p",{className:"sbc-text sbc-quiet","data-testid":"shot-face-nodraw"},fNoDrawing || "It is drawn when this shot is opened."),
+      (res && res.start && !res.end) && _el("p",{className:"sbc-text sbc-quiet"},"Nothing moves in this shot: it ends as it starts."),
+      fCheck && _el("div",{className:"sbc-check","data-testid":"shot-face-check"},Icon.check && _el(Icon.check,{s:14}),_el("span",null,fCheck)),
+      fNotes.found.map((t,i)=>_el("p",{key:"f"+i,className:"sbc-note"},t)),
+      fNotes.know.map((t,i)=>_el("p",{key:"k"+i,className:"sbc-text sbc-quiet"},t))),
+    // 4 · Frame
+    _el(window.ShotStep,{step:fSteps[3]},
+      !readOnly && _el("button",{type:"button",className:"sbc-btn"+(fSteps[3].state==="next"?" primary":""),"data-testid":"shot-face-make",
+        disabled:!!gen.gening || waitingForShot || !!drawColour.busy,
+        title:waitingForShot ? "Another frame is being made. Wait for it to finish."
+          : (res && res.start) ? "Make this shot’s frame from this drawing: the set, the camera and where everyone and everything is come from the drawing; the image engine adds the people, the surfaces and the light."
+          : "Make this shot’s frame.",
+        onClick:fMake},(res && res.start) ? (gen.genUrl ? "Make the frame again from this previs" : "Make the frame from this previs") : (gen.genUrl ? "Make the frame again" : "Make the frame"),
+        typeof window.nbCostChip==="function" && window.nbCostChip(1)),
+      gen.gening && _el("span",{className:"shot-previs-wait",role:"status"},_el("span",{className:"ns-spin"}),"Making this frame…"),
+      fUses.length>0 && _el("div",{className:"sbc-inframe","data-testid":"shot-face-uses"},
+        _el("span",{className:"sbc-lab"},"Uses"), fUses.map((t,i)=>fChip(i,t))),
+      _el("p",{className:"sbc-text sbc-quiet"},(res && res.start) ? "The drawing sets where everything is. The sheets and the location image give the look."
+        : "The sheets and the location image give the look."),
+      faceSlots.refNote,
+      _el("button",{type:"button",className:"sbc-link",onClick:()=>setFaceView("frame")},"See the frame and choose its references")),
+    // 5 · Approve
+    _el(window.ShotStep,{step:fSteps[4]},
+      _el("button",{type:"button",className:"sbc-btn"+((gen.genUrl && !sh.locked)?" primary":""),"data-testid":"shot-face-approve",
+        disabled:readOnly || !gen.genUrl,
+        title:!gen.genUrl ? "Make the frame first." : sh.locked ? "Unlock this frame: an ordered run may then replace it." : "Approve this frame: ordered runs keep it, and the next shot builds on it.",
+        onClick:toggleFrameApproval},sh.locked ? "Unlock this frame" : "Approve this frame"),
+      (sh.locked && gen.genUrl && !approvedButStale) && _el("p",{className:"sbc-text sbc-quiet"},"Approved: the next shot builds on this frame."),
+      fWhy.map((t,i)=>_el("p",{key:i,className:"sbc-note"},t))),
+    // the beat's end frame, on its last shot (its own picture and its own Generate: always in the page)
+    faceSlots.endFrame,
+    _el("details",{className:"sbc-adv","data-testid":"shot-face-advanced",open:advOpen || undefined,onToggle:(e)=>setAdvOpen(!!e.currentTarget.open)},
+      _el("summary",null,"Advanced: shot prompt, cinematography"),
+      _el("div",{className:"sbc-adv-body"},
+        _el("h5",{className:"sbc-adv-h"},"Cinematography"), faceSlots.camera,
+        faceSlots.inFrame, faceSlots.review, faceSlots.prompt)));
 }
 
 /* THE END FRAME OF A BEAT, on the card of the beat's last shot (owner 2026-11-22: "end frames per beat"; scene plan,
@@ -2157,7 +2312,7 @@ function BeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered
 function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
   onAddShot, onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone,
   batchActiveId, openShotId, setOpenShotId, sceneStart, onRenderScene, renderBusy, nextShotId, onRefineBeat, refiningBeat, draftingBlocked, readOnly=false,
-  momentShots=[], onSplitMoments, onJoinMoments }){
+  momentShots=[], onSplitMoments, onJoinMoments, face=false, faceOpen=true, pickId="" }){
   const continuity=window.turnContinuity||{};
   const source=typeof window.shotBeatScreenplay==="function"
     ? window.shotBeatScreenplay(scene,L.n,{drafts:ctx.drafts||continuity.drafts||{},characters,beatsMap:bm}) : null;
@@ -2173,6 +2328,8 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
   // legacy alternative visible instead of mounting a second hidden ShotCard.
   const displayed=batchShot||selected;
   React.useEffect(()=>{ if(primary&&!L.shots.some(sh=>sh.id===selectedId)) setSelectedId(primary.id); },[primary&&primary.id,L.shots.map(sh=>sh.id).join("|")]);
+  // (the beat's own card picked one of this card's shots: show that one)
+  React.useEffect(()=>{ if(pickId && L.shots.some(sh=>sh.id===pickId)) setSelectedId(pickId); },[pickId]);
   const sourceRev=source&&source.sourceRev;
   // New normalized shots persist sourceScreenplayRev. sourceRev remains a
   // compatibility read for imported pre-normalization shots, never evidence
@@ -2204,7 +2361,8 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
       L.shots.some(x=>x&&x.beatRemoved) && _el("span",{className:"beat-lane-gone",title:"These shots belonged to a beat that was deleted in the Beats tab \u2014 they now sit with the beat before it. Restore the beat (Undo in the Beats tab) to give them back, or redesign or move them."},Icon.alert&&_el(Icon.alert,{s:10}),"From a deleted beat"),
       !displayed&&_el("span",{className:"beat-opening-chip"},"Not drafted")),
     stale&&_el("div",{className:"bc-stale"},"Screenplay changed since this opening keyframe was drafted. Review Scripted, then use Draft specification before regenerating. Your existing image is retained."),
-    beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,onSplitMoments,onJoinMoments,busy:!!renderBusy||!!draftingBlocked,readOnly}),
+    // (in the beat-first layout the beat's own card says this, once)
+    !face && beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,onSplitMoments,onJoinMoments,busy:!!renderBusy||!!draftingBlocked,readOnly}),
   );
   // Older alternatives keep their own IDs, images and generator state. Access
   // belongs in the existing card menu rather than a permanent Frame selector.
@@ -2221,7 +2379,7 @@ function OpeningBeatCard({ L, lanesLen, bm, scene, ctx, characters, propsAvail, 
     beatText:(source&&source.openingAction)||text,sceneShots:ordered,plan:sh.beatPlan,
     prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
      isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,
-      onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(shotRunsHere(sh,batchActiveId)?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra,readOnly}); };
+      onUpdate,onDelete,onView,onDeleteShotReference,batchActiveId:(shotRunsHere(sh,batchActiveId)?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,face,faceOpen,subLabel:label,beatContext,scriptedContent,redraftControl:refineControl,shotMenuExtra,readOnly}); };
   return _el(React.Fragment,null,
     displayed ? editor(displayed,displayed.id===primary.id?null:"Alternative "+(extras.findIndex(sh=>sh.id===displayed.id)+1)) :
       _el("div",{className:"sheet-card shot-card opening-beat-empty"},
@@ -2256,7 +2414,7 @@ function beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,onSplitM
       onClick:()=>onSplitMoments(scene,L.n)},"Split into "+list.length+" shots"));
 }
 function MomentShotCard({ sh, L, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead, onUpdate, onDelete, onView,
-  onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly=false }){
+  onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly=false, face=false, faceOpen=true }){
   const source=typeof window.shotMomentSource==="function" ? window.shotMomentSource(scene,sh,ctx,characters) : null;
   const n=Number(sh.moment&&sh.moment.n)||0, of=Number(sh.moment&&sh.moment.of)||0;
   const label="Moment "+n+" of "+of;
@@ -2272,7 +2430,7 @@ function MomentShotCard({ sh, L, scene, ctx, characters, propsAvail, ordered, fi
     sceneShots:ordered,plan:null,prevShot,laterShots:(shotIndex>=0?ordered.slice(shotIndex+1):[]),
     isHead:!prevShot,isFirst:sh.id===firstId,onToggleHead:toggleHead,onUpdate,onDelete,onView,onDeleteShotReference,
     batchActiveId:(shotRunsHere(sh,batchActiveId)?batchActiveId:null),onBatchDone,onGenerateShot,onRegenDownstream,onStopChain,
-    subLabel:label,beatContext,scriptedContent,readOnly});
+    subLabel:label,beatContext,scriptedContent,readOnly,face,faceOpen});
 }
 
 /* THE SCENE PLAN ON A SHOT CARD (owner 2026-11-22; app/scene-plan.js). A shot the plan wrote says, in step 1, what it
@@ -2433,6 +2591,13 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   // read from the same render plan the frames use — with one priced "Make what this scene needs".
   const [needsTick, setNeedsTick] = React.useState(0);
   const [needsRun, setNeedsRun] = React.useState(null);   // {i,total,label} while making them
+  /* BEAT FIRST (owner 2026-11-24, their design "Shots tab: a beat and its open shot"): each beat has a card of its
+     own and ONE shot open under it. openByBeat = the shot open in each beat (none chosen = the first with no frame);
+     addBeat = the beat a new shot is being added to. Every shot's card stays in the page, hidden when it is not the
+     open one, so a run of frames still finds each card's own generator. */
+  const [openByBeat, setOpenByBeat] = React.useState({});
+  const [stripByBeat, setStripByBeat] = React.useState({});   // the beats whose drawings are showing ("Draw the beat")
+  const [addBeat, setAddBeat] = React.useState(null);
   React.useEffect(()=>{
     const h = ()=> setNeedsTick(t=>t+1);
     window.addEventListener("nb-gen-done", h); window.addEventListener("nb-prefetched", h);
@@ -2721,12 +2886,50 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
        // is mounted, so a batch id can never be owned by two useImageGen instances.
       return _el(React.Fragment,null,
         _el("div",{key:"beat-grid",className:"beat-grid-wrap"+(draftingScene?" drafting":"")},
-          _el("div",{className:"beat-card-grid"},
+          _el("div",{className:"beat-card-grid"+((window.ShotBeatFace && window.KinolotBeatCard)?" beat-first":"")},
             lanes.map((L,Li)=>{
               // a split beat: its moment shots get cards of their own after the opening card
               const momentShots=L.shots.filter(sh=>sh.keyframeMode==="moment")
                 .sort((a,b)=>Number(a.moment&&a.moment.n)-Number(b.moment&&b.moment.n));
               const Lopen=momentShots.length ? {...L,shots:L.shots.filter(sh=>sh.keyframeMode!=="moment")} : L;
+              if(window.ShotBeatFace && window.KinolotBeatCard){
+                const KB=window.KinolotBeatCard;
+                const picked=openByBeat[L.n];
+                // (a frame being made in a run shows itself: its card is the open one while it runs)
+                const running=(L.shots.find(sh=>shotRunsHere(sh,batchActiveId))||{}).id||"";
+                const openNow=running || (picked&&L.shots.some(sh=>sh.id===picked) ? picked : KB.firstOpen(L.shots,sh=>_kf(sh.id)));
+                const momentOpen=momentShots.some(sh=>sh.id===openNow);
+                const primary=typeof shotPrimaryOf==="function" ? shotPrimaryOf(Lopen.shots) : (Lopen.shots[0]||null);
+                const busyAll=!!renderBusy||!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat||!!planningScene;
+                return _el("div",{key:"bf"+(L.canonical?"c":"o")+L.n,className:"sbc-row","data-testid":"beat-row","data-beat":L.n},
+                  // (its own column: the beat's card follows the page inside it, never over the row below)
+                  _el("div",{className:"sbc-side"},_el(window.ShotBeatFace,{L,lanesLen:lanes.length,bm,scene,ctx,ordered,openId:openNow,onView,readOnly,busy:!!renderBusy,
+                    onOpen:(id)=>setOpenByBeat(o=>({...o,[L.n]:id})),
+                    strip:!!stripByBeat[L.n], onStrip:(on)=>setStripByBeat(o=>({...o,[L.n]:!!on})),
+                    onAddShot:(onAddShot&&!readOnly)?()=>setAddBeat(L.n):null,
+                    momentsLine:beatMomentsLine({L:Lopen,scene,ctx,characters,bm,primary,momentShots,onSplitMoments,onJoinMoments,busy:busyAll,readOnly})})),
+                  _el("div",{className:"sbc-open"},
+                    _el("div",{className:"sbc-shot",hidden:momentOpen},
+                      _el(OpeningBeatCard,{L:Lopen, lanesLen:lanes.length, bm, scene, ctx, characters, propsAvail,
+                        ordered, firstId, toggleHead, onAddShot, onUpdate, onDelete, onView, onDeleteShotReference,
+                        onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, openShotId, setOpenShotId,
+                        sceneStart:(!_sceneRendered && Li===0), onRenderScene, renderBusy, nextShotId:_nextShotId,
+                        onRefineBeat,refiningBeat:refiningBeat===scene.id+"#"+L.n,
+                        draftingBlocked:!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat||!!planningScene,readOnly,
+                        momentShots, onSplitMoments, onJoinMoments, face:true, faceOpen:!momentOpen, pickId:momentOpen?"":openNow })),
+                    momentShots.map(sh=>_el("div",{key:sh.id,className:"sbc-shot",hidden:sh.id!==openNow},
+                      _el(MomentShotCard,{sh, L, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
+                        onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly,
+                        face:true, faceOpen:sh.id===openNow})))),
+                  // "Draw the beat": the whole beat staged once, every shot from start to end, across the row
+                  (stripByBeat[L.n] && window.BeatStrip) && _el("div",{className:"sheet-card sbc-strip","data-testid":"beat-row-strip"},
+                    _el(window.BeatStrip,{scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly,bare:true})),
+                  (addBeat===L.n && onAddShot) && _el(AddShotReferenceDialog,{key:"add-shot-"+scene.id+"-"+L.n,
+                    scene,beatN:L.n,beatText:(typeof beatScriptText==="function" ? beatScriptText(scene.id,L.n) : ""),
+                    plan:(L.shots.find(x=>x&&x.beatPlan)||{}).beatPlan||null,ctx,characters,seed:{},
+                    onCancel:()=>setAddBeat(null),
+                    onAdd:(chosen)=>{ setAddBeat(null); onAddShot(scene.id,L.n,chosen); }}));
+              }
               return _el(React.Fragment,{key:"bc"+(L.canonical?"c":"o")+L.n},
                 // the whole beat staged once in code, and each of its shots drawn from it (2026-11-23; app/shot-previs-ui.jsx)
                 window.BeatStrip && _el(window.BeatStrip,{key:"strip"+L.n,scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly}),

@@ -551,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -725,7 +725,8 @@ test("17b. a middle picture only when someone crosses the room; a person may sta
 });
 test("17c. the beat strip: above each beat's cards, every planned shot of the beat, drawn from the one staged beat",()=>{
   assert.ok(shotsUi.includes('window.BeatStrip && _el(window.BeatStrip,{key:"strip"+L.n,scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly}),'));
-  assert.ok(shotsUi.indexOf("window.BeatStrip && _el(")<shotsUi.indexOf("_el(OpeningBeatCard,{L:Lopen"),"before the beat's own cards");
+  // (the earlier layout, kept for when the beat-first cards are not loaded: the strip is a row above the beat's cards)
+  assert.ok(shotsUi.indexOf("window.BeatStrip && _el(")<shotsUi.lastIndexOf("_el(OpeningBeatCard,{L:Lopen"),"before the beat's own cards");
   for(const t of ['className:"sheet-card beat-strip"+(open?" open":"")','"Beat "+beatN+" in code"','list.length+" shot"+(list.length!==1?"s":"")+", start to end"',
     "window.ShotPrevis.beat(plan, list, { list:ctx.locations||[], cast, props, width:640, states:staged,",'pic(r.start, r.end ? "Starts" : "Starts and ends"','r.mid && pic(r.mid, "Midway"','r.end && pic(r.end, "Ends"',
     'r.joins ? "\\u2192" : r.cut==="set" ? "new place" : "time passes"',"This shot starts at the instant the one before it ends: everyone and everything is where that shot left them.",

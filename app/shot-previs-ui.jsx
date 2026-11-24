@@ -223,7 +223,7 @@ function beatStripShots(shots){
   return (shots||[]).filter(sh=>sh && sh.planned && sh.startState && SP && SP.isKeyShot(sh))
     .slice().sort((a,b)=>SP.momentOf(a)-SP.momentOf(b));
 }
-function BeatStripBody({ list, plan, ctx, sig, onView, beatN, staged, readOnly, endOwnerId }){
+function BeatStripBody({ list, plan, ctx, sig, onView, beatN, staged, readOnly, endOwnerId, bare }){
   // the frames the cards hold change while this is open (a frame was made, loaded or approved): look again
   const [, tick] = React.useState(0);
   const [run, setRun] = React.useState("");
@@ -336,7 +336,8 @@ function BeatStripBody({ list, plan, ctx, sig, onView, beatN, staged, readOnly, 
               typeof window.nbCostChip==="function" && window.nbCostChip(1))),
           notes.map((t,k)=>SPV_E("p",{key:k,className:"beat-strip-note"},t))));
     })),
-    !readOnly && list.some(sh=>shotPrevisMaker(sh.id)) && SPV_E("div",{className:"beat-strip-all"},
+    // (inside a beat's own card the card has this button: "Make frames in order")
+    !bare && !readOnly && list.some(sh=>shotPrevisMaker(sh.id)) && SPV_E("div",{className:"beat-strip-all"},
       run ? SPV_E("span",{className:"shot-previs-wait",role:"status","data-testid":"beat-strip-run"},SPV_E("span",{className:"ns-spin"}),run)
         : SPV_E("button",{type:"button",className:"char-draft-btn","data-testid":"beat-strip-make-all",disabled:anyBusy,
             title:"Make every frame of this beat from its drawing, in order"+(endOwnerId?", then the end frame":"")+". It asks first.",
@@ -344,8 +345,83 @@ function BeatStripBody({ list, plan, ctx, sig, onView, beatN, staged, readOnly, 
             typeof window.nbCostChip==="function" && window.nbCostChip(list.length+(endOwnerId?1:0)))),
     seen.size>0 && SPV_E("p",{className:"beat-strip-key"},Array.from(seen.values()).map(p=>p.name+" is "+p.colour).join(" \u00b7 ")+" \u00b7 red boxes are props"));
 }
-function BeatStrip({ scene, beatN, shots, sceneShots, ctx, onView, readOnly }){
-  const [open, setOpen] = React.useState(false);
+/* WHAT A BEAT'S STRIP IS DRAWN FROM, AND ITS DRAWINGS, for the beat card (owner 2026-11-24, the beat-first shot
+   card: a small picture of every shot on its beat's card). beatStripInfo says what the strip of a beat holds (its
+   shots in order, the scene staged once, the key its drawings are kept under, the shot that owns the end frame);
+   beatStripRows draws them once, in turn with every other drawing, and keeps them where the strip itself looks: a
+   beat drawn for its card is not drawn again when its strip is opened. Free; nothing is saved. */
+function beatStripInfo(scene, shots, sceneShots, ctx){
+  const SP = window.ScenePlan, SPv = window.ShotPrevis;
+  if(!scene || !SP || !SPv || typeof SPv.beat!=="function" || !window.KinolotPrevis) return null;
+  const plan = ((((ctx||{}).project||{}).scenePlans)||{})[scene.id] || null;
+  if(!plan || !SP.exact(plan)) return null;
+  const list = beatStripShots(shots);
+  if(!list.length) return null;
+  const staged = shotPrevisStaged(sceneShots||shots);
+  let sig = "";
+  try{ sig = JSON.stringify(list.map(sh=>{ const loc = shotPrevisPlace(sh, plan, ctx); return [loc ? shotPrevisSig(sh, plan, shotPrevisCamera(sh, plan), loc, ctx) : sh.id, staged[sh.id]||null]; })); }catch(e){ sig = ""; }
+  const last = list[list.length-1];
+  const endOwnerId = (last && typeof shotEndFrameWanted==="function" && shotEndFrameWanted(last, sceneShots||shots)) ? last.id : "";
+  return { plan, list, staged, sig, endOwnerId };
+}
+const BEAT_STRIP_DRAWING = new Map();
+function beatStripRows(info, ctx){
+  if(!info || !info.sig) return Promise.resolve(null);
+  if(BEAT_STRIP_KEPT.has(info.sig)) return Promise.resolve(BEAT_STRIP_KEPT.get(info.sig));
+  if(BEAT_STRIP_DRAWING.has(info.sig)) return BEAT_STRIP_DRAWING.get(info.sig);
+  const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
+  const draw = ()=> window.ShotPrevis.beat(info.plan, info.list, { list:ctx.locations||[], cast, props, width:640, states:info.staged,
+    locationOf:(sh)=>shotPrevisPlace(sh, info.plan, ctx), cameraOf:(sh)=>shotPrevisCamera(sh, info.plan) });
+  const turn = shotPrevisLine.then(draw, draw);
+  shotPrevisLine = turn.then(()=>{}, ()=>{});
+  const kept = turn.then(rows=>{ BEAT_STRIP_DRAWING.delete(info.sig);
+    if(rows){ BEAT_STRIP_KEPT.set(info.sig, rows); if(BEAT_STRIP_KEPT.size>24) BEAT_STRIP_KEPT.delete(BEAT_STRIP_KEPT.keys().next().value); }
+    return rows||null; }, e=>{ BEAT_STRIP_DRAWING.delete(info.sig); throw e; });
+  BEAT_STRIP_DRAWING.set(info.sig, kept);
+  return kept;
+}
+/* ONE SHOT'S DRAWING, FOR ITS CARD (the beat-first shot card: the picture at the top of an open shot, its small
+   floor plan and its Previs step all read one drawing). The same drawing the Previs section makes, kept under the
+   same key, so nothing is drawn twice. look = "" (Colour), "clay" or "depth"; on = false draws nothing yet.
+   → {able (the shot has a scene plan to draw from), ready (its place has a floor plan), plan, cam, loc, busy, err, res} */
+function useShotDrawing(sh, ctx, sceneShots, look, on){
+  const SP = window.ScenePlan, SPv = window.ShotPrevis;
+  const plan = (sh && SP) ? (((((ctx||{}).project||{}).scenePlans)||{})[sh.sceneId] || null) : null;
+  const able = !!(sh && sh.planned && sh.startState && SP && SPv && window.KinolotPrevis && plan && SP.exact(plan));
+  const loc = able ? shotPrevisPlace(sh, plan, ctx) : null;
+  const cam = able ? shotPrevisCamera(sh, plan) : null;
+  let ready = false;
+  if(able){ try{ ready = !!(loc && typeof window.locationSpatialContract==="function"
+    && ((((window.locationSpatialContract(loc, ctx.locations)||{}).coordinates||{}).spaces)||[]).some(s=>s && Array.isArray(s.footprint) && s.footprint.length>=3)); }catch(e){ ready = false; } }
+  const staged = (able && ready) ? (shotPrevisStaged(sceneShots||[sh])[sh.id] || null) : null;
+  let sig = "";
+  if(able && ready && on!==false){ try{ sig = shotPrevisSig(sh, plan, cam, loc, ctx)+JSON.stringify(staged)+(look ? "|look:"+look : ""); }catch(e){ sig = ""; } }
+  const [state, setState] = React.useState(()=> (sig && SHOT_PREVIS_KEPT.has(sig)) ? { res:SHOT_PREVIS_KEPT.get(sig) } : { busy:!!sig });
+  React.useEffect(()=>{
+    if(!sig){ setState({}); return; }
+    if(SHOT_PREVIS_KEPT.has(sig)){ setState({ res:SHOT_PREVIS_KEPT.get(sig) }); return; }
+    let live = true;
+    setState({ busy:true });
+    const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
+    // (asked again when its turn comes: the Previs section may have drawn the same thing meanwhile)
+    const run = ()=> !live ? null : SHOT_PREVIS_KEPT.has(sig) ? SHOT_PREVIS_KEPT.get(sig)
+      : window.ShotPrevis.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:960,
+          ...(look ? { look } : {}), ...(staged ? { startState:staged.start, endState:staged.end } : {}) });
+    const turn = shotPrevisLine.then(run, run);
+    shotPrevisLine = turn.then(()=>{}, ()=>{});
+    turn.then(res=>{
+      if(!res) return;
+      SHOT_PREVIS_KEPT.set(sig, res);
+      if(SHOT_PREVIS_KEPT.size>80) SHOT_PREVIS_KEPT.delete(SHOT_PREVIS_KEPT.keys().next().value);
+      if(live) setState({ res });
+    }, e=>{ if(live) setState({ err:String((e && e.message) || "The previs could not be drawn.") }); });
+    return ()=>{ live = false; };
+  },[sig]);
+  return { able, ready, plan, cam, loc, staged, ...state };
+}
+// (bare = inside a beat's own card: no row of its own to open, the drawings alone)
+function BeatStrip({ scene, beatN, shots, sceneShots, ctx, onView, readOnly, bare }){
+  const [open, setOpen] = React.useState(!!bare);
   const SP = window.ScenePlan, SPv = window.ShotPrevis;
   if(!scene || !SP || !SPv || typeof SPv.beat!=="function" || !window.KinolotPrevis) return null;
   const plan = ((((ctx||{}).project||{}).scenePlans)||{})[scene.id] || null;
@@ -358,6 +434,8 @@ function BeatStrip({ scene, beatN, shots, sceneShots, ctx, onView, readOnly }){
   const last = list[list.length-1];
   const endOwnerId = (last && typeof shotEndFrameWanted==="function" && shotEndFrameWanted(last, sceneShots||shots)) ? last.id : "";
   // (sheet-card: the Art Room's own light card, so the strip reads as one of the beat's cards)
+  if(bare) return SPV_E("div",{className:"beat-strip bare open","data-testid":"beat-strip","data-beat":beatN},
+    SPV_E(BeatStripBody,{list,plan,ctx,sig,onView,beatN,staged,readOnly,endOwnerId,bare:true}));
   return SPV_E("div",{className:"sheet-card beat-strip"+(open?" open":""),"data-testid":"beat-strip","data-beat":beatN},
     SPV_E("div",{className:"beat-strip-head"},
       SPV_E("button",{type:"button",className:"beat-strip-toggle","aria-expanded":open?"true":"false",onClick:()=>setOpen(o=>!o)},
@@ -474,4 +552,4 @@ function shotLookSwatches(url){
 // (the mark lasts ten minutes: a run the person then cancels must not turn a later, ordinary Generate into this one)
 function shotPrevisAskNext(id){ window.__shotPrevisNext = window.__shotPrevisNext || {}; window.__shotPrevisNext[id] = Date.now(); }
 function shotPrevisTakeNext(id){ const m = window.__shotPrevisNext, at = m && m[id]; if(!at) return false; delete m[id]; return Date.now()-at < 600000; }
-Object.assign(window, { ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisLayout, shotPrevisAskNext, shotPrevisTakeNext });
+Object.assign(window, { useShotDrawing, beatStripInfo, beatStripRows, shotPrevisBusy, SHOT_PREVIS_LOOKS, ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisLayout, shotPrevisAskNext, shotPrevisTakeNext });

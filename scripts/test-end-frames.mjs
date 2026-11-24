@@ -198,7 +198,9 @@ await (async ()=>{
 
 test("5 the card, the ordered run and what it asks", ()=>{
   // the card: its own always-mounted part on the beat's last planned shot, through the same factory as a frame
-  assert.ok(ui.includes('(typeof shotEndFrameWanted==="function" && shotEndFrameWanted(sh, sceneShots||[]))\n        && _el(ShotEndFrame,{key:"end-"+sh.id,sh,sceneShots,ctx,onView,batchActiveId,onBatchDone,onGenerateShot,onStopChain,beatLabel,readOnly}),'));
+  assert.ok(ui.includes('slot("endFrame", (typeof shotEndFrameWanted==="function" && shotEndFrameWanted(sh, sceneShots||[]))\n        && _el(ShotEndFrame,{key:"end-"+sh.id,sh,sceneShots,ctx,onView,batchActiveId,onBatchDone,onGenerateShot,onStopChain,beatLabel,readOnly})),'));
+  // (beat-first layout: the end frame is outside every folded part of the open shot, so its own generator is always in the page)
+  assert.ok(ui.includes("    faceSlots.endFrame,\n    _el(\"details\",{className:\"sbc-adv\""),"always mounted, before Advanced");
   const comp=ui.slice(ui.indexOf("function ShotEndFrame("),ui.indexOf('const CONF_LABELS = ["Inner","Personal","Extra-personal"];'));
   for(const t of ["const end = shotEndShot(sh);","const pack = shotFrameGenOpts(end, sceneShots||[], ctx);","const gen = useImageGen(pack.opts);",
     'const mine = batchActiveId===end.id;','onBatchDone && onBatchDone(end.id)','onGenerateShot(end.id)',
@@ -217,7 +219,8 @@ test("5 the card, the ordered run and what it asks", ()=>{
   const b={}; vm.createContext(b); b.shotEndFrameId=box.shotEndFrameId;
   vm.runInContext(ui.slice(ui.indexOf("function shotRunsHere("),ui.indexOf("/* a labelled grammar dropdown"))+";globalThis.f=shotRunsHere;",b);
   assert.equal(b.f({id:"b2"},"b2"),true); assert.equal(b.f({id:"b2"},"b2-end"),true); assert.equal(b.f({id:"b2"},"b3"),false); assert.equal(b.f({id:"b2"},null),false);
-  assert.equal(ui.split("shotRunsHere(sh,batchActiveId)").length-1,6);
+  // (8 since the beat-first layout: the open shot's own card, and the beat's row, which shows the shot a run is making)
+  assert.equal(ui.split("shotRunsHere(sh,batchActiveId)").length-1,8);
   assert.ok(!/sh\.id===batchActiveId\?batchActiveId:null|ordered\.find\(sh=>sh\.id===batchActiveId\)|L\.shots\.find\(sh=>sh\.id===batchActiveId\)/.test(ui));
   // the run: an end frame has its turn right after its shot; it is in the price; its step writes no approval
   assert.ok(ui.includes('.flatMap(s=> (typeof shotEndFrameWanted==="function" && shotEndFrameWanted(s, list||[])) ? [s.id, shotEndFrameId(s.id)] : [s.id]);'));
@@ -236,7 +239,7 @@ test("5 the card, the ordered run and what it asks", ()=>{
   // what follows a frame counts across a beat's end frame
   assert.ok(ui.includes("if(sd && dep.has(sd.endFrameOf||sd.id)){ dep.add(s.id); n++; }")&&breakdown.includes("if(seed && will.has(seed.endFrameOf||seed.id)){ will.add(sh.id); cascade++; } else done++; }"));
   // the next beat's first card says where it starts from
-  assert.ok(ui.includes('(prevShot && prevShot.endFrameOf) && _el("div",{className:"shot-plan-from","data-testid":"shot-starts-from"},\n        "Starts from the end frame of beat "+prevShot.beatN+": the picture of how that beat ended."),'));
+  assert.ok(ui.includes('(prevShot && prevShot.endFrameOf) && _el("div",{className:"shot-plan-from","data-testid":"shot-starts-from"},\n        "Starts from the end frame of beat "+prevShot.beatN+": the picture of how that beat ended.")),'));
   for(const c of [".shot-end{",".shot-end-head{",".shot-end-lab{",".shot-end-how{",".shot-end-note{",".shot-plan-from{"]) assert.ok(css.includes(c),c);
 });
 
@@ -263,7 +266,7 @@ test("6 what Frances is told, the pipeline and the keys", ()=>{
   assert.equal((pipe.match(/^### \d+\. /gm)||[]).length,11,"no step was added or removed");
   assert.ok(html.includes('app/scene-order.js?v=20261122-end1"'));
   for(const f of ["shots.jsx","shots-ui.jsx","breakdown.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 console.log("\n"+pass+" passed, "+fail+" failed");

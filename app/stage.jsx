@@ -9363,6 +9363,21 @@ function StageView({ project, scenes, shots, characters, locations, props, beats
   const setClipAudioMode = React.useCallback((id, mode)=>{ if(!id) return;
     setClipAudioModes(m=> m[id]===mode ? m : { ...m, [id]:mode }); }, []);
   const [selId, setSelId] = React.useState(allClips[0] ? allClips[0].id : null);
+  /* A BEAT SENT FROM THE SHOTS TAB (owner 2026-11-24, the beat-first shot card: "Send this beat to the Stage"): the
+     hand-off names the scene, the beat and its first shot; the Stage opens on the clip that holds that shot (or, with
+     none, the first clip of that beat). Read once, when the clips are there; a hand-off older than 20 s, or made in
+     another film, is ignored. Nothing is rendered by it. */
+  const beatSentRef = React.useRef(false);
+  React.useEffect(()=>{
+    if(beatSentRef.current || !allClips.length) return;
+    const f = window.turnStageBeat;
+    if(!f || Date.now()-f.at>20000 || (f.film||null)!==(window.turnOpenFilmId||null)){ return; }
+    beatSentRef.current = true; window.turnStageBeat = null;
+    const inScene = allClips.filter(c=>c && c.scene && c.scene.id===f.sceneId);
+    const hit = inScene.find(c=>((c.data&&c.data.shots)||[]).some(sh=>sh && sh.id===f.shotId))
+      || inScene.find(c=>((c.data&&c.data.shots)||[]).some(sh=>sh && Number(sh.beatN)===Number(f.beatN))) || inScene[0];
+    if(hit) setSelId(hit.id);
+  },[allClips.length]);
   const selIdRef = React.useRef(null); selIdRef.current = selId;
   const [selShotId, setSelShotId] = React.useState((shots||[])[0] ? (shots||[])[0].id : null);
   const selMembersRef = React.useRef(null);

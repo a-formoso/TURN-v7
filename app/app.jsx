@@ -6985,6 +6985,12 @@ function App(){
   };
   window.turnUseAngleInShot = useAngleInShot;
   window.turnReturnPlannedCamera = returnPlannedCamera;
+  /* "SEND THIS BEAT TO THE STAGE" (owner 2026-11-24, the beat-first shot card): the Stage opens on the clip of that
+     beat (stage.jsx reads the hand-off when its clips are there). It only goes there: nothing is rendered or charged. */
+  window.turnSendBeatToStage = (sceneId, beatN, shotId)=>{
+    window.turnStageBeat = { sceneId, beatN, shotId:shotId||"", at:Date.now(), film:window.turnOpenFilmId||null };
+    if(!guardedSetRoom("stage")) window.turnStageBeat = null;
+  };
   const planSceneShots = async (scene, opts)=>{
     const SP = window.ScenePlan;
     const say = (m,t)=>{ if(typeof window.appToast==="function") window.appToast(m,t||"info"); };
