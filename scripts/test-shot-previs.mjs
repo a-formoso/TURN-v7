@@ -347,7 +347,7 @@ test("5f. what sits on each fixed thing is read from the set and said, and that 
   assert.deepEqual(plain(open.surfaces),plain(bare.surfaces));
   assert.deepEqual(plain(V.dressingWords([])),[]);
   // only for a frame that is made (words), only what the camera has in frame, and it rides in the legend
-  assert.match(src,/if\(o\.words\)\{ out\.start\.words=frameWords\(found\.pose,await seenIn\(first\.scene,found\.pose\)\); out\.start\.dressing=dressingWords\(await inView\(first\.surfaces,found\.pose,first\.base\)\); \}/);
+  assert.ok(src.includes("if(o.words){ const seen=await seenIn(first.scene,found.pose); out.start.words=frameWords(found.pose,seen); out.start.dressing=dressingWords(await inView(first.surfaces,found.pose,first.base));"));
   assert.match(src,/return hit\.sort\(\(a,b\)=>a\.d-b\.d\)\.slice\(0,4\)\.map\(x=>x\.s\);/);
   assert.match(ui,/legend:SPv\.legend\(people, things\)\.concat\(pic\.dressing\|\|\[\]\)/);
 });
@@ -551,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -633,7 +633,7 @@ test("14. the card: the Previs fold's button sends the drawing with the shot's o
   assert.ok(body.includes('try{ pv = await window.shotPrevisForFrame(sh, ctx, "start", null, 0, sceneShots); }')&&body.includes('g = { ...g, previs:pv, baseMaxDim:1536 };'));
   assert.ok(body.includes('"The previs could not be drawn. No frame was made."')&&body.includes('"This shot has no previs to make a frame from. No frame was made."'),"asked for a frame from the previs, never another kind");
   assert.ok(shotsUi.includes("if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction) return gopts.previs.url;"),"the drawing is Image 1");
-  assert.ok(shotsUi.includes('return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}) },{...base,previs:gopts.previs});'),
+  assert.ok(shotsUi.includes('return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}),')&&shotsUi.includes("},{...base,previs:gopts.previs});"),
     "the drawing is the composition: the plan's own line on it and its lens do not ride along");
   assert.ok(shotsUi.includes('const sw = (seedU && typeof window.shotLookSwatches==="function") ? await window.shotLookSwatches(seedU) : "";')
     &&shotsUi.includes('if(sw) return ranked.concat([{ url:sw, kind:"frame", refId:prevShot.id, maxDim:960, ephemeral:true, persist:false,'),"the frame before it rides last as shuffled swatches: its look, never its layout");

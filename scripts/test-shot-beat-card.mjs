@@ -174,7 +174,7 @@ test("9 Send this beat to the Stage only goes there; loaded in order; Frances kn
   const i=s=>html.indexOf(s);
   assert.ok(i("app/location-set-card.js?v=")<i("app/shot-beat-card.js?v=")&&i("app/shot-beat-card.js?v=")<i("app/shot-beat-card-ui.jsx?v="),"the plan reader, the words, then the screen");
   for(const f of ["app/shot-beat-card.js","app/shot-beat-card-ui.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/stage.jsx","app/app.jsx","app/styles.css","app/ai.jsx"])
-    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Shots: a beat and its open shot')).join("\n"))(g.APP_FEATURES);
   assert.equal(g.APP_FEATURES.length,1);
   const fact=g.APP_FEATURES[0].what;

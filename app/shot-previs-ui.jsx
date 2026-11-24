@@ -473,8 +473,18 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width, sceneShots){
   const end = which==="end";
   const pic = end ? (res.end || res.start) : res.start;
   const people = (end && res.end && res.end.people) || res.people, things = (end && res.end && res.end.things) || res.things;
+  /* WHERE THE DRAWING HAS EACH PROP (2026-11-24: a prop's sheet was labelled by who owns it, "held by LIAQAT", while
+     the drawing had it on the shelf). By prop card: in whose hands, on what, hanging from what. A prop whose sheet
+     rides along and which the drawing does not hold is said to be out of the picture. */
+  const who = id=>{ const p = (people||[]).find(x=>x && x.id===id); return p ? p.name : ""; };
+  const low = t=>String(t||"").replace(/^the /i,"").replace(/^./,c=>c.toLowerCase());
+  const placed = (things||[]).map(t=>{ const pt = ((plan.things||[]).find(x=>x && x.key===t.key))||{};
+    const holder = t.held && (people||[]).find(x=>x && x.id===t.held);
+    return { propId:String(pt.propId||""), name:t.name, where:(holder && holder.unseen) ? "" : t.held ? "in "+who(t.held)+"\u2019s hands" : t.on ? (t.hung ? "hanging from the " : "on the ")+low(t.on) : "standing on its own" }; }).filter(x=>x.where);
   // who each stand-in is, then what sits on the shelves and hooks in frame (so the image engine dresses nothing itself)
-  return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things).concat(pic.dressing||[]), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end };
+  // (map = the frame measured in code; size / pitch = the size of shot and the tilt the drawing really has)
+  return { url:pic.dataUrl, which:end?"end":"start", legend:SPv.legend(people, things).concat(pic.dressing||[]), words:pic.words||"", pose:res.pose, source:res.source||"", moves:!!res.end,
+    map:pic.map||"", size:(pic.frame && pic.frame.size)||"", pitch:(pic.frame ? pic.frame.pitch : 0)||0, placed };
 }
 /* THE LAYOUT A WHOLE-BEAT CLIP IS GIVEN FOR A SHOT (owner 2026-11-24, the Previs look brief, step 6: "each shot's
    clay drawing is attached as a layout reference, one per shot, in shot order ... The prompt says, for each shot,
@@ -519,7 +529,7 @@ async function shotPrevisLayout(sh, ctx, sceneShots, width){
    camera stands. Drawn in the browser, no engine. Returns a JPEG data URL, or "" when the picture cannot be read
    (the caller then sends no look reference at all, never the whole frame). */
 const SHOT_SWATCH_ORDER = [7,2,10,5,0,11,3,8,1,6,9,4];   // where each piece of the 4 x 3 grid goes: none stays in its place
-function shotLookSwatches(url){
+function shotLookSwatches(url, width){
   return new Promise(resolve=>{
     if(!url || typeof Image==="undefined" || typeof document==="undefined"){ resolve(""); return; }
     const im = new Image();
@@ -529,7 +539,7 @@ function shotLookSwatches(url){
     im.onerror = ()=>end("");
     im.onload = ()=>{
       try{
-        const COLS = 4, ROWS = 3, W = 960, H = 540, tw = W/COLS, th = H/ROWS;
+        const COLS = 4, ROWS = 3, W = Math.max(640,Math.min(1536,Math.round(Number(width)||960))), H = Math.round(W*9/16), tw = W/COLS, th = H/ROWS;
         const sw = im.naturalWidth/COLS, sh = im.naturalHeight/ROWS;
         if(!(sw>8 && sh>8)){ end(""); return; }
         const c = document.createElement("canvas"); c.width = W; c.height = H;

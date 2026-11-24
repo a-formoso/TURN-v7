@@ -2823,6 +2823,8 @@ function buildShotPrompt(sh, ctx){
     MAP += "\n\nTHE LAYOUT IS IMAGE 1 (binding: where Image 1 and any other image or any word below disagree about where something is, how big it is or which way it faces, Image 1 is right). "
       +"This is the SAME picture, finished: every large shape of Image 1 stays where it is in the frame, at its size, and what is in front of what stays so. Never a different or more flattering view of the place: not a wider one, not one turned to look down a corridor, not one from another spot. "
       +(_seen ? "WHAT IMAGE 1 SHOWS, read from the 3D set: "+_seen+". Image 1 is built from plain shapes: read each as the real thing it stands for and give it its real surface, detail, edges and wear. " : "")
+      // the frame measured in code (shot-previs.js measure / frameMap): where each head is and how big, what the edges cut, the order across the frame
+      +(clean(_previs.map) ? clean(_previs.map)+" What an edge of Image 1 cuts, the same edge of the finished picture cuts in the same place: do not pull back to show more of anyone or of the room. " : "")
       +"Where a word below says where the camera stands, what it looks at or how the room is laid out, it describes Image 1 and never changes it. "
       +(_legend.length ? "ITS STAND-INS: "+_legend.join(" ")+" " : "")
       +"The pale panel on a figure's head is its face: the person looks that way. "

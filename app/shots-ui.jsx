@@ -257,7 +257,30 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
     const out = (typeof shotResolveRenderRefs==="function") ? await shotResolveRenderRefs(p, grab) : [];
     if(renderPlan && p.sceneContext) renderPlan.sceneContext = p.sceneContext;
     assertSceneContext();
-    const ranked = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
+    let ranked = (typeof nbPreferBestAssetRefs==="function") ? nbPreferBestAssetRefs(out) : out;
+    /* MADE FROM ITS PREVIS, THE FRAME MATCHES THE DRAWING (owner 2026-11-24: "fix the framing so the frame matches the
+       drawing"; shot 2.1 of Scene 5 came back as a view along the hall, as the location's image shows it, when the
+       drawing looks across it at a wall). Two things pulled the frame off its drawing, and both are taken away here:
+       - the location's image rode along whole, and the engine took its viewpoint: it now goes as SWATCHES (cut up and
+         shuffled, as the frame before does), so its materials, colour and light are all there and its layout is not;
+       - a prop's sheet said who owns it, not where the drawing has it: it now says where it is in this picture. */
+    if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction){
+      const placed = Array.isArray(gopts.previs.placed) ? gopts.previs.placed : null;
+      ranked = await Promise.all(ranked.map(async r=>{
+        if(!r || r.assetRole==="screenplay_context") return r;
+        if(r.locationId && r.url && typeof window.shotLookSwatches==="function"){
+          const sw = await window.shotLookSwatches(r.url, 1536);
+          return sw ? { ...r, url:sw, maxDim:1536, ephemeral:true, persist:false, swatches:true,
+            note:"a sheet of SWATCHES cut from "+(r.note||"the location\u2019s image")+" and shuffled: it is not a picture of the place" } : r;
+        }
+        if(placed && r.baseId && r.referenceKind!=="character"){
+          const hit = placed.find(x=>x.propId && String(x.propId)===String(r.baseId));
+          const prop = (ctx.propById||{})[r.baseId];
+          if(prop) return { ...r, note:(prop.name||"prop")+" prop sheet \u2014 "+(hit ? "in this picture it is "+hit.where : "NOT in this picture: Image 1 does not hold it, so it is not drawn") };
+        }
+        return r;
+      }));
+    }
     /* made from its previs: the previs is Image 1, so the frame this shot chains from (which a chained shot sends as
        Image 1) goes last, for its LOOK only: the grade, the light, the faces and what has happened to people and things */
     if(gopts && gopts.previs && gopts.previs.url && !gopts.editInstruction && !gopts.fresh && prevShot){
@@ -357,7 +380,13 @@ function shotFrameGenOpts(sh, sceneShots, ctx){
          is where in the frame. The drawing IS the composition, so those two go, and the lens is the drawing's own.) */
       if(mode==="base" && gopts && gopts.previs && gopts.previs.url){
         const lensMm = Number(gopts.previs.pose && gopts.previs.pose.lensMm);
-        return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}) },{...base,previs:gopts.previs});
+        /* (2026-11-24, "the frame matches the drawing") the plan's size of shot and its angle are words too: shot 2.1
+           was planned "Medium, eye level" and drawn looking down 12 degrees, and the frame came back level. The
+           drawing's own size and tilt, measured in code, replace them for this render. */
+        const drawnSize = String(gopts.previs.size||""), tilt = Number(gopts.previs.pitch)||0;
+        return buildShotPrompt({ ...sh, composition:"", cameraPosition:"", ...(lensMm>0 ? { lens:String(Math.round(lensMm)) } : {}),
+          ...((drawnSize && (window.SHOT_SIZES||[]).some(x=>x.id===drawnSize) && sh.size!=="INSERT") ? { size:drawnSize } : {}),
+          ...(tilt<=-8 ? { angle:"high" } : tilt>=8 ? { angle:"low" } : ((sh.angle==="high" || sh.angle==="low") ? { angle:"eye" } : {})) },{...base,previs:gopts.previs});
       }
       return (mode==="base" ? buildShotPrompt(sh,{...base,prevFrameRole:true}) : combinedShotPrompt(sh,base));
     },

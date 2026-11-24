@@ -736,15 +736,19 @@
         m.quaternion.setFromRotationMatrix(new T.Matrix4().makeRotationZ(z).multiply(new T.Matrix4().makeRotationY(y)).multiply(new T.Matrix4().makeRotationX(x)));
         m.updateMatrixWorld(true); m.userData.name=String(item.name||""); meshes.push(m); });
       const cam=A.cameraFor(T,pose); cam.updateMatrixWorld(true);
-      const ray=new T.Raycaster(), hits=new Map(), COLS=16, ROWS=9;
+      const ray=new T.Raycaster(), hits=new Map(), COLS=16, ROWS=9, reach=[];
       for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
         ray.setFromCamera(new T.Vector2((c+0.5)/COLS*2-1,1-(r+0.5)/ROWS*2),cam);
         const hit=ray.intersectObjects(meshes,false)[0]; if(!hit) continue;
+        reach.push(hit.distance);
         const name=String(hit.object.userData.name||"").split(/ \u00b7 | - part /)[0].replace(/ \((?:prop |door )?stand-in\)$/,"").replace(/\s+/g," ").trim().slice(0,70); if(!name) continue;
         const e=hits.get(name)||{name,n:0,x:0,d:Infinity}; e.n++; e.x+=(c+0.5)/COLS; e.d=Math.min(e.d,hit.distance); hits.set(name,e); }
       bin.forEach(g=>g.dispose());
-      return Array.from(hits.values()).sort((a,b)=>b.n-a.n).slice(0,10).map(e=>({name:e.name,share:Math.round(e.n/(COLS*ROWS)*100),
+      const list=Array.from(hits.values()).sort((a,b)=>b.n-a.n).slice(0,10).map(e=>({name:e.name,share:Math.round(e.n/(COLS*ROWS)*100),
         side:SIDES[Math.min(4,Math.floor(e.x/e.n*5))],depth:e.d<1.2?"very close":e.d<2.5?"close":e.d<8?"middle distance":"far"}));
+      // how deep the picture is: the furthest thing any part of the frame reaches (list.far, metres; 0 when it could not be read)
+      reach.sort((a,b)=>a-b); list.far=reach.length>=COLS*ROWS*0.6?Math.round(reach[Math.floor(reach.length*0.97)]*10)/10:0;
+      return list;
     }catch(_){ return []; }
   }
   // the camera and its frame in words: "camera 1.5 m high, facing south-west, 24 mm lens (wide). In its frame: …"
@@ -772,6 +776,88 @@
       return hit.sort((a,b)=>a.d-b.d).slice(0,4).map(x=>x.s);
     }catch(_){ return []; }
     finally{ if(lines) lines.dispose(); }
+  }
+  /* THE FRAME, MEASURED (owner 2026-11-24: "fix the framing so the frame matches the drawing"). The first frame made
+     from a drawing after props were built in code held their sizes and lost the picture: the drawing looked across a
+     hall at a flat wall, through a doorway, looking down; the image engine made a level view along the hall. Words
+     like "left, very close" leave room for that. So the drawing is measured, in code: where each head is in the
+     frame and how big, where the lower edge cuts each person, where each thing is and how wide, what stands left to
+     right, who is nearest, how deep the picture goes, which size of shot it really is and whether the camera looks
+     down or up. Plain numbers through the same camera the drawing was made with (36 mm wide, 16:9); nothing is drawn.
+       project(pose, [x, y, z])  → {across, down (parts of the frame, from its left and top edges), depth (m)} | null
+       measure(pose, people, things, surfaces) → {size, pitch, people[], things[], fixed[], order[], nearest[]}
+                                 (a thing a person stands in front of from this camera is marked hidden, and said so)
+       frameMap(m, far)          → the same, in sentences for the image engine and for the check */
+  function project(pose,point){
+    const q=obj(pose), c=arr(q.position), a=(Number(q.yaw)||0)*Math.PI/180, t=(Number(q.pitch)||0)*Math.PI/180, lens=Number(q.lensMm)||35;
+    if(c.length!==3||arr(point).length!==3) return null;
+    const look=[Math.sin(a)*Math.cos(t),Math.cos(a)*Math.cos(t),Math.sin(t)], right=[Math.cos(a),-Math.sin(a),0];
+    const up=[right[1]*look[2]-right[2]*look[1],right[2]*look[0]-right[0]*look[2],right[0]*look[1]-right[1]*look[0]];
+    const d=[point[0]-c[0],point[1]-c[1],point[2]-c[2]], dot=v=>d[0]*v[0]+d[1]*v[1]+d[2]*v[2], depth=dot(look);
+    if(!(depth>0.05)) return null;
+    return {across:(dot(right)/(depth*18/lens)+1)/2,down:(1-dot(up)/(depth*10.125/lens))/2,depth};
+  }
+  // how much height shows at a distance, and the size of shot that is (the heights the cameras are placed by)
+  const SIZE_BY_HEIGHT=[["ECU",0.32],["CU",0.55],["MCU",0.865],["MS",1.275],["MWS",1.8],["FS",2.65],["WS",Infinity]];
+  const SIZE_NAME={ECU:"an extreme close-up",CU:"a close-up",MCU:"a medium close-up (from the chest up)",MS:"a medium shot (from the waist or the thighs up)",MWS:"a medium wide shot (from about the knees up)",FS:"a full shot (the whole figure)",WS:"a wide shot"};
+  const SIZE_BY_CUT={"the shoulders":"CU","the chest":"MCU","the waist":"MS","the hips":"MS","mid-thigh":"MS","the knees":"MWS","the shins":"MWS","the ankles":"FS"};
+  const BODY=[["the shoulders",0.82],["the chest",0.72],["the waist",0.6],["the hips",0.52],["mid-thigh",0.4],["the knees",0.28],["the shins",0.13],["the ankles",0.04]];
+  const pct=n=>Math.round(Math.max(0,Math.min(1,n))*100);
+  function measure(pose,people,things,surfaces){
+    const lens=Number(obj(pose).lensMm)||35, out={size:"",pitch:Math.round(Number(obj(pose).pitch)||0),people:[],things:[],fixed:[],order:[],nearest:[]}, bodies=[];
+    const inFrame=v=>v&&v.across>-0.02&&v.across<1.02&&v.down>-0.05&&v.down<1.05;
+    arr(people).forEach(p=>{ if(!p||p.unseen||arr(p.head).length!==3) return;
+      const mid=project(pose,p.head), top=project(pose,[p.head[0],p.head[1],p.head[2]+0.115]), chin=project(pose,[p.head[0],p.head[1],p.head[2]-0.115]);
+      if(!mid||!top||!chin||!(mid.across>-0.1&&mid.across<1.1&&chin.down>0&&top.down<1)) return;
+      const posture=POSTURE(p.pose), tall=(Number(p.height)||DEFAULT_HEIGHT)*LOWERS[posture], floor=p.head[2]+0.115-tall;
+      // where the lower edge of the frame cuts them (standing): the part of the body it passes nearest to
+      let cut="", feet=project(pose,[p.head[0],p.head[1],floor]);
+      if(posture==="standing"){
+        if(feet&&feet.down<=1) cut="whole";
+        else{ let at=1; for(let i=0;i<=50;i++){ const f=1-i/50, v=project(pose,[p.head[0],p.head[1],floor+tall*f]); if(v&&v.down>=1){ at=f; break; } at=f; }
+          cut=BODY.reduce((best,b)=>Math.abs(b[1]-at)<Math.abs(best[1]-at)?b:best,BODY[0])[0]; } }
+      out.people.push({id:p.id,name:p.name,across:pct(mid.across),down:pct(mid.down),head:Math.round((chin.down-top.down)*100),room:top.down<0?-1:pct(top.down),cut,
+        feet:cut==="whole"&&feet?pct(feet.down):0,depth:Math.round(mid.depth*10)/10,shows:mid.depth*20.25/lens});
+      // (the part of the frame their body surely covers: a metre across the frame at their distance, from the top of the head down)
+      bodies.push({id:p.id,name:p.name,x:mid.across,metre:1/(mid.depth*36/lens),top:top.down,depth:mid.depth}); });
+    /* what a person stands in front of, from this camera: further away than they are, behind the middle of their body
+       (within `reach` metres of its centre line: 0.17 for a small thing, 0.1 for a fixture, which is wider than its
+       middle and shows either side of them), and not in their own hands */
+    const behind=(v,holder,reach)=>{ const b=bodies.find(b=>b.id!==holder&&v.depth>b.depth+0.1&&Math.abs(v.across-b.x)<reach*b.metre&&v.down>b.top); return b?b.name:""; };
+    arr(things).forEach(t=>{ if(!t||arr(t.at).length!==3||arr(t.size).length!==3) return;
+      const holder=t.held&&arr(people).find(p=>p.id===t.held); if(holder&&holder.unseen) return;
+      const v=project(pose,[t.at[0],t.at[1],t.at[2]+t.size[2]/2]); if(!inFrame(v)) return;
+      out.things.push({key:t.key,name:t.name,across:pct(v.across),down:pct(v.down),wide:Math.max(1,Math.round(Math.max(t.size[0],t.size[1])/(v.depth*36/lens)*100)),held:t.held||"",on:t.on||"",hung:!!t.hung,depth:Math.round(v.depth*10)/10,hidden:behind(v,t.held||"",0.17)}); });
+    arr(surfaces).forEach(f=>{ if(!f||arr(f.centre).length!==3) return; const v=project(pose,f.centre); if(!inFrame(v)) return;
+      out.fixed.push({id:f.id,name:f.name,across:pct(v.across),down:pct(v.down),depth:Math.round(v.depth*10)/10,hidden:behind(v,"",0.1)}); });
+    // left to right: the people, what holds things, and things that stand on their own
+    out.order=out.people.map(p=>({name:p.name,across:p.across})).concat(out.fixed.filter(f=>!f.hidden).map(f=>({name:"the "+lowName(f.name),across:f.across})),
+      out.things.filter(t=>!t.held&&!t.on&&!t.hidden).map(t=>({name:"the "+lowName(t.name),across:t.across}))).sort((a,b)=>a.across-b.across).map(x=>x.name);
+    out.nearest=out.people.slice().sort((a,b)=>a.depth-b.depth).map(p=>({name:p.name,depth:p.depth}));
+    /* the size of shot it really is, by the person nearest the middle of the frame: where the lower edge cuts them
+       when they stand (a wide lens close up and tilted shows more of a body than its distance says), else by how
+       much height shows where they are */
+    const lead=out.people.slice().sort((a,b)=>Math.abs(a.across-50)-Math.abs(b.across-50))[0];
+    if(lead) out.size=lead.cut==="whole"?(lead.head<6?"WS":"FS"):(SIZE_BY_CUT[lead.cut]||SIZE_BY_HEIGHT.find(x=>lead.shows<x[1])[0]);
+    out.people.forEach(p=>{ delete p.shows; });
+    return out;
+  }
+  function frameMap(m,far){
+    const f=obj(m); if(!arr(f.people).length&&!arr(f.things).length) return "";
+    const s=["THE FRAME, MEASURED ON IMAGE 1 (the finished picture measures the same; \"across\" is from the left edge, \"down\" from the top edge, as parts of the frame)."];
+    if(f.size) s.push("It is "+SIZE_NAME[f.size]+(Math.abs(f.pitch)>=6?", and the camera looks "+(f.pitch<0?"DOWN":"UP")+" about "+Math.abs(f.pitch)+" degrees: it is not a level view":", from a level camera")+".");
+    if(arr(f.order).length>1) s.push("From left to right the frame holds: "+f.order.join(", then ")+". Keep that order.");
+    arr(f.people).forEach(p=>s.push(p.name+": the head is "+p.across+"% across and "+p.down+"% down and is "+p.head+"% of the frame’s height"
+      +(p.room<0?"; the top edge of the frame cuts through the head":"; "+(p.room<=3?"the head almost touches the top edge":p.room+"% of the frame is above the head"))
+      +(p.cut==="whole"?"; the whole figure is in frame, the feet "+p.feet+"% down":p.cut?"; the lower edge of the frame cuts them at "+p.cut:"")+"."));
+    arr(f.fixed).forEach(x=>s.push(x.hidden?"The "+lowName(x.name)+" is behind "+x.hidden+" from this camera: it is not seen.":"The "+lowName(x.name)+" is "+x.across+"% across and "+x.down+"% down."));
+    arr(f.things).forEach(t=>s.push(t.hidden?"The "+String(t.name).replace(/^the /i,"")+" is behind "+t.hidden+" from this camera: it is not seen."
+      :"The "+String(t.name).replace(/^the /i,"")+" is "+t.across+"% across and "+t.down+"% down, about "+t.wide+"% of the frame’s width."));
+    if(arr(f.nearest).length>1) s.push("Nearest the camera is "+f.nearest[0].name+" ("+f.nearest[0].depth+" m), then "+f.nearest.slice(1).map(x=>x.name+" ("+x.depth+" m)").join(", then ")+".");
+    const deep=Number(far)||0;
+    if(deep>0&&deep<4.5) s.push("Nothing in this picture is further than about "+deep+" m from the camera: it is a close view against what stands behind the people, with NO view along a corridor and no far room.");
+    else if(deep>=4.5) s.push("The furthest thing in this picture is about "+Math.round(deep)+" m from the camera.");
+    return s.join(" ");
   }
   const sameState=(a,b)=>JSON.stringify(a||null)===JSON.stringify(b||null);
   /* A PLANNED SHOT, DRAWN: how it starts and how it ends, from ONE camera. o: {cam (the plan's camera for this shot,
@@ -820,13 +906,15 @@
       try{ view.render(canvas,found.pose,width,height); }finally{ view.dispose(); }
       return canvas.toDataURL("image/jpeg",0.9); };
     out.start={dataUrl:await draw(first.scene)};
-    if(o.words){ out.start.words=frameWords(found.pose,await seenIn(first.scene,found.pose)); out.start.dressing=dressingWords(await inView(first.surfaces,found.pose,first.base)); }
+    if(o.words){ const seen=await seenIn(first.scene,found.pose); out.start.words=frameWords(found.pose,seen); out.start.dressing=dressingWords(await inView(first.surfaces,found.pose,first.base));
+      out.start.frame=measure(found.pose,first.people,first.things,first.surfaces); out.start.map=frameMap(out.start.frame,seen.far); }
     out.mid=o.midState?{dataUrl:await draw(stateScene(built.scene,plan,o.midState,ctx).scene)}:null;
     if(endState&&!sameState(startState,endState)){
       const last=stateScene(built.scene,plan,endState,ctx);
       unseen(last.people);
       out.end={dataUrl:await draw(last.scene),people:last.people,things:last.things};
-      if(o.words){ out.end.words=frameWords(found.pose,await seenIn(last.scene,found.pose)); out.end.dressing=dressingWords(await inView(last.surfaces,found.pose,last.base)); }
+      if(o.words){ const seen=await seenIn(last.scene,found.pose); out.end.words=frameWords(found.pose,seen); out.end.dressing=dressingWords(await inView(last.surfaces,found.pose,last.base));
+        out.end.frame=measure(found.pose,last.people,last.things,last.surfaces); out.end.map=frameMap(out.end.frame,seen.far); }
       last.missing.forEach(m=>{ if(out.missing.indexOf(m)<0) out.missing.push(m); });
       last.things.filter(t=>!t.measured).forEach(t=>{ if(out.rough.indexOf(t.name)<0) out.rough.push(t.name); });
     }
@@ -926,5 +1014,5 @@
   }
 
   root.ShotPrevis={DEFAULT_HEIGHT,DEFAULT_SIZE,FRAME,PALETTE,paletteFor,heightOf,colourOf,figure,turnTo,sizeFromText,sizeOf,inside,edgeDistance,spacesOf,spaceAt,markXY,fixedTop,fixedCentre,
-    faceTarget,openingId,doorLine,poseDoors,hangOn,restsOn,dressingWords,stateScene,hides,solidAt,camera,aimOf,planCamera,handCamera,inFrame,cameraKey,legend,seenIn,frameWords,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
+    faceTarget,openingId,doorLine,poseDoors,hangOn,restsOn,dressingWords,stateScene,hides,solidAt,camera,aimOf,planCamera,handCamera,inFrame,cameraKey,legend,seenIn,frameWords,project,measure,frameMap,beatStates,midState,beat,aim,vfovOf,lensFor,sight,pair,frame};
 })(typeof window!=="undefined"?window:globalThis);
