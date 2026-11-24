@@ -176,7 +176,7 @@ test("7 the looks and the pack: Colour, Clay, Depth, drawn by the viewer's own l
   assert.ok(previs.includes("renderer.render(rig.three,root.KinolotAnglePreview.cameraFor(T,pose));"),"the plain view is drawn as it always was");
   assert.ok(previs.includes("if(clay)clay.dispose();if(depth)depth.dispose();")&&previs.includes("actors.forEach(g=>root.KinolotSetSurfaces.disposeMannequin(g));"));
   // the Previs sheet and the shot drawings keep their plain look: only a view that asks gets surfaces
-  assert.ok(previs.includes("const S=!look&&opts&&opts.surfaces&&root.KinolotSetSurfaces||null;"));
+  assert.ok(previs.includes("const kit=root.KinolotSetSurfaces||null,S=!look&&opts&&opts.surfaces&&kit||null;"));
 });
 
 /* the surfaces: which one a material gets, and where it is laid */
@@ -347,7 +347,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{

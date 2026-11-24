@@ -5,7 +5,6 @@
   "use strict";
   const PANELS=["TL","TR","BL","BR"];
   const SKY={day:"#9fb6c9",dusk:"#6f6a86",night:"#0b1220"};
-  const FILL={day:1.15,dusk:0.7,night:0.28};
 
   /* THREE LOOKS OF ONE SET (owner 2026-11-23, the Previs look brief, step 1): the same set through the same camera,
      as COLOUR (the set as built: what the image engine follows), CLAY or DEPTH. Only the materials and the ground
@@ -17,15 +16,34 @@
        depth  every surface drawn by its distance from the camera: white at 0.4 m, black at the set's far end and
               beyond, on black. The far end is one number for the whole set (depthFar), so every camera of a place
               is drawn on the same scale. */
-  const CLAY={colour:0xe9e7e2,roughness:0.95,ground:0xd4d2cd,exposure:0.82},DEPTH={near:0.4,min:3,max:40,backdrop:80};
+  const CLAY={colour:0xe9e7e2,roughness:0.95,ground:0xd4d2cd,exposure:1},DEPTH={near:0.4,min:3,max:40,backdrop:80};
+  /* THE LIGHT SET-UP (step 2): the sky and ground of the hemisphere light and its strength; the three suns as
+     [degrees round from the place's own sun, degrees above the horizon, strength, shadow map]; the window spots
+     (colour, strength, how many at most) and the room points (colour, strength). The colours, the three suns and the
+     shapes of the lights are the reference's. Three strengths are higher than the reference's (its sky 0.8, room 1.3
+     to 2, window 5 to 7): a room here has one room light and often one window, and at the reference's strengths it
+     drew far darker than the drawing the image engine was following until now (tried side by side, 2026-11-23). */
+  const RIG={sky:0xd6dde3,ground:0x8f887b,hemisphere:2.0,sun:0xe9eef2,suns:[[20,84,1.5,2048],[0,45,1.0,4096],[169,46,1.0,4096]],
+    window:0xe4ebf0,windowPower:8,windows:8,room:0xe9e2d2,roomPower:6};
+  // how much of the daylight is left at each hour
+  const DIM={day:1,dusk:0.5,night:0.14};
+  // how strongly each kind of surface mirrors the small sky (set-surfaces.js names the kinds); every other kind: not at all
+  const SHEEN={metal:1.1,glass:1.6,gloss:0.5,tile:0.4};
   const LOOKS=["clay","depth"],lookOf=v=>LOOKS.includes(v)?v:"";
   // an object that stands in the set rather than being part of it: a person or a prop placed for a shot
   const standsIn=item=>/^(fig|prop)-/.test(String(item&&item.id||""));
   /* HOW FAR THE DARK END OF A DEPTH DRAWING IS: from the set's cameras to the farthest corner of the set, never under
      3 m or over 40 m. A backdrop (anything over 80 m in one direction: a sky, a far ground) is not part of it. With
      no camera, the set's own length. Plain numbers, the same on every draw. */
-  function depthFar(scene){
+  function depthFar(scene,span){
     let lo=null,hi=null;
+    /* THE CAMERA'S OWN SPACE (owner 2026-11-23: "go with your recommendation on depth"): a place is one set, and a
+       flat's set holds its terrace, so measured to the far end of the whole set a 4 m room used only the lightest
+       fifth of the range. span = the box of the space the cameras stand in (its outline, floor to ceiling): the far
+       end is measured to its farthest corner, still one number for every camera of that space. */
+    const box=span&&Array.isArray(span.min)&&Array.isArray(span.max)&&span.min.concat(span.max).every(n=>Number.isFinite(Number(n)))?span:null;
+    if(box){lo=box.min.map(Number);hi=box.max.map(Number);}
+    else
     ((scene&&scene.objects)||[]).forEach(item=>{
       if(!item||!Array.isArray(item.size)||!Array.isArray(item.position))return;
       const size=item.size.map(n=>Math.abs(Number(n)||0));
@@ -60,18 +78,24 @@
     if(look==="clay")light={...(light||{}),time:"day",sky:undefined,lamps:[],sun:light&&light.sun&&light.sun.power>0?light.sun:undefined};
     const time=light&&light.time||"day";
     three.background=new T.Color(look==="clay"?CLAY.ground:look==="depth"?0x000000:light&&light.sky||SKY[time]);
-    const S=!look&&opts&&opts.surfaces&&root.KinolotSetSurfaces||null;
+    const kit=root.KinolotSetSurfaces||null,S=!look&&opts&&opts.surfaces&&kit||null;
+    const place=(opts&&opts.place)||(light&&light.place)||null;
     const clay=look==="clay"?clayMaterial(T):null;if(clay)disposables.push(clay);
+    /* A SHEEN (step 2): a small sky, light above and dark below, that only metal, glass, gloss paint and tiles
+       mirror. It is what makes a pane read as glass and a tap as steel; a wall or a cloth mirrors nothing. */
     let dome=null;
+    if(!look&&kit&&opts&&opts.renderer)try{dome=kit.sky(T,opts.renderer,light&&light.sky||SKY[time]);disposables.push(dome);}catch(_){dome=null;}
+    // which object wears each material: the builder's plain "floor" and "wall" are told apart by it
+    const worn={};scene.objects.forEach(item=>{if(!worn[item.material])worn[item.material]=String(item.name||"");});
     if(S){
-      try{dome=S.sky(T,opts.renderer,light&&light.sky||SKY[time]);three.add(dome.dome);disposables.push(dome);}catch(_){dome=null;}
-      // which object wears each material: the builder's plain "floor" and "wall" are told apart by it
-      const worn={};scene.objects.forEach(item=>{if(!worn[item.material])worn[item.material]=String(item.name||"");});
+      if(dome)three.add(dome.dome);
       Object.entries(scene.materials).forEach(([id,m])=>{materials.set(id,S.material(T,id,m,worn[id]||"",dome&&dome.texture,disposables));});
     }else Object.entries(scene.materials).forEach(([id,m])=>{
       const colour=new T.Color(...m.baseColor);
       const material=new T.MeshStandardMaterial({color:colour,roughness:m.roughness==null?0.8:m.roughness,metalness:m.metallic||0,side:T.DoubleSide,
         emissive:colour,emissiveIntensity:m.emissionStrength?Math.min(2.5,m.emissionStrength*0.35):0});
+      const sheen=dome&&dome.texture&&kit?SHEEN[kit.kindOf(id,worn[id]||"")]||0:0;
+      if(sheen){material.envMap=dome.texture;material.envMapIntensity=sheen;}
       materials.set(id,material);disposables.push(material);
     });
     const box=new T.Box3();
@@ -93,28 +117,47 @@
     // shadows cover what the cameras stand in, not a far backdrop
     Object.values(scene.cameras).forEach(c=>box.expandByPoint(new T.Vector3(...c.position)));
     const centre=box.getCenter(new T.Vector3()),reach=Math.min(45,Math.max(8,box.getSize(new T.Vector3()).length()/2+14));
-    const fill=(light&&light.fill!=null?light.fill:1)*FILL[time];
-    three.add(new T.HemisphereLight(new T.Color(light&&light.sky||SKY[time]).lerp(new T.Color("#ffffff"),0.55),new T.Color("#5b554c"),fill*1.5));
-    three.add(new T.AmbientLight(0xffffff,fill*0.35));
-    const sun=light&&light.sun||{from:200,height:38,colour:"#fff4e0",power:1};
-    if(sun.power>0){
-      const az=sun.from*Math.PI/180,el=sun.height*Math.PI/180,key=new T.DirectionalLight(new T.Color(sun.colour),sun.power*(time==="night"?0.5:2.6));
+    /* SOFT LIGHT FROM THREE SIDES (owner 2026-11-23, the Previs look brief, step 2; it was one hard sun). One light
+       set-up for every camera of a place:
+         - the sky: a hemisphere light;
+         - three soft suns that all cast shadows: one from above (1.5) and two from opposite sides (1.0 each). The
+           first side light comes from where the place's own sun is, so its daylight still falls from that side;
+         - window light: a spot just inside each window or glazed door of a roofed room, aimed across the room;
+         - room fill: a point light under each ceiling (the builder's own room lights).
+       By day a lamp is drawn but gives no light; at dusk and at night the suns and the sky are turned down and the
+       lamps the dressing names are lit. The place's own fill (0 to 2) turns the sky up or down a little. */
+    const rig=RIG,dim=DIM[time],fill=Math.max(0.6,Math.min(1.4,light&&light.fill!=null?Number(light.fill)||1:1));
+    const skyTint=new T.Color(rig.sky).lerp(new T.Color(light&&light.sky||SKY[time]),time==="day"?0.25:0.7);
+    three.add(new T.HemisphereLight(skyTint,new T.Color(rig.ground),rig.hemisphere*dim*fill));
+    const own=light&&light.sun||null,from=(own&&Number.isFinite(Number(own.from))?Number(own.from):200)*Math.PI/180;
+    const sunColour=new T.Color(rig.sun).lerp(new T.Color(own&&own.colour||rig.sun),0.3);
+    rig.suns.forEach(u=>{
+      // u = [degrees round from the place's own sun, degrees above the horizon, strength, shadow map]
+      const az=from+u[0]*Math.PI/180,el=u[1]*Math.PI/180,key=new T.DirectionalLight(sunColour,u[2]*dim);
       key.position.copy(centre).add(new T.Vector3(Math.sin(az)*Math.cos(el),Math.cos(az)*Math.cos(el),Math.sin(el)).multiplyScalar(reach*2));
       key.target.position.copy(centre);three.add(key.target);
-      key.castShadow=true;key.shadow.mapSize.set(4096,4096);key.shadow.bias=-0.0004;key.shadow.normalBias=0.03;
+      key.castShadow=true;key.shadow.mapSize.set(u[3],u[3]);key.shadow.bias=-0.0005;key.shadow.normalBias=0.03;
       const cam=key.shadow.camera;cam.left=-reach;cam.right=reach;cam.top=reach;cam.bottom=-reach;cam.near=0.5;cam.far=reach*4.5;cam.updateProjectionMatrix();
       three.add(key);
-    }
-    // room lights the builder placed under each ceiling, then the lamps the dressing names
+    });
+    // window light, by day and at dusk: where the daylight comes into each room
+    if(time!=="night"&&T.SpotLight)((place&&place.windows)||[]).slice(0,rig.windows).forEach(w=>{
+      const spot=new T.SpotLight(new T.Color(rig.window),rig.windowPower*dim,14,1.4,1,1.25);
+      spot.position.set(...w.at);spot.target.position.set(...w.to);three.add(spot.target);
+      spot.castShadow=true;spot.shadow.mapSize.set(512,512);spot.shadow.bias=-0.002;spot.shadow.normalBias=0.02;
+      const cam=spot.shadow.camera;if(cam){cam.near=0.08;cam.far=12;}
+      three.add(spot);
+    });
+    // room fill: the lights the builder placed under each ceiling
     (scene.previewLights||[]).forEach(l=>{
-      const p=new T.PointLight(new T.Color(...l.colour),Math.max(6,Math.min(60,l.powerWatts/14))*(time==="night"?0.8:1),0,1.6);
+      const p=new T.PointLight(new T.Color(...l.colour).lerp(new T.Color(rig.room),0.5),rig.roomPower*(time==="night"?0.6:1),7,1.4);
       p.position.set(...l.position);three.add(p);
     });
     // by day a fitting is drawn but gives no light (the master view is daylight; the film's hours are variants)
     (time==="day"?[]:light&&light.lamps||[]).forEach(l=>{
       const p=new T.PointLight(new T.Color(l.colour),l.power*16,0,1.7);p.position.set(...l.at);three.add(p);
     });
-    const far=depthFar(scene);
+    const far=depthFar(scene,place&&place.span);
     if(look==="depth"){const depth=depthMaterial(T,far);disposables.push(depth);three.overrideMaterial=depth;}
     return {three,meshes,look,far,dispose:()=>disposables.forEach(d=>d.dispose())};
   }
@@ -203,7 +246,7 @@
     try{renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true,alpha:false});}
     catch(_){throw new Error("This browser could not start the 3D view. Turn on graphics acceleration and try again.");}
     // options.look: the sheet as clay or as depth (the Colour sheet, with no look, is what the image engine follows)
-    const rig=build(T,scene,light||null,{look:options.look});
+    const rig=build(T,scene,light||null,{look:options.look,renderer});
     try{
       renderer.setPixelRatio(1);renderer.setSize(w,h,false);renderer.outputColorSpace=T.SRGBColorSpace;
       renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=options.exposure||(rig.look==="clay"?CLAY.exposure:1);
@@ -321,7 +364,46 @@
       parts+=n;isos.push(where.family.length>1?card.id+":"+kept.iso:kept.iso);
       if(!light)light=kept.dressing.light;   // the place's own light first (it comes first), else the first room's
     });
-    return {scene:out,light,dressed:isos.length>0,parts,iso:isos.join("|")};
+    // (the place's own facts for the drawing ride with its light: where daylight comes in, and the card's own space)
+    const facts=placeFacts(location,list),known=facts.windows.length>0||!!facts.span;
+    return {scene:out,light:light||known?{...(light||{}),place:facts}:null,dressed:isos.length>0,parts,iso:isos.join("|")};
+  }
+  // the light as the dressing saved it (null when the set is not dressed), without the place's facts added for drawing
+  function lightAsSaved(light){
+    if(!light||typeof light!=="object")return null;
+    const own={};Object.keys(light).forEach(k=>{if(k!=="place")own[k]=light[k];});
+    return Object.keys(own).length?own:null;
+  }
+  /* WHAT THE DRAWING NEEDS TO KNOW OF THE PLACE, from its floor plan (never throws; an unknown is left out):
+       windows  [{at, to}] for each window or glazed opening of a roofed space: a point 35 cm inside the glass at
+                1.6 m, and the point 4 m across the room it is aimed at (the window light)
+       span     {min, max}: the box of this card's own space, floor to ceiling (3 m for open air): what a depth
+                drawing measures its far end in */
+  function placeFacts(location,list){
+    const out={windows:[],span:null};
+    try{
+      const st=root.locationSpatialPlanState(location,list),owner=st&&st.owner||location;
+      const plan=root.locationFloorPlanScene(owner,st&&st.plan,list),coords=((st&&st.plan&&st.plan.coordinates)||{}).spaces||[];
+      const inside=(pt,poly)=>{let hit=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];
+        if((a[1]>pt[1])!==(b[1]>pt[1])&&pt[0]<(b[0]-a[0])*(pt[1]-a[1])/((b[1]-a[1])||1e-9)+a[0])hit=!hit;}return hit;};
+      const roofed=id=>{const c=coords.find(x=>x&&x.id===id);return !!c&&!c.openSky;},heightOf=id=>{const c=coords.find(x=>x&&x.id===id);return c&&!c.openSky&&Number(c.ceilingH)>0?Number(c.ceilingH):3;};
+      (plan.openings||[]).forEach(o=>{
+        if(!o||o.outlier||!(o.kind==="window"||o.kind==="glass")||!Array.isArray(o.a)||!Array.isArray(o.b))return;
+        const space=(plan.spaces||[]).find(x=>x.id===o.spaceId);if(!space||!roofed(space.id))return;
+        const dx=o.b[0]-o.a[0],dy=o.b[1]-o.a[1],l=Math.hypot(dx,dy)||1,n=[-dy/l,dx/l],c=o.centre,z=Number(space.floorZ)||0;
+        // into the room: the side of the opening that is inside this space
+        const side=inside([c[0]+n[0]*0.4,c[1]+n[1]*0.4],space.footprint)?1:inside([c[0]-n[0]*0.4,c[1]-n[1]*0.4],space.footprint)?-1:0;
+        if(!side)return;
+        const r=v=>Math.round(v*100)/100;
+        out.windows.push({at:[r(c[0]+n[0]*side*0.35),r(c[1]+n[1]*side*0.35),r(z+1.6)],to:[r(c[0]+n[0]*side*4),r(c[1]+n[1]*side*4),r(z+0.7)]});
+      });
+      const me=(plan.spaces||[]).find(x=>x.id===location.id);
+      if(me&&me.footprint.length>=3){
+        const xs=me.footprint.map(q=>q[0]),ys=me.footprint.map(q=>q[1]),z=Number(me.floorZ)||0;
+        out.span={min:[Math.min(...xs),Math.min(...ys),z],max:[Math.max(...xs),Math.max(...ys),z+heightOf(me.id)]};
+      }
+    }catch(_){}
+    return out;
   }
   // What the place's dressing is now, as a short text: changes when any card of the place is dressed or undressed.
   function dressingSig(location,list){
@@ -492,7 +574,9 @@
     }
     const built=scene(location,list,t.at);
     const look=typeof root.locationSpecSig==="function"?String(root.locationSpecSig(location)):stylePrompt(location);
-    return {setKey:await C.hash(C.canonical({scene:built.scene,light:built.light||null})),lookKey:await C.hash(String(look))};
+    // (the place's facts that ride with the light are not part of what a draft was made from: a draft made before
+    //  they were added must still match)
+    return {setKey:await C.hash(C.canonical({scene:built.scene,light:lightAsSaved(built.light)})),lookKey:await C.hash(String(look))};
   }
   // The finished image of the place a room is part of, when there is one: {name, url, id}.
   function look(location){
@@ -710,5 +794,5 @@
       return result;
     });
   }
-  root.KinolotPrevis={PANELS,OUT_OF_DATE,LOOKS,CLAY,DEPTH,depthFar,specFromSet,sheet,viewer,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
+  root.KinolotPrevis={PANELS,OUT_OF_DATE,LOOKS,CLAY,DEPTH,RIG,depthFar,placeFacts,specFromSet,sheet,viewer,scene,dressingSig,overview,look,relightPrompt,variantSource,stylePrompt,panelText,settings,style,target,slot,assetOf,keys,drafts,render,cancel,use,discard,remove,restore,retrySave,discardUnsaved,pending};
 })(typeof window!=="undefined"?window:globalThis);

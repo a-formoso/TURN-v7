@@ -32,15 +32,15 @@ function harness(){
   class Scene extends Obj{ constructor(){ super(); this.background=null; this.overrideMaterial=null; this.fog=null; } }
   class Mesh extends Obj{ constructor(g,m){ super(); this.geometry=g; this.material=m; this.isMesh=true; } }
   class Light extends Obj{ constructor(colour,power){ super(); this.colour=colour; this.power=power; this.isLight=true; this.type=new.target.name; } }
-  class HemisphereLight extends Light{} class AmbientLight extends Light{} class DirectionalLight extends Light{} class PointLight extends Light{}
+  class HemisphereLight extends Light{ constructor(sky,ground,power){ super(sky,power); this.ground=ground; } } class AmbientLight extends Light{} class DirectionalLight extends Light{} class PointLight extends Light{} class SpotLight extends Light{}
   class Matrix4{ makeRotationZ(){ return this; } makeRotationY(){ return this; } makeRotationX(){ return this; } multiply(){ return this; } }
   class Box3{ expandByPoint(){ return this; } getCenter(v){ return v; } getSize(v){ return v; } }
   class WebGLRenderer{ constructor(){ this.shadowMap={}; this.domElement={}; this.toneMappingExposure=1; }
     setPixelRatio(){} setSize(){} getContext(){ return {isContextLost:()=>false}; } dispose(){} forceContextLoss(){}
     render(scene,camera){ drawn.push({override:scene.overrideMaterial,ground:scene.background,exposure:this.toneMappingExposure,camera,
       meshes:scene.children.filter(c=>c.isMesh).map(m=>({id:m.userData.id,material:m.material,own:!!m.userData.own})),
-      lights:scene.children.filter(c=>c.isLight).map(l=>l.type)}); } }
-  const T={Color,Vector3,MeshStandardMaterial,ShaderMaterial,Scene,Mesh,HemisphereLight,AmbientLight,DirectionalLight,PointLight,Matrix4,Box3,WebGLRenderer,DoubleSide:2,SRGBColorSpace:"srgb",ACESFilmicToneMapping:4,PCFSoftShadowMap:2};
+      lights:scene.children.filter(c=>c.isLight).map(l=>l.type),rig:scene.children.filter(c=>c.isLight).map(l=>({type:l.type,power:l.power,at:[l.position.x,l.position.y,l.position.z],to:[l.target.position.x,l.target.position.y,l.target.position.z]}))}); } }
+  const T={Color,Vector3,MeshStandardMaterial,ShaderMaterial,Scene,Mesh,HemisphereLight,AmbientLight,DirectionalLight,PointLight,SpotLight,Matrix4,Box3,WebGLRenderer,DoubleSide:2,SRGBColorSpace:"srgb",ACESFilmicToneMapping:4,PCFSoftShadowMap:2};
   const canvas=()=>({width:0,height:0,getContext:()=>({drawImage(){}}),toDataURL:()=>"data:image/png;base64,AAAA"});
   const box={console,document:{createElement:()=>canvas()}};box.window=box;vm.createContext(box);
   box.KinolotAnglePreview={load:async()=>T,geometry:(_,item)=>({of:item.id,dispose(){}}),cameraFor:(_,pose)=>({pose})};
@@ -53,7 +53,7 @@ function harness(){
       {id:"prop-keys",name:"Keys (prop stand-in)",kind:"box",material:"red",size:[0.1,0.1,0.05],position:[1,1.4,1],rotation:[0,0,0]}],
     cameras:{TL:{position:[0.5,0.5,1.5],yaw:45,pitch:0,lensMm:24},TR:{position:[3.5,0.5,1.5],yaw:315,pitch:0,lensMm:24},
       BL:{position:[0.5,2.5,1.5],yaw:135,pitch:0,lensMm:28},BR:{position:[3.5,2.5,1.5],yaw:225,pitch:0,lensMm:35}},previewLights:[]});
-  return {P:box.KinolotPrevis,drawn,canvas,scene,T};
+  return {P:box.KinolotPrevis,drawn,canvas,scene,T,box};
 }
 const idOf=m=>m.material&&m.material.color&&m.material.color.args;
 
@@ -93,11 +93,13 @@ await test("2 clay: one matt white for the set on a pale ground, in even dayligh
   assert.ok(!d.lights.includes("PointLight"),"lamps give no light by day");
   assert.equal(d.exposure,h.P.CLAY.exposure);
   view.dispose();
-  // the same set in colour, at night: its own materials, its night lamp, no sun
+  // the same set in colour, at night: its own materials, its night lamp lit, the daylight turned right down
   const colour=await h.P.viewer(h.scene(),night);
   colour.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
   const c=h.drawn[1];
-  assert.equal(new Set(c.meshes.map(m=>m.material)).size,4); assert.ok(!c.lights.includes("DirectionalLight")&&c.lights.includes("PointLight"));
+  assert.equal(new Set(c.meshes.map(m=>m.material)).size,4); assert.ok(c.lights.includes("PointLight"),"the lamp is lit at night");
+  const day=d.rig.filter(l=>l.type==="DirectionalLight").map(l=>l.power), dark=c.rig.filter(l=>l.type==="DirectionalLight").map(l=>l.power);
+  assert.deepEqual(day,[1.5,1,1]); assert.ok(dark.every((p,i)=>Math.abs(p-day[i]*0.14)<1e-9),"night keeps 14% of the daylight");
   assert.equal(c.exposure,1); assert.equal(colour.look,"");
 });
 
@@ -132,9 +134,9 @@ await test("4 the sheet and the viewer take the look; the Colour sheet, with no 
   h.drawn.length=0;
   const odd=await h.P.viewer(h.scene(),null,{look:"wireframe"}); odd.render(h.canvas(),{position:[0,0,1]},320,180);
   assert.equal(odd.look,""); assert.equal(h.drawn[0].override,null);
-  assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options.look});"));
+  assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options.look,renderer});"));
   assert.ok(previs.includes("const rig=build(T,scene,light||null,{look:options&&options.look,surfaces:!!(options&&options.surfaces),renderer});"));
-  assert.ok(previs.includes("const S=!look&&opts&&opts.surfaces&&root.KinolotSetSurfaces||null;"),"a look has no painted surfaces");
+  assert.ok(previs.includes("const kit=root.KinolotSetSurfaces||null,S=!look&&opts&&opts.surfaces&&kit||null;"),"a look has no painted surfaces");
 });
 
 await test("5 one 3D view draws a single frame in a look and is put back as it was (the location card)", async()=>{
@@ -192,11 +194,88 @@ await test("8 the switch on the location card: Colour, Clay, Depth, each look's 
 await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const shots=ai.slice(ai.indexOf('name:"Shots: the previs of a shot, and its camera on the floor plan"'));
   const fact=shots.slice(0,shots.indexOf("\n"));
-  for(const s of ["COLOUR, CLAY, DEPTH (2026-11-23)","Colour is the set as built, and the one a frame is made from","with the people and the props in their own colours","white at 40 cm, black at the far end of the set","A frame is always made from the Colour drawing"]) assert.ok(fact.includes(s),s);
+  for(const s of ["COLOUR, CLAY, DEPTH (2026-11-23)","Colour is the set as built, and the one a frame is made from","with the people and the props in their own colours","white at 40 cm, black at the far end of the space the shot plays in","lit softly from three sides","A frame is always made from the Colour drawing"]) assert.ok(fact.includes(s),s);
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
   assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+});
+
+/* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
+await test("10 soft light from three sides: a sky, three suns that cast shadows, a room light under each ceiling; one set-up for every camera", async()=>{
+  const h=harness(), room=h.scene(); room.previewLights=[{position:[2,1.5,2.3],colour:[1,0.9,0.8],powerWatts:200}];
+  const view=await h.P.viewer(room,{time:"day",sky:"#c8ccce",sun:{from:110,height:28,colour:"#f0e8d8",power:0.9},fill:1.3});
+  view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360); view.render(h.canvas(),{position:[3.5,2.5,1.5]},640,360);
+  const [a,b]=h.drawn, R=h.P.RIG;
+  assert.deepEqual(a.lights.slice().sort(),["DirectionalLight","DirectionalLight","DirectionalLight","HemisphereLight","PointLight"],"no single sun, no flat ambient");
+  assert.deepEqual(a.rig.filter(l=>l.type==="DirectionalLight").map(l=>l.power),[1.5,1,1],"one from above, two from the sides");
+  assert.equal(a.rig.find(l=>l.type==="HemisphereLight").power,R.hemisphere*1.3,"the place's own fill turns the sky up a little");
+  assert.equal(a.rig.find(l=>l.type==="PointLight").power,R.roomPower);
+  assert.deepEqual(JSON.parse(JSON.stringify(a.rig)),JSON.parse(JSON.stringify(b.rig)),"the same light for every camera of the place");
+  assert.equal(a.exposure,1); assert.equal(b.exposure,1);
+  // the three suns: the first side light comes from the place's own sun, the second from the far side, the third from above
+  assert.deepEqual(JSON.parse(JSON.stringify(R.suns)),[[20,84,1.5,2048],[0,45,1,4096],[169,46,1,4096]]);
+  assert.ok(previs.includes("const az=from+u[0]*Math.PI/180,el=u[1]*Math.PI/180,key=new T.DirectionalLight(sunColour,u[2]*dim);"));
+  assert.ok(previs.includes("key.castShadow=true;key.shadow.mapSize.set(u[3],u[3]);key.shadow.bias=-0.0005;key.shadow.normalBias=0.03;"));
+  // a place with a fill out of range is held between 0.6 and 1.4
+  h.drawn.length=0; const bright=await h.P.viewer(h.scene(),{fill:9}); bright.render(h.canvas(),{position:[0,0,1]},320,180);
+  assert.equal(h.drawn[0].rig.find(l=>l.type==="HemisphereLight").power,R.hemisphere*1.4);
+});
+
+await test("11 window light: a spot just inside each window or glazed opening of a roofed room, aimed across it; none at night", async()=>{
+  const h=harness(), place={windows:[{at:[2,0.35,1.6],to:[2,4,0.7]}],span:{min:[0,0,0],max:[4,3,2.4]}};
+  const view=await h.P.viewer(h.scene(),{time:"day",place});
+  view.render(h.canvas(),{position:[0.5,0.5,1.5]},640,360);
+  const spot=h.drawn[0].rig.filter(l=>l.type==="SpotLight");
+  assert.equal(spot.length,1); assert.equal(spot[0].power,h.P.RIG.windowPower); assert.deepEqual(spot[0].at,[2,0.35,1.6]); assert.deepEqual(spot[0].to,[2,4,0.7]);
+  h.drawn.length=0; const night=await h.P.viewer(h.scene(),{time:"night",place}); night.render(h.canvas(),{position:[0,0,1]},320,180);
+  assert.equal(h.drawn[0].rig.filter(l=>l.type==="SpotLight").length,0,"no daylight through a window at night");
+  // where they are: read from the floor plan
+  const flat={id:"flat",footprint:[[0,0],[4,0],[4,3],[0,3]],floorZ:0}, yard={id:"yard",footprint:[[-10,-9],[14,-9],[14,0],[-10,0]],floorZ:-0.15};
+  h.box.locationSpatialPlanState=()=>({owner:{id:"flat"},plan:{coordinates:{spaces:[{id:"flat",ceilingH:2.5},{id:"yard",openSky:true}]}}});
+  h.box.locationFloorPlanScene=()=>({spaces:[flat,yard],openings:[
+    {spaceId:"flat",kind:"window",centre:[2,0],a:[1.4,0],b:[2.6,0]},            // a window in the flat's south wall
+    {spaceId:"flat",kind:"door",centre:[0,1.5],a:[0,1],b:[0,2]},                // a door gives no window light
+    {spaceId:"yard",kind:"window",centre:[5,-9],a:[4,-9],b:[6,-9]},             // a neighbour's window on open ground
+    {spaceId:"flat",kind:"glass",centre:[4,1.5],a:[4,1],b:[4,2]}]});            // a glazed door in the east wall
+  const facts=JSON.parse(JSON.stringify(h.P.placeFacts({id:"flat"},[])));
+  assert.deepEqual(facts.windows,[{at:[2,0.35,1.6],to:[2,4,0.7]},{at:[3.65,1.5,1.6],to:[0,1.5,0.7]}],"35 cm inside the glass at 1.6 m, aimed 4 m across the room at 0.7 m");
+  assert.deepEqual(facts.span,{min:[0,0,0],max:[4,3,2.5]},"the card's own space, floor to ceiling");
+  assert.deepEqual(JSON.parse(JSON.stringify(h.P.placeFacts({id:"yard"},[]))).span,{min:[-10,-9,-0.15],max:[14,0,2.85]},"open air: 3 m");
+  // a place whose floor plan cannot be read: no facts, and nothing throws
+  h.box.locationSpatialPlanState=()=>{ throw new Error("no plan"); };
+  assert.deepEqual(JSON.parse(JSON.stringify(h.P.placeFacts({id:"flat"},[]))),{windows:[],span:null});
+});
+
+await test("12 depth is measured in the camera's own space: the same room is not washed out by the terrace outside it", async()=>{
+  const h=harness(), room=h.scene();
+  room.objects.push({id:"terrace-floor",name:"Terrace floor",kind:"box",material:"wall",size:[26,9,0.15],position:[1,-4.5,-0.2],rotation:[0,0,0]});
+  const whole=h.P.depthFar(room), own=h.P.depthFar(room,{min:[0,0,0],max:[4,3,2.4]});
+  assert.ok(whole>12,"to the far corner of the terrace: "+whole);
+  assert.equal(own,Math.round(Math.hypot(3.5,2.5,1.5)*100)/100,"to the far corner of the room itself");
+  const view=await h.P.viewer(room,{place:{windows:[],span:{min:[0,0,0],max:[4,3,2.4]}}},{look:"depth"});
+  assert.equal(view.far,own);
+  // still never under 3 m; a span that is not numbers is ignored
+  assert.equal(h.P.depthFar({objects:[],cameras:{TL:{position:[0.5,0.5,0.5]}}},{min:[0,0,0],max:[1,1,1]}),3); assert.equal(h.P.depthFar(room,{min:["a"],max:[]}),whole);
+  // the facts ride with the light, and are not part of what a saved draft was made from
+  assert.ok(previs.includes("return {scene:out,light:light||known?{...(light||{}),place:facts}:null,dressed:isos.length>0,parts,iso:isos.join(\"|\")};"),"a set with no light and no facts still has none");
+  assert.ok(previs.includes("setKey:await C.hash(C.canonical({scene:built.scene,light:lightAsSaved(built.light)}))"),"a draft made before step 2 still matches its set");
+  assert.ok(previs.includes('Object.keys(light).forEach(k=>{if(k!=="place")own[k]=light[k];});')&&previs.includes("return Object.keys(own).length?own:null;"));
+});
+
+await test("13 a sheen: only metal, glass, gloss paint and tiles mirror the small sky", async()=>{
+  const h=harness(), sky={texture:{sky:true},dome:{},dispose(){}};
+  h.box.KinolotSetSurfaces={sky:()=>sky,kindOf:id=>({steel:"metal",pane:"glass",door:"gloss",lino:"tile",wall:"paint",rug:"carpet"})[id]||"plain"};
+  const room=h.scene(); room.materials={steel:{baseColor:[0.3,0.3,0.3],roughness:0.3,metallic:0.8},pane:{baseColor:[0.02,0.03,0.04],roughness:0.1},door:{baseColor:[0.8,0.8,0.7]},lino:{baseColor:[0.4,0.3,0.2]},wall:{baseColor:[0.7,0.6,0.5]},rug:{baseColor:[0.2,0.1,0.1]}};
+  room.objects=Object.keys(room.materials).map((m,i)=>({id:"o"+i,name:m,kind:"box",material:m,size:[1,1,1],position:[i,0,0.5],rotation:[0,0,0]}));
+  const view=await h.P.viewer(room,null); view.render(h.canvas(),{position:[0,-3,1.5]},640,360);
+  const by={}; h.drawn[0].meshes.forEach((m,i)=>{ by[Object.keys(room.materials)[i]]=m.material; });
+  assert.deepEqual(Object.keys(by).map(k=>[k,by[k].envMap?by[k].envMapIntensity:0]),[["steel",1.1],["pane",1.6],["door",0.5],["lino",0.4],["wall",0],["rug",0]]);
+  // clay and depth mirror nothing; and with no sky to mirror (the kit is not there) the set is drawn as before
+  h.drawn.length=0; const clay=await h.P.viewer(room,null,{look:"clay"}); clay.render(h.canvas(),{position:[0,-3,1.5]},640,360);
+  assert.ok(h.drawn[0].meshes.every(m=>!m.material.envMap));
+  const bare=harness(); const v=await bare.P.viewer(bare.scene(),null); v.render(bare.canvas(),{position:[0,0,1]},320,180);
+  assert.ok(bare.drawn[0].meshes.every(m=>!m.material.envMap));
 });
 
 console.log(pass+" passed, "+fail+" failed");
