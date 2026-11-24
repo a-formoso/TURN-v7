@@ -390,7 +390,7 @@
           ?text(root.shotCameraSettingsClause(u.sh)).replace(/^Advanced camera settings\s*—\s*/i,""):"");
       /* THE SHOT'S LAYOUT (owner 2026-11-24, the Previs look brief, step 6: "The prompt says, for each shot, which
          reference is its layout and which figure is which person"): when this shot's clay drawing is among the
-         references, its line names it, says who each figure is and what each red box is, and gives the camera the
+         references, its line names it, says who each figure is and what each red shape is, and gives the camera the
          drawing was made through. One lens is said, never two: the layout's own, when the card wrote another. */
       const layout=assets.find(a=>a&&a.kind==="image"&&a.key==="previs-layout:"+u.sh.id);
       const layoutLens=layout&&Number(layout.layoutLensMm)>0?Number(layout.layoutLensMm):0;

@@ -2827,7 +2827,7 @@ function buildShotPrompt(sh, ctx){
       +(_legend.length ? "ITS STAND-INS: "+_legend.join(" ")+" " : "")
       +"The pale panel on a figure's head is its face: the person looks that way. "
       +"Draw each person as themselves from their character sheet, a real body in a natural pose for this moment, on the same spot, as tall in the frame as their block and facing the same way. "
-      +"Draw each thing a red box stands for from its prop sheet, where the box is and the same size in the frame as the box. "
+      +"Draw each thing a red shape stands for from its prop sheet, where the shape is, turned as the shape is, and exactly as large in the frame as the shape: each red shape is that thing built at its true size, so never draw the thing larger or smaller than its shape. "
       +"ADD NOTHING BUILT: no door, doorway, window, wall, step, furniture or fixture that Image 1 does not show, and none moved, widened, narrowed or removed; "
       +"a door shut in Image 1 is shut, an open one is open at that same angle; the room is as wide and as deep as Image 1 draws it. "
       +"No person and no object that Image 1 does not show. "

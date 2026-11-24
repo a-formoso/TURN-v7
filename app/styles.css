@@ -12922,3 +12922,19 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
   .sbc-beat{position:static}
   .sbc-open{max-width:none}
 }
+
+/* PROPS IN CODE (2026-11-24): the "Model in code" fold of a prop card — the prop built from parts at its true size,
+   drawn three ways beside a ruler, with its shape and its three numbers. */
+.prop-model{display:flex;flex-direction:column;gap:8px}
+.prop-model-line{margin:0;font-size:11.5px;line-height:1.45;color:var(--txt-1)}
+.prop-model-pics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.prop-model-pics > figure:first-child{grid-column:1/-1}
+.prop-model-wait{display:flex;align-items:center;justify-content:center;aspect-ratio:16/9;border:1px dashed var(--line-2);border-radius:var(--r-m);font-size:11px;color:var(--txt-3)}
+.prop-model-ruler{margin:0;font-size:11px;color:var(--txt-3)}
+.prop-model-set{display:flex;flex-direction:column;gap:8px}
+.prop-model-cm{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.prop-model-cm label{display:flex;flex-direction:column;gap:3px;min-width:0}
+.prop-model-cm label span{font:400 9px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--txt-3)}
+.prop-model-num{width:100%;box-sizing:border-box;height:30px;padding:0 8px;background:var(--bg-2);border:1px solid var(--line-3);border-radius:var(--r-m);color:var(--txt-1);font-size:12.5px}
+.prop-model-num:focus{outline:none;border-color:var(--win-amber,#F29A43)}
+.prop-model-back{align-self:flex-start}

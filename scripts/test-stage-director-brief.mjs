@@ -889,7 +889,7 @@ ok("a named grammar in native performance lists the spoken language lines",
   const layoutOf=(sh,n,tag,more)=>({tag,kind:"image",key:"previs-layout:"+sh.id,label:"Layout \u00b7 shot "+n,layoutShot:n,requiredByShots:[sh.id],
     assetRole:"derived_reference",assetSourceQuality:"previs_clay_layout",...more});
   const withLayouts={...refs,assets:refs.assets.concat([
-    layoutOf(shotOpening,1,"@Image11",{layoutLegend:["The green figure is Mara (standing).","The red box on the desk is the Sealed Letter."],
+    layoutOf(shotOpening,1,"@Image11",{layoutLegend:["The green figure is Mara (standing).","The red shape on the desk is the Sealed Letter."],
       layoutCamera:"stands 2.1 m from what it frames, 1.5 m high, 24 mm lens",layoutLensMm:24,layoutSource:"hand"}),
     layoutOf(shotPart,2,"@Image12",{layoutLegend:["The green figure is Mara (standing)."],
       layoutCamera:"stands 0.9 m from what it frames, 1.6 m high, 85 mm lens",layoutLensMm:85,layoutSource:"plan"})])};
@@ -899,7 +899,7 @@ ok("a named grammar in native performance lists the spoken language lines",
   const cut=(text,n)=>{const a=text.indexOf("CUT "+n+" "),b=text.indexOf("CUT "+(n+1)+" ",a+1);return a<0?"":text.slice(a,b<0?text.indexOf("\n\n",a):b);};
   const c1=cut(two,1),c2=cut(two,2);
   ok("each shot's line names its own layout and says who each figure is",
-    c1.includes("Layout: @Image11 is this shot as it starts. The green figure is Mara (standing). The red box on the desk is the Sealed Letter.")
+    c1.includes("Layout: @Image11 is this shot as it starts. The green figure is Mara (standing). The red shape on the desk is the Sealed Letter.")
     &&c2.includes("Layout: @Image12 is this shot as it starts. The green figure is Mara (standing).")&&!c1.includes("@Image12")&&!c2.includes("@Image11"),c1+"\n---\n"+c2);
   ok("each shot's line gives the camera its layout was drawn through, and says when the angle was set by hand",
     c1.includes("Camera in the set (as the layout was drawn): stands 2.1 m from what it frames, 1.5 m high, 24 mm lens; an angle set by hand.")
@@ -912,9 +912,9 @@ ok("a named grammar in native performance lists the spoken language lines",
   ok("the references say what a layout is and which shot it belongs to, in shot order",
     active.includes("@Image11 is the layout of shot 1, drawn in code from the set\u2019s own 3D model through that shot\u2019s camera, as the shot starts.")
     &&active.includes("Assigned to Shot 1.")&&active.includes("@Image12 is the layout of shot 2")&&active.indexOf("@Image11")<active.indexOf("@Image12"),active.slice(0,900));
-  ok("a layout only marks position: its white set, figures and red boxes are never shown",
-    active.includes("each person is a jointed figure in one colour and each prop is a red box: they only mark position")
-    &&active.includes("never show the white set, the figures, the red boxes or the layout itself")
+  ok("a layout only marks position: its white set, figures and red shapes are never shown",
+    active.includes("each person is a jointed figure in one colour and each prop is a red shape of its true size: they only mark position and size")
+    &&active.includes("never show the white set, the figures, the red shapes or the layout itself")
     &&active.includes("Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 from the other references and this text"));
   ok("with no layout among the references the brief is exactly as it was",!plain.includes("Layout:")&&!plain.includes("Camera in the set")&&cut(plain,1).includes("35mm"));
   // a layout left out of the render (not among the references) is not named; the other still is

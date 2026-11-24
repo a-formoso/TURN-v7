@@ -1,0 +1,200 @@
+/* PROPS IN CODE (owner 2026-11-22: "the props need to be represented in code first ... take the code version of that
+   prop and have it locked in frame"; 2026-11-24: "let's build props in code so we can have them referenced in code so
+   that image previs captures the exact size and this is ultimately translated by image models into shots").
+   app/prop-model.js builds a prop as a model: its true size and its shape from parts. app/shot-previs.js puts that
+   model in every shot's drawing and says its size; the frame's prompt and its QA check hold the frame to it;
+   app/prop-model-ui.jsx shows the model on the prop's card. No engine is called by any of it. */
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import vm from "node:vm";
+
+const read=p=>readFileSync(new URL("../"+p,import.meta.url),"utf8");
+const src=read("app/prop-model.js"), previs=read("app/shot-previs.js"), ui=read("app/prop-model-ui.jsx"), props=read("app/props.jsx"),
+  shots=read("app/shots.jsx"), ai=read("app/ai.jsx"), html=read("TURN.html"), css=read("app/styles.css"), previsUi=read("app/shot-previs-ui.jsx"), stage=read("app/stage.jsx");
+const box={console}; box.window=box; box.globalThis=box; vm.createContext(box);
+for(const f of ["app/scene-plan.js","app/prop-model.js","app/shot-previs.js"]) vm.runInContext(read(f),box,{filename:f});
+const M=box.KinolotPropModel, V=box.ShotPrevis;
+const plain=v=>JSON.parse(JSON.stringify(v));
+let pass=0,fail=0;
+const test=(name,fn)=>{ try{ fn(); pass++; console.log("PASS "+name); }catch(e){ fail++; console.log("FAIL "+name+"\n    "+String(e&&e.message||e).split("\n")[0]); } };
+const near=(a,b,eps=1e-3)=>Math.abs(a-b)<=eps;
+
+// the owner's own film: the cards of Scene 5, as their size texts are written
+const FILM=[
+  ["Rinsed rice Tupperware","Base ~17 cm long × ~12 cm wide × ~7 cm deep (~1 L). Lid ~18 cm long × ~13 cm wide × ~1 cm thick.","tub",[0.17,0.12,0.07]],
+  ["Pike’s warrant card","Closed: ~11 cm wide × ~7.5 cm tall × ~1 cm deep. Open: ~22 cm wide × ~7.5 cm tall. ID card: ~8.6 cm wide × ~5.4 cm tall.","badge",[0.11,0.075,0.01]],
+  ["Mug of tea","Mug body ~9.5 cm tall × ~8 cm diameter. Handle projects ~3.5 cm, giving ~11.5 cm overall width.","mug",[0.1122,0.08,0.095]],
+  ["Clear evidence bag","Bag ~15 cm wide × ~23 cm tall, flat, under 1 mm thick. Seal flap ~3 cm deep across the full width.","pouch",[0.15,0.23,0.02]],
+  ["Eshita’s phone","Phone ~16.2 cm tall × ~7.6 cm wide × ~0.9 cm deep. In its case, ~16.6 cm tall × ~8.0 cm wide × ~1.2 cm deep.","phone",[0.076,0.162,0.009]],
+  ["Threaded needle","Needle ~3.8 cm long × ~0.7 mm diameter, eye ~1.5 mm long. Thread strand ~60 cm long.","needle",[0.038,0.0007,0.0007]]];
+
+test("1 the numbers of a size text: the first measured run is the thing itself, each number with its unit and its word", ()=>{
+  assert.deepEqual(plain(M.numbers("20 x 14 x 8 cm")),[{v:0.2,label:""},{v:0.14,label:""},{v:0.08,label:""}]);
+  assert.deepEqual(plain(M.numbers(FILM[0][1])),[{v:0.17,label:"long"},{v:0.12,label:"wide"},{v:0.07,label:"deep"}],"the base, not the lid");
+  assert.deepEqual(plain(M.numbers("Mug body ~9,5 cm tall × ~8 cm diameter")),[{v:0.095,label:"tall"},{v:0.08,label:"dia"}],"a comma for a point");
+  assert.deepEqual(plain(M.numbers("~1.2 m tall × 60 cm wide by 45 cm deep")),[{v:1.2,label:"tall"},{v:0.6,label:"wide"},{v:0.45,label:"deep"}],"mixed units");
+  assert.deepEqual(plain(M.numbers("about 12 cm")),[{v:0.12,label:""}]);
+  assert.deepEqual(plain(M.numbers("3.8 cm long × 0.7 mm diameter")),[{v:0.038,label:"long"},{v:0.0007,label:"dia"}]);
+  assert.equal(near(M.numbers("6 inches long")[0].v,0.1524),true);
+  for(const none of ["","a sharp no. 7 type","holds 1 L, about 300 ml","hangs from her shoulder to mid-thigh"]) assert.equal(M.numbers(none),null,none);
+});
+
+test("2 which shape a prop is: the words its name ends with, once what follows a 'with' or an 'of' is cut", ()=>{
+  const is=(name,form,text)=>assert.equal(M.formOf(name,text),form,name);
+  is("Rinsed rice Tupperware","tub"); is("Pike’s warrant card","badge"); is("Cab keys with Crystal Palace fob","keys"); is("Mug of tea","mug");
+  is("Clear evidence bag","pouch"); is("Eshita’s phone","phone"); is("Threaded needle","needle"); is("Bottle of milk","bottle");
+  is("Box of matches","matchbox"); is("Framed photograph of Amira","frame"); is("Liaqat’s lace-up shoes","shoes"); is("Bank card","card");
+  is("Sealed Letter","sheet"); is("Old suitcase (brown)","suitcase"); is("Gym bag","holdall"); is("Handbag","handbag"); is("Kitchen knife","knife");
+  // a word the catalogue knows in the middle of a name is not its shape: a phone charger is no phone
+  is("Phone charger",""); is("Key hook",""); is("Table lamp",""); is("",""); is("The thing","");
+  // when the name tells nothing, the first clause of the card's form text is read the same way
+  is("Lunch","tub","A rectangular takeaway-style food box with rounded corners. Its lid is blue.");
+  is("Lunch","","A modest bunch on one split ring: a black plastic car key.");
+  // every shape: a usual size in metres, parts that are numbers, and words a name can end with
+  assert.ok(M.FORMS.length>=70);
+  const ids=new Set();
+  for(const f of M.FORMS){
+    assert.ok(!ids.has(f.id),f.id+" once"); ids.add(f.id);
+    assert.ok(/^an? |^[a-z]/.test(f.label)&&f.size.length===3&&f.size.every(n=>n>0&&n<3),f.id);
+    const parts=f.make(...f.size); assert.ok(parts.length>=1&&parts.length<=12,f.id+" parts");
+    for(const p of parts){ assert.ok(["box","cylinder","torus","cushion","sphere"].includes(p[0]),f.id+" kind "+p[0]);
+      assert.ok(p[1].length===3&&p[1].every(n=>Number.isFinite(n)&&n>0),f.id+" size"); assert.ok(p[2].length===3&&p[2].every(Number.isFinite),f.id+" place");
+      assert.ok(["main","second","dark","light"].includes(p[3]),f.id+" material");
+      // every part stays inside the thing's own box (a hand's breadth of slack for a handle that arcs or a part that leans)
+      assert.ok(Math.abs(p[2][0])<=f.size[0]*0.75+0.01&&Math.abs(p[2][1])<=f.size[1]*0.75+0.01&&p[2][2]>=-0.001&&p[2][2]<=f.size[2]*1.15+0.002,f.id+" inside"); }
+  }
+  assert.equal(M.forms().length,M.FORMS.length); assert.ok(M.forms().every(f=>f.id&&f.label));
+});
+
+test("3 the model of a prop: the card's numbers, then its size text given to the shape's own proportions, then the usual size", ()=>{
+  for(const [name,size,form,dims] of FILM){ const m=M.modelOf({name,size});
+    assert.equal(m.form,form,name); assert.equal(m.basis,"text",name); dims.forEach((n,i)=>assert.ok(near(m.dims[i],n,2e-4),name+" "+m.dims)); }
+  // a phone is written "tall": it rests flat; a tub is written "deep": that is its height. The shape decides, not the word.
+  assert.deepEqual(plain(M.modelOf({name:"Eshita’s phone",size:FILM[4][1]}).dims),[0.076,0.162,0.009]);
+  // a bunch of keys: its size text measures its pieces (the remote's head, the ring), never the bunch
+  const keys=M.modelOf({name:"Cab keys with Crystal Palace fob",size:"Remote head ~5.5 cm long × ~3 cm wide × ~1.5 cm deep, blade ~4 cm; split ring ~2.5 cm dia"});
+  assert.equal(keys.basis,"usual"); assert.deepEqual(plain(keys.dims),[0.11,0.06,0.014]); assert.equal(keys.parts.length,5);
+  // three numbers set on the card are exact and win over everything
+  const set=M.modelOf({name:"Mug of tea",size:FILM[2][1],dims:[0.12,0.09,0.1]}); assert.equal(set.basis,"set"); assert.deepEqual(plain(set.dims),[0.12,0.09,0.1]);
+  // a shape picked by hand
+  assert.equal(M.modelOf({name:"Lunch",modelForm:"tub"}).form,"tub");
+  // no numbers: the usual size of such a thing; no shape either: a small box, and it says it is a guess
+  const milk=M.modelOf({name:"Bottle of milk"}); assert.equal(milk.basis,"usual"); assert.deepEqual(plain(milk.dims),[0.075,0.075,0.26]);
+  const what=M.modelOf({name:"Phone charger"}); assert.equal(what.basis,"guess"); assert.equal(what.form,""); assert.deepEqual(plain(what.dims),[0.15,0.1,0.1]); assert.equal(what.parts.length,1);
+  // numbers on a thing of no known shape: a box by its words
+  assert.deepEqual(plain(M.modelOf({name:"Odd device",size:"~30 cm wide × ~12 cm tall × ~8 cm deep"}).dims),[0.3,0.08,0.12]);
+  // the scene plan's tracked thing with no card is read from its name
+  assert.equal(M.modelOf(null,{name:"Kitchen knife"}).form,"knife");
+  // one number, two numbers: the shape keeps its proportions
+  const pen=M.modelOf({name:"Pen",size:"15 cm long"}); assert.ok(near(pen.dims[0],0.15)&&near(pen.dims[1],0.0118,3e-4));
+  const plate=M.modelOf({name:"Dinner plate",size:"27 cm × 3 cm"}); assert.deepEqual(plain(plate.dims),[0.27,0.27,0.03]);
+  const bottle=M.modelOf({name:"Wine bottle",size:"30 cm tall × 8 cm"}); assert.deepEqual(plain(bottle.dims),[0.08,0.08,0.3]);
+  assert.equal(M.sizeWords([0.17,0.12,0.07]),"17 × 12 × 7 cm"); assert.equal(M.sizeWords([0.076,0.162,0.009]),"16 × 7.6 × 0.9 cm"); assert.equal(M.sizeWords([0.0173,0.0173,0.0041]),"17 × 17 × 4.1 mm");
+});
+
+test("4 a model put in a scene: every part in the box it fills, turned with it; hanging = long and flat to the wall", ()=>{
+  const m=M.modelOf({name:"Rinsed rice Tupperware",size:FILM[0][1]});
+  const put=M.place(m,{id:"prop-rice",name:"Rinsed rice Tupperware (prop stand-in)",centre:[2,3,1.035],rz:Math.PI/2});
+  assert.deepEqual(plain(put.size),[0.17,0.12,0.07]); assert.equal(put.objects.length,2);
+  assert.deepEqual(plain(put.objects.map(o=>o.id)),["prop-rice-1","prop-rice-2"]); assert.ok(put.objects.every(o=>o.name==="Rinsed rice Tupperware (prop stand-in)"));
+  assert.deepEqual(plain(put.objects.map(o=>o.material)),["prop-standin","prop-standin-2"]);
+  // the lid sits on the body, at the top of the box: 1.035 + 0.035 - half its own height
+  const lid=put.objects[1]; assert.ok(near(lid.position[0],2)&&near(lid.position[1],3)&&near(lid.position[2],1.035+0.035-0.0056,1e-3));
+  assert.ok(near(lid.rotation[2],Math.PI/2)&&near(lid.rotation[0],0)&&near(lid.rotation[1],0),"turned a quarter with the thing");
+  // hanging: the longest side down the wall, the thinnest out from it
+  const keys=M.modelOf({name:"Cab keys"}), h=M.place(keys,{id:"prop-keys",name:"Cab keys (prop stand-in)",centre:[1,2,1.2],rz:0,hang:true});
+  assert.deepEqual(plain(h.size),[0.06,0.014,0.11]);
+  for(const o of h.objects){ assert.ok(Math.abs(o.position[1]-2)<=0.014/2+1e-3,"flat to the wall "+o.position); assert.ok(Math.abs(o.position[2]-1.2)<=0.11/2+1e-3); assert.ok(o.rotation.every(Number.isFinite)); }
+  // the three turns made from a rotation give the rotation back (the renderer applies x, then y, then z)
+  const R=(x,y,z)=>{ const cx=Math.cos(x),sx=Math.sin(x),cy=Math.cos(y),sy=Math.sin(y),cz=Math.cos(z),sz=Math.sin(z);
+    return [[cz*cy,cz*sy*sx-sz*cx,cz*sy*cx+sz*sx],[sz*cy,sz*sy*sx+cz*cx,sz*sy*cx-cz*sx],[-sy,cy*sx,cy*cx]]; };
+  for(const t of [[0.3,-0.7,1.9],[Math.PI/2,0,0.4],[0,Math.PI/2,0.5],[1.1,-Math.PI/2,0],[0,0,0]]){ const A=R(...t), B=R(...M.turnsFrom(A));
+    A.forEach((row,i)=>row.forEach((n,j)=>assert.ok(near(n,B[i][j],1e-6),"turns "+t))); }
+});
+
+// a small set: one room, a table, a row of hooks; one person holding a mug, a tub on the table, keys on the hook
+const SET={objects:[{id:"anchor-table",name:"Kitchen table",anchorId:"table",kind:"box",position:[2,2,0.375],rotation:[0,0,0],size:[1.2,0.8,0.75],material:"wood"},
+  {id:"anchor-hooks",name:"Row of key hooks",anchorId:"hooks",kind:"box",position:[0.03,2,1.5],rotation:[0,0,0],size:[0.04,0.3,0.06],material:"wood"}],
+  materials:{wood:{baseColor:[0.5,0.4,0.3],metallic:0,roughness:0.7,emissionStrength:0}},cameras:{}};
+const PLAN={marks:[{id:"m1",name:"by the table",xy:[2,1]}],fixed:[{id:"table",name:"Kitchen table"},{id:"hooks",name:"Row of key hooks"}],
+  things:[{key:"tea",name:"Mug of tea",kind:"prop",propId:"p-mug"},{key:"rice",name:"Rinsed rice Tupperware",kind:"prop",propId:"p-rice"},{key:"keys",name:"Cab keys",kind:"prop"},{key:"gizmo",name:"Phone charger",kind:"prop"}]};
+const STATE={people:{ann:{where:"m1",pose:"standing",holding:["tea"]}},things:{rice:{at:"table"},keys:{at:"hooks",state:"hanging"},gizmo:{at:"table"}},doors:[]};
+const CTX={cast:[{id:"ann",name:"Ann Lee",height:"165 cm"}],props:[{id:"p-mug",name:"Mug of tea",size:FILM[2][1]},{id:"p-rice",name:"Rinsed rice Tupperware",size:FILM[0][1]}],
+  spaces:[{id:"s1",name:"Kitchen",footprint:[[0,0],[4,0],[4,4],[0,4]],floorZ:0}],plan:PLAN,beat:1};
+
+test("5 a shot's drawing puts each prop's model in the set at its true size, and says the size", ()=>{
+  const got=V.stateScene(SET,PLAN,STATE,CTX), by=k=>got.things.find(t=>t.key===k), parts=k=>got.scene.objects.filter(o=>String(o.id).indexOf("prop-"+k+"-")===0);
+  assert.deepEqual(plain(by("rice").size),[0.17,0.12,0.07]); assert.equal(by("rice").form,"tub"); assert.equal(by("rice").basis,"text"); assert.equal(by("rice").measured,true);
+  assert.equal(parts("rice").length,2,"a body and a lid, not one box"); assert.ok(near(by("rice").at[2],0.75),"on the table top");
+  assert.ok(parts("rice").every(o=>o.position[2]>0.75&&o.position[2]<0.75+0.07+1e-3&&/\(prop stand-in\)$/.test(o.name)&&/^prop-standin/.test(o.material)));
+  assert.equal(by("tea").form,"mug"); assert.equal(parts("tea").length,3); assert.equal(by("tea").held,"ann");
+  assert.equal(by("keys").basis,"usual"); assert.equal(by("keys").hung,true); assert.deepEqual(plain(by("keys").size),[0.06,0.014,0.11]); assert.equal(by("keys").measured,true,"the usual size of a bunch of keys is no guess");
+  assert.equal(by("gizmo").basis,"guess"); assert.equal(by("gizmo").measured,false); assert.equal(parts("gizmo").length,1);
+  for(const m of ["prop-standin","prop-standin-2","prop-standin-3","prop-standin-4"]){ const c=got.scene.materials[m].baseColor; assert.ok(c[0]>c[1]*2&&c[0]>c[2]*2,m+" is a red"); }
+  // nothing of the set itself is changed, and the checks that read it never count a prop
+  assert.equal(got.base.objects.length,SET.objects.length);
+  assert.ok(previs.includes('/^(fig|prop)-/.test(String(o.id||""))'),"a prop is never a wall to a camera");
+  const lines=plain(V.legend(got.people,got.things));
+  assert.ok(lines.includes("The red shape in Ann Lee’s hands is the Mug of tea, drawn at its true size (11 × 9.5 × 8 cm)."),lines.join(" | "));
+  assert.ok(lines.includes("The red shape on the kitchen table is the Rinsed rice Tupperware, drawn at its true size (17 × 12 × 7 cm)."));
+  assert.ok(lines.includes("The red shape hanging from the row of key hooks is the Cab keys, drawn at the usual size of such a thing (11 × 6 × 1.4 cm)."));
+  assert.ok(lines.includes("The red shape on the kitchen table is the Phone charger."),"a guessed size is not said");
+  // a size handed in for one drawing is a plain box of that size, as before
+  const forced=V.stateScene(SET,PLAN,STATE,{...CTX,sizeFor:k=>k==="rice"?[0.3,0.2,0.1]:null});
+  assert.deepEqual(plain(forced.things.find(t=>t.key==="rice").size),[0.3,0.2,0.1]); assert.equal(forced.scene.objects.filter(o=>o.id==="prop-rice").length,1);
+});
+
+test("6 the frame is held to the model: its prompt, its QA check, the Stage's layout, what a drawing is drawn from", ()=>{
+  assert.ok(shots.includes("Draw each thing a red shape stands for from its prop sheet, where the shape is, turned as the shape is, and exactly as large in the frame as the shape: each red shape is that thing built at its true size, so never draw the thing larger or smaller than its shape. "));
+  assert.ok(ai.includes("(d) each object a red shape stands for is where the shape is and about the same size in the frame as the shape: the shape is that object built at its true size (a clear difference, half as big again or more, or two thirds or less, is a size error). "));
+  assert.ok(stage.includes("each prop is a red shape of its true size: they only mark position and size."));
+  assert.ok(previsUi.includes('props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x"),p.name||"",p.detail||"",p.form||"",p.modelForm||""])'),"a changed card redraws the shot");
+  for(const f of [previs,shots,stage,previsUi]) assert.ok(!/red box/i.test(f));
+});
+
+test("7 the prop card: the fold 'Model in code', three drawings beside a ruler, the shape and the three numbers", ()=>{
+  const st=M.stage(M.modelOf({name:"Mug of tea",size:FILM[2][1]}));
+  assert.equal(st.tick,0.01,"a small thing: a ruler in centimetres"); assert.equal(M.stage(M.modelOf({name:"Old suitcase"})).tick,0.1);
+  assert.ok(st.scene.objects.some(o=>o.id==="model-floor")&&st.scene.objects.filter(o=>/^model-ruler-/.test(o.id)).length===12&&st.scene.objects.filter(o=>/^prop-model-/.test(o.id)).length===3);
+  for(const o of st.scene.objects){ assert.ok(st.scene.materials[o.material],o.material); assert.ok(o.size.every(n=>n>0)&&o.position.every(Number.isFinite)&&o.rotation.every(Number.isFinite)); }
+  assert.deepEqual(plain(Object.keys(st.poses)),["front","side","quarter"]);
+  assert.ok(ui.includes('const PROP_MODEL_VIEWS = [["quarter","Three-quarter"],["front","Front"],["side","Side"]];'),"three-quarter first: it is shown large");
+  // a flat thing is not drawn from far away: the camera stands as near as holds it (a card wallet 11 cm wide: under half a metre)
+  const flat=M.stage(M.modelOf({name:"Pike\u2019s warrant card",size:FILM[1][1]})); assert.ok(Math.hypot(...flat.poses.front.position)<0.5&&Math.hypot(...flat.poses.front.position)>0.2,String(flat.poses.front.position));
+  for(const k of Object.keys(st.poses)){ const p=st.poses[k]; assert.ok(p.position.length===3&&p.position[2]>0&&p.lensMm===70&&Math.abs(p.pitch)<89,k);
+    // the camera looks at the middle of the thing, from far enough to hold all of it
+    const a=p.yaw*Math.PI/180, b=p.pitch*Math.PI/180, look=[Math.sin(a)*Math.cos(b),Math.cos(a)*Math.cos(b),Math.sin(b)], d=Math.hypot(p.position[0],p.position[1]);
+    assert.ok(d>0.1&&near(p.position[0]/d,-look[0]/Math.hypot(look[0],look[1]),0.02),k+" faces the thing"); }
+  assert.ok(st.poses.front.position[1]>0,"the front camera stands on the thing's front side");
+  // the card
+  assert.ok(props.includes('window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView }),'));
+  // inside "The object", under the Physical design it is read from: the card keeps its three rows (The object, Continuity, Advanced)
+  const obj_=props.slice(props.indexOf('React.createElement(window.CardGroup,{label:"The object"'),props.indexOf('React.createElement(CardFold,{label:"Continuity \\u00b7 story events"'));
+  assert.ok(obj_.indexOf("window.PropModelFold &&")>obj_.indexOf('label:"Physical dimensions"')&&/window\.PropModelFold,\{ p, onUpdate, onView \}\),\n\n      \),\n\s*$/.test(obj_),"the last thing in The object");
+  for(const t of ['label:"Model in code"','"data-testid":"prop-model"','"data-testid":"prop-model-shape"','"True size, in cm"','[["Wide",0],["Deep",1],["High",2]]','"Use the card’s text again"',
+    'onUpdate(p.id, { dims:next })','onUpdate(p.id,{ dims:null })','onUpdate(p.id,{ modelForm:e.target.value||"" })','"Each block of the ruler is "','Object.assign(window,{ PropModelFold, propModelDraw, propModelSig });'])
+    assert.ok(ui.includes(t),t);
+  assert.ok(ui.includes("const turn = propModelLine.then(run, run);")&&ui.includes("finally{ view.dispose(); }"),"one 3D view at a time, always given back");
+  assert.ok(!/nbCommit|claude\.complete|proxyGenerate|localStorage|setProject/.test(ui+src),"no engine, nothing saved but what the person sets");
+  assert.ok(!/claude|anthropic|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|McKee/.test(ui.replace(/\/\*[\s\S]*?\*\//g,"")),"nothing internal in what people read");
+  for(const c of [".prop-model-pics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}",".prop-model-pics > figure:first-child{grid-column:1/-1}",".prop-model-cm{"]) assert.ok(css.includes(c),c);
+});
+
+test("8 loaded in order, fresh keys, and Frances knows", ()=>{
+  const i=s=>html.indexOf(s);
+  assert.ok(i("app/prop-model.js?v=")>0&&i("app/prop-model.js?v=")<i("app/shot-previs.js?v="),"the model before the drawing that uses it");
+  assert.ok(i("app/props.jsx?v=")<i("app/prop-model-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/prop-model-ui.jsx?v="));
+  for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/shot-previs.js","app/shot-previs-ui.jsx","app/props.jsx","app/shots.jsx","app/stage.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
+    assert.ok(["20261124-propmodel1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+  const g=[]; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Props: the model in code"')).join("\n"))(g);
+  assert.equal(g.length,1);
+  const fact=g[0].what;
+  for(const t of ["'The object', the fold 'Model in code'","Three-quarter (the large one), Front and Side","read from the card's 'Physical dimensions'","the usual size of such a thing","the line says it is a guess","'True size, in cm'","Wide, Deep and High",
+    "'Use the card's text again'","pick another from the list","the prop is the same size in every drawing","to draw the prop exactly as large as its shape","A tracked thing of the scene plan that has no card","makes no image and changes nothing"])
+    assert.ok(fact.includes(t),t);
+  assert.ok(!/credit|\$|claude|anthropic|fable|opus|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|kinolot/i.test(fact),"no price, no engine, no internal name");
+  assert.ok(!/\btab\b/i.test(g[0].name),"a fact's name with 'tab' in it answers for every tab");
+});
+
+console.log(pass+" passed, "+fail+" failed");
+if(fail) process.exit(1);

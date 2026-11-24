@@ -38,7 +38,7 @@ function shotPrevisSig(sh, plan, cam, loc, ctx){
   const block = ((plan.blocking||[]).find(b=>b && Number(b.beat)===Number(sh.beatN))) || null;
   return JSON.stringify([sh.id, sh.startState||null, sh.endState||null, sh.size, sh.angle, sh.lens, sh.subjects||[], sh.planThings||[], cam,
     plan.marks||[], block, (plan.things||[]).map(t=>[t.key,t.kind,t.propId]), loc.id, place, dress,
-    cast.filter(c=>here.has(c.id)).map(c=>[c.id,c.height||""]), props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x")])]);
+    cast.filter(c=>here.has(c.id)).map(c=>[c.id,c.height||""]), props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x"),p.name||"",p.detail||"",p.form||"",p.modelForm||""])]);
 }
 const shotPrevisNum = (n,d)=>{ const v = Number(n); return Number.isFinite(v) ? String(Math.round(v*Math.pow(10,d||0))/Math.pow(10,d||0)) : ""; };
 
@@ -145,7 +145,7 @@ function ShotPrevisFold({ sh, ctx, onView, beatLabel, onMake, makeDisabled, scen
   try{ ready = !!(loc && typeof window.locationSpatialContract==="function"
     && ((((window.locationSpatialContract(loc, ctx.locations)||{}).coordinates||{}).spaces)||[]).some(s=>s && Array.isArray(s.footprint) && s.footprint.length>=3)); }catch(e){ ready = false; }
   const tip = window.InfoTip && SPV_E(window.InfoTip,{label:"About the previs",
-    text:"This shot drawn in code, before any image is made. The place is its own 3D set from the Locations tab. Each jointed figure is a person, at their real height, on the mark the scene plan gave them; each red box is a prop at its card’s size. One camera draws how the shot starts and how it ends, so the two differ only by what moved. It costs nothing and changes nothing."});
+    text:"This shot drawn in code, before any image is made. The place is its own 3D set from the Locations tab. Each jointed figure is a person, at their real height, on the mark the scene plan gave them; each red shape is a prop, built in code at its true size. One camera draws how the shot starts and how it ends, so the two differ only by what moved. It costs nothing and changes nothing."});
   return SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : (cam && cam.hand) ? "your angle" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id},
     SPV_E("div",{className:"shot-previs-head"},SPV_E("span",{className:"shot-end-lab"},"This shot, drawn in code"),tip),
     ready
@@ -343,7 +343,7 @@ function BeatStripBody({ list, plan, ctx, sig, onView, beatN, staged, readOnly, 
             title:"Make every frame of this beat from its drawing, in order"+(endOwnerId?", then the end frame":"")+". It asks first.",
             onClick:makeAll},SPV_E(Icon.sparkles,{s:12}),"Make this beat\u2019s frames",
             typeof window.nbCostChip==="function" && window.nbCostChip(list.length+(endOwnerId?1:0)))),
-    seen.size>0 && SPV_E("p",{className:"beat-strip-key"},Array.from(seen.values()).map(p=>p.name+" is "+p.colour).join(" \u00b7 ")+" \u00b7 red boxes are props"));
+    seen.size>0 && SPV_E("p",{className:"beat-strip-key"},Array.from(seen.values()).map(p=>p.name+" is "+p.colour).join(" \u00b7 ")+" \u00b7 red shapes are props, at their true size"));
 }
 /* WHAT A BEAT'S STRIP IS DRAWN FROM, AND ITS DRAWINGS, for the beat card (owner 2026-11-24, the beat-first shot
    card: a small picture of every shot on its beat's card). beatStripInfo says what the strip of a beat holds (its
@@ -482,7 +482,7 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width, sceneShots){
    the camera the plan holds for it (placed, or set by hand), with the room as the whole scene staged once has it.
    Clay, not Colour: a video engine copies what it is shown, and clay has no surface or colour of the set to copy,
    only where things are. Free; nothing is saved; kept for the session by what it was drawn from.
-   → {url, legend:[who each figure is, what each red box is], camera:"stands … m away, … m high, … mm lens",
+   → {url, legend:[who each figure is, what each red shape is], camera:"stands … m away, … m high, … mm lens",
       lensMm, source ("plan" | "moved" | "hand" | "app"), from, sig} or null when the shot has no previs. */
 const SHOT_LAYOUT_KEPT = new Map();
 async function shotPrevisLayout(sh, ctx, sceneShots, width){

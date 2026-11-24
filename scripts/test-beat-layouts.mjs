@@ -61,9 +61,9 @@ test("4 what the video engine is told a layout is", ()=>{
   const at=stage.indexOf('if(k.indexOf("previs-layout:")===0){'), fn=stage.slice(at,stage.indexOf('if(k.indexOf("c:")===0) return T+',at));
   assert.ok(at>0);
   for(const t of ["is the layout of ","drawn in code from the set\\u2019s own 3D model through that shot\\u2019s camera, as the shot starts.",
-    "each person is a jointed figure in one colour and each prop is a red box: they only mark position.",
+    "each person is a jointed figure in one colour and each prop is a red shape of its true size: they only mark position and size.",
     "Match its camera position, height and lens framing, the screen direction, where each person stands and which way they face, and the relative size of people and things.",
-    "never show the white set, the figures, the red boxes or the layout itself."]) assert.ok(fn.includes(t),t);
+    "never show the white set, the figures, the red shapes or the layout itself."]) assert.ok(fn.includes(t),t);
   // the brief: each shot's own line names its layout, its figures and its camera
   assert.ok(brief.includes('const layout=assets.find(a=>a&&a.kind==="image"&&a.key==="previs-layout:"+u.sh.id);'));
   assert.ok(brief.includes('"Layout: "+token(layout)+" is this shot as it starts."')&&brief.includes('"Camera in the set (as the layout was drawn): "+text(layout.layoutCamera)'));
@@ -73,14 +73,14 @@ test("4 what the video engine is told a layout is", ()=>{
 
 test("5 nothing about prices: no pricing or server file is part of this step; keys and Frances", ()=>{
   for(const f of ["app/stage.jsx","app/stage-director-brief.js","app/shot-previs-ui.jsx","app/ai.jsx"])
-    assert.ok(["20261124-layout1", "20261124-beatcard1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-layout1", "20261124-beatcard1", "20261124-propmodel1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const at=stage.indexOf("/* PREVIS LAYOUTS (owner 2026-11-24"), near=stage.slice(stage.indexOf("const [layouts, setLayouts]"),stage.indexOf("// VIDEO ELEMENTS (2026-10-27)",at));
   assert.ok(!/creditsPerSecond|usdPerSecond|turnCreditCost|stageHold|holdCredits/.test(near.slice(0,1800)),"the layouts touch no price");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Stage: each shot\'s layout on a clip"')).join("\n"))(g.APP_FEATURES);
   assert.equal(g.APP_FEATURES.length,1);
   const fact=g.APP_FEATURES[0].what;
   for(const t of ["a group named Layouts","draws that shot in clay, as it starts","placed, or an angle set by hand","one layout a shot, in shot order","each shot is one line of the timeline, with its seconds, its camera, what happens and who speaks",
-    "says which figure is which person","a layout only marks position","never shows the white set, the figures or the red boxes","listed switched off","nothing is saved"]) assert.ok(fact.includes(t),t);
+    "says which figure is which person","a layout only marks position","never shows the white set, the figures or the red shapes","listed switched off","nothing is saved"]) assert.ok(fact.includes(t),t);
   assert.ok(!/credit|\$|claude|anthropic|fable|opus|gemini|gpt|seedance|kling|three\.?js|\bTURN\b|\bMUSE\b|kinolot/i.test(fact),"no price, no engine, no internal name");
 });
 

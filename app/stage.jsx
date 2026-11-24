@@ -3342,9 +3342,9 @@ function stageAssetRole(a, refs){
      3D model through its own camera (shot-previs-ui.jsx shotPrevisLayout). It only marks position. */
   if(k.indexOf("previs-layout:")===0){
     return T+" is the layout of "+(a.layoutShot?"shot "+a.layoutShot:"this shot")+", drawn in code from the set\u2019s own 3D model through that shot\u2019s camera, as the shot starts."
-      +" The set is plain white, each person is a jointed figure in one colour and each prop is a red box: they only mark position."
+      +" The set is plain white, each person is a jointed figure in one colour and each prop is a red shape of its true size: they only mark position and size."
       +" Match its camera position, height and lens framing, the screen direction, where each person stands and which way they face, and the relative size of people and things."
-      +" Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 from the other references and this text; never show the white set, the figures, the red boxes or the layout itself.";
+      +" Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 from the other references and this text; never show the white set, the figures, the red shapes or the layout itself.";
   }
   if(k.indexOf("c:")===0) return T+" is "+(label.replace(/\s+reference$/i,"")||"the character")+"'s identity reference — keep their appearance exactly consistent; use it for identity only and do not copy its background, pose or lighting.";
   if(k==="loc") return T+" is the "+(label||"location plate")+" — keep its geography and lighting.";

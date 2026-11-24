@@ -4,7 +4,7 @@
 
    The image engine alone drew a different hall in every frame (a second door, props of another size). Here nothing
    is guessed: the place is the location's own 3D set (set-previs.js: one model for every shot), each person is a
-   stand-in of their own height on the mark the scene plan put them on, each thing is a box of its own size where
+   stand-in of their own height on the mark the scene plan put them on, each thing is its own model at its true size (prop-model.js) where
    the plan says it is, and the camera is a real one that has to fit inside the room and see the people it frames.
    The same camera draws how the shot STARTS and how it ENDS, so the two differ only by what moved.
 
@@ -337,7 +337,7 @@
   // the same, in sentences for the image engine and the check: what is on each, and that nothing else is
   function dressingWords(surfaces){
     return arr(surfaces).map(s=>{
-      const boxes=arr(s.things).map(t=>"the red box that is the "+lowName(t.name));
+      const boxes=arr(s.things).map(t=>"the red shape that is the "+lowName(t.name));
       if(s.hooks) return boxes.length ? "On the "+lowName(s.name)+(s.hooks>1?" ("+s.hooks+" hooks)":"")+" hang"+(boxes.length===1?"s":"")+" only "+listed(boxes)+(s.hooks>boxes.length?": every other hook is empty.":".")
         : "Nothing hangs on the "+lowName(s.name)+(s.hooks>1?": all "+s.hooks+" hooks are empty.":".");
       const own=[]; arr(s.own).forEach(g=>{ if(g.fixture){ own.push("the "+lowName(g.name)); return; }
@@ -359,6 +359,10 @@
     poseDoors(scene,st.doors,{plan,spaces:ctx.spaces});
     const base=JSON.parse(JSON.stringify(scene));
     scene.materials["prop-standin"]={baseColor:[0.72,0.09,0.06],metallic:0,roughness:0.6,emissionStrength:0};
+    // a prop built from parts (prop-model.js) is all red too: three more reds tell its parts apart (a lid, a screen, a blade)
+    scene.materials["prop-standin-2"]={baseColor:[0.5,0.05,0.04],metallic:0,roughness:0.6,emissionStrength:0};
+    scene.materials["prop-standin-3"]={baseColor:[0.3,0.03,0.03],metallic:0,roughness:0.6,emissionStrength:0};
+    scene.materials["prop-standin-4"]={baseColor:[0.9,0.32,0.26],metallic:0,roughness:0.6,emissionStrength:0};
     const castOf=id=>arr(ctx.cast).find(c=>c&&String(c.id)===String(id))||{id};
     const spaces=arr(ctx.spaces);
     const here=[];
@@ -414,13 +418,22 @@
     const thingOf=key=>arr(obj(plan).things).find(t=>t&&String(t.key)===String(key))||{key};
     const propOf=t=>arr(ctx.props).find(c=>c&&((t.propId&&String(c.id)===String(t.propId))||String(c.name||"").toLowerCase()===String(t.name||"").toLowerCase()))||null;
     // on = {id, name} of the fixed thing it is on; hang = {xy, z, out, reach}: it hangs from that hook, long and flat to the wall
+    /* A PROP IN CODE (owner 2026-11-24: "props in code ... so that image previs captures the exact size"). Each prop is
+       its MODEL (prop-model.js): its true size, read from its card's numbers or size text, or the usual size of such
+       a thing, and its shape built from parts. A thing of no known shape and no numbers is still one small box, and
+       the drawing says it is a guess (measured:false). ctx.sizeFor, when given, sets a plain box of that size. */
+    const PM=root.KinolotPropModel||null;
     const put=(key,centre,held,turn,on,hang)=>{ const t=thingOf(key); if(t.kind&&t.kind!=="prop") return; if(things.some(x=>x.key===key)) return;
-      const card=propOf(t), known=sizeOf(card)||sizeOf(t); let size=(typeof ctx.sizeFor==="function"&&ctx.sizeFor(key,t,card))||known||DEFAULT_SIZE.slice();
+      const card=propOf(t), known=sizeOf(card)||sizeOf(t), forced=(typeof ctx.sizeFor==="function"&&ctx.sizeFor(key,t,card))||null;
+      const model=!forced&&PM?PM.modelOf(card,t):null, name=t.name||String(key).replace(/-/g," ");
+      let size=forced||(model&&model.dims.slice())||known||DEFAULT_SIZE.slice();
       let pos=[centre[0],centre[1],centre[2]+size[2]/2], rz=turn||0;
       if(hang){ const d=size.slice().sort((a,b)=>a-b), far=hang.reach+d[0]/2; size=[d[1],d[0],d[2]];
         pos=[hang.xy[0]+hang.out[0]*far,hang.xy[1]+hang.out[1]*far,hang.z-size[2]/2]; rz=Math.atan2(-hang.out[0],hang.out[1]); }
-      scene.objects.push({id:"prop-"+key,name:(t.name||String(key).replace(/-/g," "))+" (prop stand-in)",kind:"box",position:pos,rotation:[0,0,rz],size,material:"prop-standin"});
-      things.push({key,name:t.name||String(key).replace(/-/g," "),at:[pos[0],pos[1],pos[2]-size[2]/2],size,held:held||"",on:(on&&on.name)||"",onId:(on&&on.id)||"",hung:!!hang,measured:!!known}); };
+      if(model) PM.place(model,{id:"prop-"+key,name:name+" (prop stand-in)",centre:pos,rz,hang:!!hang}).objects.forEach(o=>scene.objects.push(o));
+      else scene.objects.push({id:"prop-"+key,name:name+" (prop stand-in)",kind:"box",position:pos,rotation:[0,0,rz],size,material:"prop-standin"});
+      things.push({key,name,at:[pos[0],pos[1],pos[2]-size[2]/2],size,held:held||"",on:(on&&on.name)||"",onId:(on&&on.id)||"",hung:!!hang,
+        measured:model?model.basis!=="guess":!!known,...(model?{form:model.form,shape:model.label,basis:model.basis}:{})}); };
     // what a person holds sits at their hands, in front of them; two things sit side by side
     const hands=(p,i,n)=>{ const r=[p.front[1],-p.front[0]], s=n>1?(i?0.09:-0.09):0; return [p.xy[0]+p.front[0]*0.22+r[0]*s,p.xy[1]+p.front[1]*0.22+r[1]*s,p.chest[2]-p.height*0.16]; };
     people.forEach(p=>p.holding.forEach((key,i)=>put(key,hands(p,i,p.holding.length),p.id,p.turn)));
@@ -674,15 +687,18 @@
     return {pose:aim(from,a.target,lens),lensPlanned,distance:Math.round(dist*100)/100,side:opts.side||1,notes,fits:true,source};
   }
   /* WHAT EACH STAND-IN IS, in plain sentences (for the image engine that renders over the previs, and for the check
-     that compares the frame with it): who each coloured figure is, and what each red box is and where. */
+     that compares the frame with it): who each coloured figure is, and what each red shape is, where, and its true
+     size (a prop is drawn in code at the size its card gives it: the frame must keep that size). */
   function legend(people,things){
     const P=arr(people), lines=[];
     // someone behind a shut door from this camera (p.unseen, set by pair) is not in the picture, and neither is what they hold
     P.forEach(p=>lines.push(p.unseen ? p.name+" is on the other side of the shut "+lowName(obj(p.door).name||"door")+" and is NOT in this picture: no figure stands for them"+(p.pose?" ("+p.pose+")":"")+"."
       : "The "+(p.colour||"coloured")+" figure is "+p.name+(p.pose?" ("+p.pose+")":"")+"."));
     arr(things).forEach(t=>{ const h=t.held&&P.find(p=>p.id===t.held); if(h&&h.unseen) return;
-      lines.push("The red box "+(h?"in "+h.name+"\u2019s hands":t.on?(t.hung?"hanging from the ":"on the ")+String(t.on).replace(/^the /i,"").replace(/^./,c=>c.toLowerCase()):"standing on its own")
-        +" is the "+String(t.name).replace(/^the /i,"")+"."); });
+      // its size in the drawing is its size: said, so the frame keeps it (a guessed size is not said)
+      const cm=t.measured&&t.basis&&root.KinolotPropModel?root.KinolotPropModel.sizeWords(t.size):"";
+      lines.push("The red shape "+(h?"in "+h.name+"\u2019s hands":t.on?(t.hung?"hanging from the ":"on the ")+String(t.on).replace(/^the /i,"").replace(/^./,c=>c.toLowerCase()):"standing on its own")
+        +" is the "+String(t.name).replace(/^the /i,"")+(cm?(t.basis==="usual"?", drawn at the usual size of such a thing (":", drawn at its true size (")+cm+")":"")+"."); });
     return lines;
   }
   // the scene plan keeps one camera a shot, by beat and moment

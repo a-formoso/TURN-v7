@@ -327,7 +327,7 @@ test("5e. keys on a hook hang under it, flat to the wall, on the room's side",()
   assert.ok(near(box.position[2]+box.size[2]/2,1.44),"its top at the hook"); assert.ok(box.size[2]>=box.size[0]&&box.size[1]<=box.size[0],"it hangs long, its thin side to the wall");
   const parcel=got.things.find(t=>t.key==="parcel");
   assert.ok(!parcel.hung&&parcel.onId==="table"&&near(parcel.at[2],0.75),"a parcel on a table still stands on its top");
-  assert.match(V.legend([],got.things)[0],/^The red box hanging from the row of key hooks is the Cab keys\.$/);
+  assert.match(V.legend([],got.things)[0],/^The red shape hanging from the row of key hooks is the Cab keys\.$/);
 });
 test("5f. what sits on each fixed thing is read from the set and said, and that nothing else is on it",()=>{
   const ctx={...CTX,plan:DRESS_PLAN};
@@ -337,8 +337,8 @@ test("5f. what sits on each fixed thing is read from the set and said, and that 
   assert.deepEqual(plain(table.own),[{name:"table clutter",items:["a flat paper thing about 20 cm long","a round brown thing about 8 cm across"]},{name:"Kettle",fixture:true}]);
   assert.deepEqual(plain(table.things),[{name:"Parcel",hung:false}]); assert.equal(got.surfaces[1].hooks,3);
   assert.deepEqual(plain(V.dressingWords(got.surfaces)),[
-    "On the kitchen table sit only a flat paper thing about 20 cm long, a round brown thing about 8 cm across, the kettle and the red box that is the parcel: nothing else is on it.",
-    "On the row of key hooks (3 hooks) hangs only the red box that is the cab keys: every other hook is empty."]);
+    "On the kitchen table sit only a flat paper thing about 20 cm long, a round brown thing about 8 cm across, the kettle and the red shape that is the parcel: nothing else is on it.",
+    "On the row of key hooks (3 hooks) hangs only the red shape that is the cab keys: every other hook is empty."]);
   // the hook once the keys are gone: said empty (the story's last image)
   const bare=V.stateScene(DRESSED(),DRESS_PLAN,{people:{},things:{},doors:[]},ctx);
   assert.deepEqual(plain(V.dressingWords(bare.surfaces.filter(s=>s.id==="hooks"))),["Nothing hangs on the row of key hooks: all 3 hooks are empty."]);
@@ -551,7 +551,7 @@ test("10c. the scripts load in order, with current keys",()=>{
   assert.ok(i("app/set-previs.js?v=")<i("app/shot-previs.js?v=")&&i("app/scene-plan.js?v=")<i("app/shot-previs.js?v="),"after the set's own 3D and the plan");
   assert.ok(i("app/shots-ui.jsx?v=")<i("app/shot-previs-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/shot-previs-ui.jsx?v="));
   for(const f of ["shot-previs.js","shot-previs-ui.jsx","shots-ui.jsx","scene-plan.js","app.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 /* ---- 11. Frances ---- */
@@ -582,7 +582,7 @@ test("12. each person has a named colour, the same through a scene, never the pr
   assert.deepEqual(plain(st.people.map(p=>[p.id,p.colour,p.pose])),[["ann","blue","standing"],["bob","pink","standing"]]);
   assert.deepEqual(plain(st.scene.materials["standin-ann"].baseColor),plain(V.PALETTE[0][1]));
   assert.deepEqual(plain(V.legend(st.people,st.things)),["The blue figure is Ann Lee (standing).","The pink figure is Bob Marsh (standing).",
-    "The red box in Ann Lee’s hands is the Mug.","The red box on the kitchen table is the Parcel."]);
+    "The red shape in Ann Lee’s hands is the Mug.","The red shape on the kitchen table is the Parcel."]);
   assert.deepEqual(plain(V.legend([],[])),[]);
 });
 
@@ -592,7 +592,7 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
   const chars=[{id:"amira",name:"AMIRA HUSSAIN"}];
   const ctx={scene,location:null,project:{id:"f"},charById:{amira:chars[0]},propById:{},drafts:{s5:{version:"v1",blocks}},scenes:[scene]};
   const sh={id:"b1",sceneId:"s5",beatN:1,order:1,keyframeMode:"beat-opening",moment:{n:1,of:1},planned:true,subjectsByPlan:true,subjects:["amira"],size:"MS",angle:"eye",lens:"35",move:"static",action:"Amira packs rice."};
-  const legend=["The blue figure is AMIRA HUSSAIN (standing).","The red box in AMIRA HUSSAIN’s hands is the Tupperware."];
+  const legend=["The blue figure is AMIRA HUSSAIN (standing).","The red shape in AMIRA HUSSAIN’s hands is the Tupperware."];
   const refs=[{note:"AMIRA HUSSAIN's character sheet",referenceKind:"character"},{note:"the finished frame of the shot before this one — take ONLY its look from it"},{note:"Hussain kitchen location image",locationId:"loc1"}];
   const words="camera 1.5 m high, facing south-west, 24 mm lens (wide). In its frame: AMIRA HUSSAIN (centre, close); Counter (right, close).";
   const p=shotsBox.buildShotPrompt(sh,{...ctx,resolvedRefs:refs,previs:{url:"data:x",legend,words}});
@@ -603,10 +603,10 @@ test("13. the prompt of a frame made from its previs: Image 1 is the layout and 
   assert.ok(p.startsWith("Render Image 1 as the finished cinematic still. Image 1 is a 3D PREVIS of this exact shot, drawn to scale from the set's own model through this shot's real camera"),p.slice(0,160));
   assert.ok(p.includes("Image 2 is AMIRA HUSSAIN's character sheet")&&p.includes("Image 3 is the finished frame of the shot before this one"),"the sheets and the look reference follow, numbered after it");
   for(const t of ["THE LAYOUT IS IMAGE 1 (binding: where Image 1 and any other image or any word below disagree about where something is, how big it is or which way it faces, Image 1 is right).",
-    "ITS STAND-INS: The blue figure is AMIRA HUSSAIN (standing). The red box in AMIRA HUSSAIN’s hands is the Tupperware.",
+    "ITS STAND-INS: The blue figure is AMIRA HUSSAIN (standing). The red shape in AMIRA HUSSAIN’s hands is the Tupperware.",
     "The pale panel on a figure's head is its face: the person looks that way.",
     "as tall in the frame as their block and facing the same way",
-    "where the box is and the same size in the frame as the box",
+    "where the shape is, turned as the shape is, and exactly as large in the frame as the shape","each red shape is that thing built at its true size, so never draw the thing larger or smaller than its shape",
     "ADD NOTHING BUILT: no door, doorway, window, wall, step, furniture or fixture that Image 1 does not show, and none moved, widened, narrowed or removed;",
     "a door shut in Image 1 is shut, an open one is open at that same angle; the room is as wide and as deep as Image 1 draws it.",
     "No person and no object that Image 1 does not show."]) assert.ok(p.includes(t),t);
@@ -670,7 +670,7 @@ test("15. the QA check of a frame made from its previs reads it beside the drawi
   assert.ok(body.includes("const res = await aiVisionComplete([{ role:\"user\", content:prompt }], lay ? [img, lay] : [img]);"),"the drawing is the second image");
   for(const t of ["THE LAYOUT (binding, part of the contract): the SECOND attached image is the 3D previs this frame was made from",
     "one the layout does not have was ADDED; one it has that is gone was REMOVED","a shut door drawn open, or an open one drawn shut, is wrong",
-    "a person with no figure was ADDED, a figure with no person is MISSING","about the same size in the frame as the box",
+    "a person with no figure was ADDED, a figure with no person is MISSING","about the same size in the frame as the shape: the shape is that object built at its true size",
     "Each difference is a deviation whose 'what' starts with 'Layout:'","What the layout cannot show is never a fault: faces, clothes, materials, texture, light","Never box the layout image."])
     assert.ok(body.includes(t),t);
   assert.ok(body.includes("...(lay ? { layoutRead:true } : {}),"));
