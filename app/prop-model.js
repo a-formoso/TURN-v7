@@ -12,15 +12,19 @@
                               flat to the wall. → {objects, size:[w, d, h] as it stands}
      sizeWords(dims)          "17 x 12 x 7 cm" (with the true multiplication sign)
      stage(model)             the model alone on a plain floor beside a ruler, with three cameras (the prop card)
+     draft(card) / built(raw) a model BUILT for one prop by one writing pass, read safely (stage 2); saved(model), keep
+     sheet(model)             the model as its reference sheet shows it: front, side, close-up (the layout of the sheet)
    A PART is the furniture kit's: [kind, [width, depth, height], [x, y, z], material, turn] — x across, y along its
    depth, z up from what it rests on, [x, y, z] its centre; material "main", "second", "dark" or "light"; turn a turn
    about Z or [x, y, z] turns. A model RESTS as such a thing rests on a table: a phone lies flat, a mug stands.
-   Plain numbers only: the same model on every draw and every device. No engine is called and nothing is saved here. */
+   Plain numbers only: the same model on every draw and every device. Nothing is saved here; the one engine call is
+   draft(), which the person asks for on the prop's card. */
 (function(root){
   "use strict";
   const arr=v=>Array.isArray(v)?v:[], obj=v=>v&&typeof v==="object"?v:{};
   const Q=Math.PI/2, r4=n=>Math.round(n*10000)/10000;
   const DEFAULT=[0.15,0.1,0.1];
+  const TONES=["main","second","dark","light"];
 
   /* ---- parts ---- */
   const box=(s,p,m,t)=>["box",s,p,m||"main",t||0];
@@ -243,7 +247,8 @@
   }
 
   /* THE MODEL OF A PROP. card = its prop card ({name, size, dims, form, modelForm, detail}), thing = the scene plan's
-     tracked thing when it has no card ({name, size, detail}). The card's own numbers (dims) are exact and win; then
+     tracked thing when it has no card ({name, size, detail}). A model built for this prop (card.model) is the prop:
+     its parts and its size (the card's three numbers, when set, resize it). Else: the card's own numbers (dims) are exact and win; then
      its size text; then the usual size of such a thing; a thing of no known shape and no numbers is a small box and
      says it is a guess. */
   function modelOf(card,thing){
@@ -251,6 +256,14 @@
     const form=formById(c.modelForm)||formById(formOf(name,c.form))||null;
     const own=arr(c.dims).map(Number).filter(n=>n>0&&n<20);
     let dims, basis;
+    // a model BUILT for this prop (stage 2: saved on its card) is the prop itself; a shape picked by hand still wins
+    const mine=!formById(c.modelForm)&&saved(c.model);
+    if(mine){
+      if(own.length!==3) return {form:"built",label:mine.what||"its own model",dims:mine.dims.slice(),basis:"built",parts:mine.parts,colours:mine.colours,built:true};
+      const k=own.map((n,i)=>n/mine.dims[i]);
+      return {form:"built",label:mine.what||"its own model",dims:own.map(r4),basis:"set",colours:mine.colours,built:true,
+        parts:mine.parts.map(q=>{ const M=turnOf(q[4]); return [q[0],[0,1,2].map(j=>r4(q[1][j]*(Math.abs(M[0][j])*k[0]+Math.abs(M[1][j])*k[1]+Math.abs(M[2][j])*k[2])/((Math.abs(M[0][j])+Math.abs(M[1][j])+Math.abs(M[2][j]))||1))),q[2].map((n,i)=>r4(n*k[i])),q[3],q[4]]; })};
+    }
     if(own.length===3){ dims=own; basis="set"; }
     else{
       const run=form&&form.loose?null:(numbers(c.size)||numbers(c.detail)||numbers(t.size)||numbers(t.detail));
@@ -290,7 +303,8 @@
      materials:{main, second, dark, light} (the scene's own names)}. → {objects, size:[w, d, h] as it stands} */
   function place(model,o){
     o=obj(o);
-    const m=obj(model), dims=arr(m.dims).length===3?m.dims:DEFAULT, h=o.hang?hung(dims):null, O=h?h.O:[[1,0,0],[0,1,0],[0,0,1]];
+    // o.stand: a thing that lies flat stood up on its far edge, its top face to the front (+y): how a sheet shows a phone
+    const m=obj(model), dims=arr(m.dims).length===3?m.dims:DEFAULT, h=o.hang?hung(dims):o.stand?{O:[[1,0,0],[0,0,1],[0,-1,0]],size:[dims[0],dims[2],dims[1]]}:null, O=h?h.O:[[1,0,0],[0,1,0],[0,0,1]];
     const W=mul(Rz(Number(o.rz)||0),O), c=arr(o.centre).length===3?o.centre:[0,0,dims[2]/2], names={...MATERIALS,...obj(o.materials)};
     const objects=arr(m.parts).map((p,i)=>{
       const at=apply(W,[p[2][0],p[2][1],p[2][2]-dims[2]/2]);
@@ -326,13 +340,143 @@
     return {tick,
       scene:{objects:[floor].concat(put.objects,ruler),cameras:{},
         materials:{"model-floor":{baseColor:[0.86,0.85,0.82],metallic:0,roughness:0.9,emissionStrength:0},
-          "model-main":{baseColor:[0.5,0.52,0.56],metallic:0,roughness:0.6,emissionStrength:0},"model-second":{baseColor:[0.25,0.38,0.62],metallic:0,roughness:0.6,emissionStrength:0},
-          "model-dark":{baseColor:[0.1,0.1,0.11],metallic:0,roughness:0.5,emissionStrength:0},"model-light":{baseColor:[0.88,0.87,0.84],metallic:0,roughness:0.5,emissionStrength:0},
+          ...tones(m.colours),
           "model-ruler-a":{baseColor:[0.95,0.6,0.2],metallic:0,roughness:0.7,emissionStrength:0},"model-ruler-b":{baseColor:[0.15,0.15,0.16],metallic:0,roughness:0.7,emissionStrength:0}}},
       poses:{front:cam(180,-8,dims[0],dims[2]+rule*0.3,dims[1]+2*rule),side:cam(-90,-8,dims[1]+2*rule,dims[2],dims[0]),quarter:cam(145,-28,flat,dims[2]*Math.cos(tilt)+flat*Math.sin(tilt),0)}};
   }
 
-  const api={FORMS,DEFAULT,MATERIALS,forms,formById,formOf,numbers,fit,plain,modelOf,hung,place,turnsFrom,sizeWords,stage};
+  /* THE FOUR TONES OF A MODEL as materials: its own colours when it was built for the prop, plain ones otherwise */
+  const PLAIN_TONES={main:[0.5,0.52,0.56],second:[0.25,0.38,0.62],dark:[0.1,0.1,0.11],light:[0.88,0.87,0.84]};
+  function tones(colours){ const c=obj(colours), out={};
+    TONES.forEach(t=>{ const v=arr(c[t]); out["model-"+t]={baseColor:v.length===3&&v.every(n=>Number.isFinite(n)&&n>=0&&n<=1)?v.slice():PLAIN_TONES[t],metallic:0,roughness:0.6,emissionStrength:0}; });
+    return out; }
+
+  /* ---- A MODEL BUILT FOR ONE PROP (stage 2, owner 2026-11-24: "yes, go on to stage 2") ----
+     The catalogue knows common things. A prop it does not know (or one whose own shape matters: a bifold wallet, a
+     tapered tub) is BUILT: one short writing pass reads the card (what it is, its material, its marks, its size) and
+     writes the prop as 4 to 24 plain parts in centimetres, with its four colours. built() reads the answer safely:
+     shapes it knows only, numbers only, the model set down on the table and centred, brought to its stated size.
+     The model is saved on the prop's own card (card.model) by the person's press, and is then the prop everywhere. */
+  const MODEL="claude-fable-5-2";
+  const CALL={effort:"low",ms:120000,maxTokens:6000};
+  const LIMITS={parts:24};
+  const SHAPES={box:"box",cylinder:"cylinder",ring:"torus",ball:"sphere",pad:"cushion"};
+  const tidy=(v,n)=>String(v==null?"":v).replace(/\s+/g," ").trim().slice(0,n||200);
+  const hex=v=>{ const m=String(v||"").trim().match(/^#?([0-9a-f]{6})$/i); if(!m) return null; const n=parseInt(m[1],16); return [(n>>16)&255,(n>>8)&255,n&255].map(x=>Math.round(x/255*1000)/1000); };
+  // the box a set of parts fills (a turned part by the box its turn gives it)
+  function bounds(parts){
+    const lo=[Infinity,Infinity,Infinity], hi=[-Infinity,-Infinity,-Infinity];
+    arr(parts).forEach(q=>{ const M=turnOf(q[4]); for(let i=0;i<3;i++){ const e=(Math.abs(M[i][0])*q[1][0]+Math.abs(M[i][1])*q[1][1]+Math.abs(M[i][2])*q[1][2])/2; lo[i]=Math.min(lo[i],q[2][i]-e); hi[i]=Math.max(hi[i],q[2][i]+e); } });
+    return {lo,hi};
+  }
+  // what a model was built from: when the card's words change, the model says it is older than they are
+  function sigOf(card){ const c=obj(card), t=[c.name,c.form,c.material,c.signatureFeature,c.size].map(x=>tidy(x,2000)).join("|"); let h=2166136261; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36); }
+  /* raw = the engine's answer: {what, size:[w, d, h] cm, colours:{main, second, dark, light}, parts:[{shape, size, at, turn, tone, what}]}
+     → {model:{v, what, dims (metres), parts, colours} | null, left:[what was left out and why]} */
+  function built(raw){
+    const r=obj(raw), left=[];
+    let parts=[];
+    arr(r.parts).slice(0,LIMITS.parts*3).forEach((q,i)=>{
+      const o=obj(q), kind=SHAPES[String(o.shape||"").toLowerCase()], size=arr(o.size).map(Number), at=arr(o.at).map(Number), what=tidy(o.what,40)||("part "+(i+1));
+      if(!kind){ left.push(what+": a shape a model cannot have"); return; }
+      if(size.length!==3||!size.every(n=>Number.isFinite(n)&&n>0&&n<2000)||at.length!==3||!at.every(n=>Number.isFinite(n)&&Math.abs(n)<2000)){ left.push(what+": no size or no place"); return; }
+      if(parts.length>=LIMITS.parts){ left.push(what+": more parts than a model holds"); return; }
+      const t=arr(o.turn).map(Number), one=Number(o.turn), turn=(t.length===3&&t.every(Number.isFinite))?t.map(d=>r4(d*Math.PI/180)):[0,0,Number.isFinite(one)&&!Array.isArray(o.turn)?r4(one*Math.PI/180):0];
+      parts.push([kind,size.map(n=>n/100),at.map(n=>n/100),TONES.indexOf(o.tone)>=0?o.tone:"main",turn]);
+    });
+    if(!parts.length) return {model:null,left};
+    // set down on the table, centred
+    const b=bounds(parts), cx=(b.lo[0]+b.hi[0])/2, cy=(b.lo[1]+b.hi[1])/2;
+    parts.forEach(q=>{ q[2]=[q[2][0]-cx,q[2][1]-cy,q[2][2]-b.lo[2]]; });
+    let dims=[0,1,2].map(i=>b.hi[i]-b.lo[i]);
+    // its true size: the longest side as stated; the shape as built keeps its proportions
+    const stated=arr(r.size).map(Number).filter(n=>Number.isFinite(n)&&n>0&&n<2000), want=stated.length===3?Math.max(...stated)/100:0, have=Math.max(...dims);
+    if(want>0&&have>0&&Math.abs(want/have-1)>0.03){ const k=want/have;
+      parts.forEach(q=>{ q[1]=q[1].map(n=>n*k); q[2]=q[2].map(n=>n*k); }); dims=dims.map(n=>n*k);
+      if(Math.abs(k-1)>0.25) left.push("built "+(k<1?"larger":"smaller")+" than its stated size, and brought to it"); }
+    parts=parts.map(q=>[q[0],q[1].map(n=>r4(Math.max(0.0005,n))),q[2].map(r4),q[3],q[4]]);
+    const colours={}; TONES.forEach(t=>{ const c=hex(obj(r.colours)[t]); if(c) colours[t]=c; });
+    return {model:{v:1,what:tidy(r.what,60),dims:dims.map(n=>r4(Math.max(0.0005,Math.min(20,n)))),parts,colours},left};
+  }
+  // a model as saved on a card, read safely: null when it is not one
+  function saved(m){
+    const o=obj(m); if(o.v!==1||arr(o.dims).length!==3||!o.dims.every(n=>Number.isFinite(n)&&n>0&&n<=20)) return null;
+    const kinds=Object.keys(SHAPES).map(k=>SHAPES[k]);
+    const parts=arr(o.parts).filter(q=>Array.isArray(q)&&kinds.indexOf(q[0])>=0&&arr(q[1]).length===3&&q[1].every(n=>Number.isFinite(n)&&n>0)&&arr(q[2]).length===3&&q[2].every(Number.isFinite)
+      &&TONES.indexOf(q[3])>=0&&arr(q[4]).length===3&&q[4].every(Number.isFinite)).slice(0,LIMITS.parts);
+    if(!parts.length) return null;
+    const colours={}; TONES.forEach(t=>{ const c=arr(obj(o.colours)[t]); if(c.length===3&&c.every(n=>Number.isFinite(n)&&n>=0&&n<=1)) colours[t]=c.slice(); });
+    return {v:1,what:tidy(o.what,60),dims:o.dims.slice(),parts,colours,by:tidy(o.by,60),at:tidy(o.at,40),from:tidy(o.from,20)};
+  }
+  // what is saved on the card: the model, the engine that built it, when, and what it was built from
+  const keep=(model,card,o)=>({...model,by:tidy(obj(o).engine||MODEL,60),at:tidy(obj(o).at||new Date().toISOString(),40),from:sigOf(card)});
+  const stale=card=>{ const m=saved(obj(card).model); return !!(m&&m.from&&m.from!==sigOf(card)); };
+  function prompt(card){
+    const c=obj(card), line=(k,v)=>tidy(v,900)?k+": "+tidy(v,900)+"\n":"";
+    return "You build a film prop as a simple 3D model made of plain parts, the way a prop maker blocks out a shape before detailing it. "
+      +"The model places the prop in every shot at its true size, and its reference sheet is drawn over it, so its outline and proportions must be right.\n\n"
+      +"THE PROP\n"+line("Name",c.name)+line("What it is",c.form)+line("Material and finish",c.material)+line("Identifying details",c.signatureFeature)+line("Size as written",c.size)
+      +"\nHOW IT RESTS: build it as it rests on a table when nobody holds it: a phone or a wallet lies flat, a mug or a bottle stands, a bag stands on its base, keys lie in a loose bunch. A thing shown closed in the story is built closed.\n"
+      +"THE FRAME: centimetres. x is across it (its width), y is front to back (its depth; +y is its front), z is up from the table (z = 0 is the table top). The whole prop fits a box of `size` [wide, deep, high] centred on x = 0 and y = 0.\n"
+      +"PARTS: between 4 and 20 (never more than "+LIMITS.parts+"). Each is {shape, size:[x, y, z] (the part's own box, before any turn), at:[x, y, z] (its centre), turn:[x, y, z] (degrees, turned about x, then y, then z; leave it out when there is none), tone, what (two or three words)}.\n"
+      +"- shapes: \"box\"; \"cylinder\" (a round bar, tube or disc whose axis is z: its x and y sizes are its diameters, its z size its length; turn [0, 90, 0] lays it along x, turn [90, 0, 0] along y); "
+      +"\"ring\" (a ring lying flat, its axis z: x and y are its outer diameters, z the thickness of its wire; turn [90, 0, 0] stands it upright across x, as a mug's handle); \"ball\" (a sphere or an egg); \"pad\" (a soft block with rounded sides: a bag's body, a cushion, folded cloth).\n"
+      +"- tones: \"main\" (its main colour), \"second\" (its second colour), \"dark\" (its darkest parts: a screen, rubber, a handle), \"light\" (its lightest: paper, steel, a label).\n"
+      +"COLOURS: the four tones as hex colours, read from the material and details above.\n"
+      +"RULES:\n"
+      +"- True size. The first measurement of 'Size as written' is the whole prop unless it names a part; measurements of a part size that part. With no size written, the usual size of such an object.\n"
+      +"- Every part lies inside the box of `size`. Each part touches or overlaps what it is fixed to: nothing floats.\n"
+      +"- Build the outline first (the big masses), then the parts that make it THIS prop and no other: a lid, a handle, a clasp, a spout, a strap, a hinge, a label panel, a badge, a row of buttons.\n"
+      +"- No lettering, no surface texture, nothing thinner than 1 mm unless the prop itself is (a sheet of paper, a needle). A hollow thing (a mug, a bowl, an open box) is solid, with a thin dark disc or panel just inside its rim.\n"
+      +"Return ONLY compact JSON: {\"what\":\"a ...\",\"size\":[17,12,7],\"colours\":{\"main\":\"#c8d4d0\",\"second\":\"#4f8f8a\",\"dark\":\"#222222\",\"light\":\"#f2f0ea\"},"
+      +"\"parts\":[{\"shape\":\"box\",\"size\":[16,11,6],\"at\":[0,0,3],\"tone\":\"main\",\"what\":\"tub body\"}]}";
+  }
+  // about how many writing credits building one model costs (the number on the button); the rate is the set dressing's, which a test keeps equal to the server's
+  function estimate(card){
+    const rate=obj(obj(root.KinolotSetDressing).RATE), inputTokens=Math.ceil(prompt(card).length/3.5), outputTokens=1500;
+    const usd=(inputTokens*(Number(rate.input)||8)+outputTokens*(Number(rate.output)||40))/1e6;
+    return {credits:typeof root.turnCreditCost==="function"?root.turnCreditCost(usd):Math.max(1,Math.ceil(usd/0.01-1e-9)),usd:Math.round(usd*1000)/1000,inputTokens,outputTokens};
+  }
+  function readJSON(raw){ const text=String(raw&&typeof raw==="object"&&typeof raw.text==="string"?raw.text:raw||""), a=text.indexOf("{"), b=text.lastIndexOf("}"); if(a<0||b<=a) return null; try{ return JSON.parse(text.slice(a,b+1)); }catch(_){ return null; } }
+  /* One writing call. → {model (as it will be saved, with who built it and from what), left}. Saves nothing. */
+  async function draft(card,ctx){
+    ctx=ctx||{};
+    if(!card||!card.id) throw new Error("Choose a prop first.");
+    if(!root.claude||typeof root.claude.complete!=="function") throw new Error("Sign in to build this model.");
+    if(!tidy(card.form)&&!tidy(card.size)&&!tidy(card.material)) throw new Error("Write what this prop looks like first (Physical design): the model is built from it. Nothing was changed.");
+    const epoch=typeof root.nbEpoch==="function"?root.nbEpoch():null, text=prompt(card);
+    const raw=await root.claude.complete({messages:[{role:"user",content:text}],modelId:ctx.modelId||MODEL,maxTokens:ctx.maxTokens||CALL.maxTokens,effort:ctx.effort||CALL.effort,timeoutMs:ctx.timeoutMs||CALL.ms});
+    if(epoch!==null&&root.nbEpoch()!==epoch) throw new Error("The film changed. The model was not built.");
+    let parsed=readJSON(raw);
+    if(parsed&&typeof root.scrubBrand==="function"){ try{ parsed=JSON.parse(root.scrubBrand(JSON.stringify(parsed))); }catch(_){} }
+    const got=parsed&&typeof parsed==="object"?built(parsed):{model:null,left:[]};
+    if(!got.model||got.model.parts.length<2) throw new Error("The model came back incomplete. Nothing was changed; try again.");
+    return {model:keep(got.model,card,{engine:ctx.modelId||MODEL}),left:got.left};
+  }
+
+  /* THE SHEET'S LAYOUT, FROM THE MODEL (stage 2: "the prop sheet is made from the model's drawing, so the image engine
+     only adds texture and light"). The prop's reference sheet is three equal panels: front, side, close-up. Here the
+     model is shown the same way: a thing that lies flat is stood up with its face to the camera; the front and the
+     side are drawn level, from the same distance (the same size, one baseline), a thin thing's side turned 70 degrees
+     so it is never a bare line; the close-up moves in on its upper front from three-quarter. Each camera holds the
+     thing inside the MIDDLE THIRD of its 16:9 frame: the three middle thirds, side by side, are the sheet.
+     → {scene, poses:{front, side, close}, size:[w, d, h] as shown, stood, thin, own (it has its own colours)} */
+  function sheet(model){
+    const m=obj(model), dims=arr(m.dims).length===3?m.dims:DEFAULT, stood=dims[2]<0.35*Math.min(dims[0],dims[1]);
+    const shown=stood?[dims[0],dims[2],dims[1]]:dims.slice();
+    const put=place(m,{id:"prop-model",name:"The prop",centre:[0,0,shown[2]/2],rz:0,stand:stood,materials:{main:"model-main",second:"model-second",dark:"model-dark",light:"model-light"}});
+    const thin=shown[1]<0.18*shown[0], swing=(thin?70:90)*Math.PI/180, lens=100, edge=1.3;
+    const seen=shown[0]*Math.abs(Math.cos(swing))+shown[1]*Math.abs(Math.sin(swing));   // how wide the side view is
+    const dist=Math.max(shown[0],seen)/2*edge*lens/6, far=Math.max(dist,shown[2]/2*edge*lens/10.125);
+    const at=(deg,pitch,d,aim)=>{ const a=deg*Math.PI/180, q=pitch*Math.PI/180, look=[Math.sin(a)*Math.cos(q),Math.cos(a)*Math.cos(q),Math.sin(q)];
+      return {position:[r4(aim[0]-look[0]*d),r4(aim[1]-look[1]*d),r4(aim[2]-look[2]*d)],yaw:deg,pitch,lensMm:lens}; };
+    const mid=[0,0,shown[2]/2];
+    return {scene:{objects:put.objects,cameras:{},materials:tones(m.colours)},size:shown,stood,thin,own:Object.keys(obj(m.colours)).length>0,
+      poses:{front:at(180,0,far,mid),side:at(180+(thin?70:90),0,far,mid),close:at(215,-16,far*0.62,[shown[0]*0.08,0,shown[2]*0.6])}};
+  }
+
+  const api={FORMS,DEFAULT,MATERIALS,MODEL,CALL,LIMITS,forms,formById,formOf,numbers,fit,plain,modelOf,hung,place,turnsFrom,sizeWords,stage,
+    built,saved,keep,stale,sigOf,bounds,prompt,estimate,draft,sheet,tones};
   root.KinolotPropModel=api;
   if(typeof module!=="undefined"&&module.exports) module.exports=api;
 })(typeof window!=="undefined"?window:globalThis);

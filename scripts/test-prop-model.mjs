@@ -16,7 +16,7 @@ for(const f of ["app/scene-plan.js","app/prop-model.js","app/shot-previs.js"]) v
 const M=box.KinolotPropModel, V=box.ShotPrevis;
 const plain=v=>JSON.parse(JSON.stringify(v));
 let pass=0,fail=0;
-const test=(name,fn)=>{ try{ fn(); pass++; console.log("PASS "+name); }catch(e){ fail++; console.log("FAIL "+name+"\n    "+String(e&&e.message||e).split("\n")[0]); } };
+const test=(name,fn)=>{ try{ fn(); pass++; console.log("PASS "+name); }catch(e){ fail++; console.log("FAIL "+name+"\n    "+String(e&&e.message||e).split("\n").slice(0,4).join(" | ")+" @ "+String(e&&e.stack||"").split("\n").filter(l=>/test-prop-model/.test(l)).slice(0,1).join("")); } };
 const near=(a,b,eps=1e-3)=>Math.abs(a-b)<=eps;
 
 // the owner's own film: the cards of Scene 5, as their size texts are written
@@ -148,7 +148,7 @@ test("6 the frame is held to the model: its prompt, its QA check, the Stage's la
   assert.ok(shots.includes("Draw each thing a red shape stands for from its prop sheet, where the shape is, turned as the shape is, and exactly as large in the frame as the shape: each red shape is that thing built at its true size, so never draw the thing larger or smaller than its shape. "));
   assert.ok(ai.includes("(d) each object a red shape stands for is where the shape is and about the same size in the frame as the shape: the shape is that object built at its true size (a clear difference, half as big again or more, or two thirds or less, is a size error). "));
   assert.ok(stage.includes("each prop is a red shape of its true size: they only mark position and size."));
-  assert.ok(previsUi.includes('props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x"),p.name||"",p.detail||"",p.form||"",p.modelForm||""])'),"a changed card redraws the shot");
+  assert.ok(previsUi.includes('props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x"),p.name||"",p.detail||"",p.form||"",p.modelForm||"",(p.model&&p.model.at)||""])'),"a changed card, or a newly built model, redraws the shot");
   for(const f of [previs,shots,stage,previsUi]) assert.ok(!/red box/i.test(f));
 });
 
@@ -167,17 +167,123 @@ test("7 the prop card: the fold 'Model in code', three drawings beside a ruler, 
     assert.ok(d>0.1&&near(p.position[0]/d,-look[0]/Math.hypot(look[0],look[1]),0.02),k+" faces the thing"); }
   assert.ok(st.poses.front.position[1]>0,"the front camera stands on the thing's front side");
   // the card
-  assert.ok(props.includes('window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView }),'));
+  assert.ok(props.includes('window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView, gen:genForFrame, modelBase:modelBaseRef }),'));
   // inside "The object", under the Physical design it is read from: the card keeps its three rows (The object, Continuity, Advanced)
   const obj_=props.slice(props.indexOf('React.createElement(window.CardGroup,{label:"The object"'),props.indexOf('React.createElement(CardFold,{label:"Continuity \\u00b7 story events"'));
-  assert.ok(obj_.indexOf("window.PropModelFold &&")>obj_.indexOf('label:"Physical dimensions"')&&/window\.PropModelFold,\{ p, onUpdate, onView \}\),\n\n      \),\n\s*$/.test(obj_),"the last thing in The object");
+  assert.ok(obj_.indexOf("window.PropModelFold &&")>obj_.indexOf('label:"Physical dimensions"')&&/modelBase:modelBaseRef \}\),\n\n      \),\n\s*$/.test(obj_),"the last thing in The object");
   for(const t of ['label:"Model in code"','"data-testid":"prop-model"','"data-testid":"prop-model-shape"','"True size, in cm"','[["Wide",0],["Deep",1],["High",2]]','"Use the card’s text again"',
-    'onUpdate(p.id, { dims:next })','onUpdate(p.id,{ dims:null })','onUpdate(p.id,{ modelForm:e.target.value||"" })','"Each block of the ruler is "','Object.assign(window,{ PropModelFold, propModelDraw, propModelSig });'])
+    'onUpdate(p.id, { dims:next })','onUpdate(p.id,{ dims:null })','onUpdate(p.id,{ modelForm:e.target.value||"" })','"Each block of the ruler is "','Object.assign(window,{ PropModelFold, propModelDraw, propModelSig, propModelSheetBase });'])
     assert.ok(ui.includes(t),t);
   assert.ok(ui.includes("const turn = propModelLine.then(run, run);")&&ui.includes("finally{ view.dispose(); }"),"one 3D view at a time, always given back");
-  assert.ok(!/nbCommit|claude\.complete|proxyGenerate|localStorage|setProject/.test(ui+src),"no engine, nothing saved but what the person sets");
+  assert.ok(!/nbCommit|proxyGenerate|localStorage|setProject/.test(ui+src),"nothing saved but what the person sets, no image engine called from here");
+  assert.equal(src.split("claude.complete(").length-1,1,"one engine call in all of it: the model a person asks to be built (draft)");
+  assert.ok(!/claude\.complete/.test(ui));
   assert.ok(!/claude|anthropic|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|McKee/.test(ui.replace(/\/\*[\s\S]*?\*\//g,"")),"nothing internal in what people read");
   for(const c of [".prop-model-pics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}",".prop-model-pics > figure:first-child{grid-column:1/-1}",".prop-model-cm{"]) assert.ok(css.includes(c),c);
+});
+
+// ---- STAGE 2 (owner 2026-11-24: "yes, go on to stage 2") ----
+const WALLET={what:"a bifold leather wallet",size:[11,7.5,1],colours:{main:"#1a1a1c",second:"#888c90",dark:"#0a0a0a",light:"e8e6e0",odd:"red"},parts:[
+  {shape:"box",size:[11,7.5,0.45],at:[0,0,0.225],tone:"main",what:"back cover"},{shape:"box",size:[11,7.5,0.45],at:[0,0,0.775],tone:"main",what:"front cover"},
+  {shape:"cylinder",size:[1,1,7.5],at:[-5.3,0,0.5],turn:[90,0,0],tone:"main",what:"spine"},{shape:"box",size:[4,5,0.2],at:[2,0,1.05],tone:"second",what:"crest"},
+  {shape:"cone",size:[1,1,1],at:[0,0,0],what:"a cone"},{shape:"box",size:[1,"x",1],at:[0,0,0],what:"no size"},{shape:"ring",size:[2,2,0.2],at:[4,2,1.1],turn:45,tone:"shiny",what:"stud"}]};
+
+test("9 a model built for one prop: the answer is read safely, set down on the table, brought to its stated size", ()=>{
+  const got=M.built(WALLET), m=got.model;
+  assert.equal(m.v,1); assert.equal(m.what,"a bifold leather wallet"); assert.equal(m.parts.length,5);
+  assert.deepEqual(plain(got.left),["a cone: a shape a model cannot have","no size: no size or no place"]);
+  assert.deepEqual(plain(m.parts.map(q=>q[0])),["box","box","cylinder","box","torus"]); assert.equal(m.parts[4][3],"main","a tone it does not know is the main one");
+  assert.ok(near(m.parts[4][4][2],Math.PI/4)&&near(m.parts[2][4][0],Math.PI/2),"turns in degrees, kept as they were asked");
+  // on the table, centred, its longest side as stated (11 cm), in metres
+  const b=M.bounds(m.parts); assert.ok(near(b.lo[2],0,1e-4)&&near((b.lo[0]+b.hi[0])/2,0,1e-4)&&near((b.lo[1]+b.hi[1])/2,0,1e-4));
+  assert.ok(near(Math.max(...m.dims),0.113,2e-3),String(m.dims)); assert.deepEqual(plain(m.colours.main),[0.102,0.102,0.11]); assert.deepEqual(plain(Object.keys(m.colours)),["main","second","dark","light"]);
+  // built at another size than it states: brought to the stated size, and it says so
+  const big=M.built({...WALLET,size:[22,15,2]}); assert.ok(near(Math.max(...big.model.dims),0.22,1e-3)); assert.ok(big.left.some(t=>/brought to it/.test(t)));
+  // more parts than a model holds; nothing readable
+  const many=M.built({size:[5,1,24],parts:Array.from({length:40},(_,i)=>({shape:"box",size:[1,1,1],at:[i%5,0,i]}))}); assert.equal(many.model.parts.length,24); assert.equal(many.left.length,16);
+  assert.equal(M.built({parts:[{shape:"blob"}]}).model,null); assert.equal(M.built(null).model,null);
+  // saved on the card with who built it and from what; read back safely
+  const card={id:"p1",name:"Pike’s warrant card",form:"A bifold black leather wallet",size:FILM[1][1]}, kept=M.keep(m,card,{at:"2026-11-24T10:00:00.000Z"});
+  assert.equal(kept.by,"claude-fable-5-2"); assert.equal(kept.from,M.sigOf(card)); assert.ok(M.saved(kept)&&M.saved(kept).parts.length===5);
+  for(const bad of [null,{},{v:2,dims:[1,1,1],parts:kept.parts},{v:1,dims:[1,1],parts:kept.parts},{v:1,dims:[0.1,0.1,0.1],parts:[["cone",[1,1,1],[0,0,0],"main",[0,0,0]]]}]) assert.equal(M.saved(bad),null);
+  // it IS the prop from then on: in the card's drawing and in every shot
+  const mine=M.modelOf({...card,model:kept}); assert.equal(mine.basis,"built"); assert.equal(mine.form,"built"); assert.equal(mine.label,"a bifold leather wallet"); assert.equal(mine.parts.length,5); assert.equal(mine.built,true);
+  const scene=V.stateScene(SET,{...PLAN,things:[{key:"card",name:"Pike’s warrant card",kind:"prop",propId:"p1"}]},{people:{},things:{card:{at:"table"}},doors:[]},{...CTX,props:[{...card,model:kept}]});
+  assert.equal(scene.scene.objects.filter(o=>/^prop-card-/.test(o.id)).length,5); assert.equal(scene.things[0].basis,"built"); assert.equal(scene.things[0].measured,true);
+  assert.ok(plain(V.legend([],scene.things))[0].endsWith("drawn at its true size (11 × 7.5 × 1.2 cm)."),V.legend([],scene.things)[0]);
+  // the card's three numbers resize it; a shape picked by hand uses the standard shape; a changed description says so
+  const sized=M.modelOf({...card,model:kept,dims:[0.12,0.08,0.012]}); assert.equal(sized.basis,"set"); assert.deepEqual(plain(sized.dims),[0.12,0.08,0.012]); assert.equal(sized.parts.length,5);
+  assert.equal(M.modelOf({...card,model:kept,modelForm:"card"}).form,"card");
+  assert.equal(M.stale({...card,model:kept}),false); assert.equal(M.stale({...card,form:"A trifold wallet",model:kept}),true); assert.equal(M.stale(card),false);
+  // its own colours on the card's drawing; plain ones for a standard shape
+  assert.deepEqual(plain(M.stage(mine).scene.materials["model-main"].baseColor),[0.102,0.102,0.11]);
+  assert.deepEqual(plain(M.stage(M.modelOf({name:"Mug of tea"})).scene.materials["model-main"].baseColor),[0.5,0.52,0.56]);
+});
+
+await (async()=>{
+  // the one writing call, with a stand-in engine
+  let asked=null;
+  box.claude={complete:async(o)=>{ asked=o; return {text:"Here it is:\n"+JSON.stringify(WALLET)}; }};
+  const card={id:"p1",name:"Pike’s warrant card",form:"A bifold black leather wallet that opens like a book.",material:"Black leather, silver-tone crest",signatureFeature:"A worn corner",size:FILM[1][1]};
+  const r=await M.draft(card);
+  test("10 the writing pass: one call, on the card's own words, on its engine; an unreadable answer changes nothing", ()=>{
+    assert.equal(asked.modelId,"claude-fable-5-2"); assert.equal(asked.effort,"low"); assert.equal(asked.timeoutMs,120000); assert.ok(asked.timeoutMs<150000,"under the server's time limit");
+    const text=asked.messages[0].content;
+    for(const t of ["Name: Pike’s warrant card","What it is: A bifold black leather wallet that opens like a book.","Material and finish: Black leather, silver-tone crest","Identifying details: A worn corner","Size as written: Closed: ~11 cm wide",
+      "build it as it rests on a table","z = 0 is the table top","between 4 and 20 (never more than 24)","\"box\"","\"cylinder\"","\"ring\"","\"ball\"","\"pad\"","Every part lies inside the box of `size`","nothing floats","Return ONLY compact JSON"]) assert.ok(text.includes(t),t);
+    assert.ok(!/kinolot|\bTURN\b|\bMUSE\b|McKee/.test(text));
+    assert.equal(r.model.parts.length,5); assert.equal(r.model.by,"claude-fable-5-2"); assert.equal(r.model.from,M.sigOf(card)); assert.equal(r.left.length,2);
+    const e=M.estimate(card); assert.ok(e.credits>=1&&e.credits<=20&&e.outputTokens===1500,JSON.stringify(e));
+  });
+  let threw="";
+  box.claude={complete:async()=>"sorry, no"}; try{ await M.draft(card); }catch(e){ threw=e.message; }
+  let empty="";
+  try{ await M.draft({id:"p2",name:"Thing"}); }catch(e){ empty=e.message; }
+  test("10b nothing readable, or nothing to build from: a plain sentence, and nothing is changed", ()=>{
+    assert.equal(threw,"The model came back incomplete. Nothing was changed; try again.");
+    assert.equal(empty,"Write what this prop looks like first (Physical design): the model is built from it. Nothing was changed.");
+  });
+})();
+
+test("11 the sheet's layout from the model: front, side and close-up, each held inside the middle third of its frame", ()=>{
+  // a thing that lies flat is stood up, its face to the camera; its side is turned 70 degrees, never a bare line
+  const phone=M.sheet(M.modelOf({name:"Eshita’s phone",size:FILM[4][1]}));
+  assert.equal(phone.stood,true); assert.equal(phone.thin,true); assert.deepEqual(plain(phone.size),[0.076,0.009,0.162]); assert.equal(phone.own,false);
+  assert.equal(phone.poses.front.yaw,180); assert.equal(phone.poses.side.yaw,250); assert.equal(phone.poses.front.pitch,0);
+  // a mug stands as it is; its side is a true quarter turn
+  const mug=M.sheet(M.modelOf({name:"Mug of tea",size:FILM[2][1]}));
+  assert.equal(mug.stood,false); assert.equal(mug.thin,false); assert.equal(mug.poses.side.yaw,270);
+  for(const s of [phone,mug,M.sheet(M.modelOf({name:"Wine bottle"})),M.sheet(M.modelOf({name:"Old suitcase"}))]){
+    // front and side from the same distance and height: the same size, one baseline
+    const d=q=>Math.hypot(q.position[0],q.position[1]); assert.ok(near(d(s.poses.front),d(s.poses.side),1e-3)&&near(s.poses.front.position[2],s.poses.side.position[2],1e-4)&&near(s.poses.front.position[2],s.size[2]/2,1e-4));
+    // the thing fits the middle third: 6 mm of a 36 mm frame each side of centre, 10.125 mm up and down (a 16:9 frame)
+    const D=d(s.poses.front), lens=s.poses.front.lensMm; assert.equal(lens,100);
+    assert.ok(s.size[0]/2<=D*6/lens&&s.size[2]/2<=D*10.125/lens,"front fits its panel"); assert.ok(s.size[0]/2>=D*6/lens*0.45||s.size[2]/2>=D*10.125/lens*0.45,"and fills a good part of it");
+    assert.ok(d(s.poses.close)<D*0.75&&s.poses.close.pitch<0,"the close-up moves in, from above");
+    assert.ok(s.scene.objects.length>=1&&s.scene.objects.every(o=>/^prop-model-/.test(o.id)&&s.scene.materials[o.material]),"the prop alone: no floor, no ruler");
+  }
+  // drawn by the card: three middle thirds side by side on off-white, thin lines between
+  for(const t of ['const PROP_SHEET_PAPER = "#f1efea";','["front","side","close"].forEach((k,i)=>{','g.drawImage(c, third, 0, third, H, i*third, 0, third, H);','g.fillRect(third-1,0,2,H); g.fillRect(2*third-1,0,2,H);',
+    'pics = { ...pics, layout:(await propModelSheetBase(model, 960)).url }','"data-testid":"prop-model-layout"','"Layout of its image"']) assert.ok(ui.includes(t),t);
+});
+
+test("12 the image made from the model: the layout is the base image and leads every prompt of that render", ()=>{
+  // the card's image maker
+  for(const t of ["const modelBaseRef = React.useRef(null);","referenceFallback: async (gopts)=> (gopts && gopts.modelBase && gopts.modelBase.url) || null,","buildFromBase: ()=> buildPropFromModelPrompt(p, project),",
+    'buildSimple: ()=> (modelBaseRef.current ? propModelLayoutLead(p)+" " : "")+buildSimplePropPrompt(p),','fromModel:{ form:b.form||"", basis:b.basis||"", dims:b.dims||null }']) assert.ok(props.includes(t),t);
+  assert.ok(props.includes('function buildPropFromModelPrompt(p, project){ return propModelLayoutLead(p)+"\\n\\n"+combinedPropPrompt(p, project); }'),"the sheet's own prompt follows, whole");
+  const lead=props.slice(props.indexOf("function propModelLayoutLead(p){"),props.indexOf("function buildPropFromModelPrompt"));
+  for(const t of ["IMAGE 1 IS THE LAYOUT: this object built in code as a plain 3D model at its true proportions","three equal panels, FRONT, SIDE, CLOSE-UP","Draw the SAME sheet, finished.",
+    "the layout wins over any other words about shape or proportion","Do not add, remove or move a part, and do not make the object rounder, slimmer, taller, thicker or more elegant than the model.",
+    "flat colours are the object\\u2019s own base colours","flat greys and blue are placeholders, never its colours: take every colour from the description","it gives style and world only, never shape"]) assert.ok(lead.includes(t),t);
+  // the button: the layout drawn large at the press, held on the card for that one render, cleared after it whatever happens
+  for(const t of ['"data-testid":"prop-model-image"','"Make the image from this model"',"const base = await propModelSheetBase(model, 1536);","if(modelBase) modelBase.current = sent;","await gen.generate({ modelBase:sent, baseMaxDim:1536 });",
+    "finally{ if(modelBase) modelBase.current = null; setMaking(false); }","window.nbCostChip(1,{ refs:1 })","disabled:!!gen.gening || making || !pics"]) assert.ok(ui.includes(t),t);
+  // the build button: its number, its progress where it was pressed, saved by the person's press only
+  for(const t of ['"data-testid":"prop-model-build"','own ? "Build again" : "Build its own model"','"About "+est+" writing credit"','const r = await M.draft(p);','onUpdate(p.id, { model:r.model, modelForm:"" });',
+    'work:{ text:"Building the model", since:build.since, est:45, engine:propModelEngine() }','"data-testid":"prop-model-drop"','"Use the standard shape"','title:"Drop this prop’s own model?"','if(ok) onUpdate(p.id, { model:null });',
+    'if(PROP_MODEL_BUILDING[p.id] || !writable()) return;']) assert.ok(ui.includes(t),t);
+  assert.ok(ui.includes("(window.WRITING_MODELS||[]).find(x=>x && x.id===(id||window.KinolotPropModel.MODEL)); return (m && m.label) || \"\";"),"the engine by its name in the engine list, never its id");
 });
 
 test("8 loaded in order, fresh keys, and Frances knows", ()=>{
@@ -185,12 +291,16 @@ test("8 loaded in order, fresh keys, and Frances knows", ()=>{
   assert.ok(i("app/prop-model.js?v=")>0&&i("app/prop-model.js?v=")<i("app/shot-previs.js?v="),"the model before the drawing that uses it");
   assert.ok(i("app/props.jsx?v=")<i("app/prop-model-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/prop-model-ui.jsx?v="));
   for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/shot-previs.js","app/shot-previs-ui.jsx","app/props.jsx","app/shots.jsx","app/stage.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
-    assert.ok(["20261124-propmodel1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-propmodel1", "20261124-propmodel2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+  for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/props.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
+    assert.ok(["20261124-propmodel2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has stage 2's key");
   const g=[]; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Props: the model in code"')).join("\n"))(g);
   assert.equal(g.length,1);
   const fact=g[0].what;
   for(const t of ["'The object', the fold 'Model in code'","Three-quarter (the large one), Front and Side","read from the card's 'Physical dimensions'","the usual size of such a thing","the line says it is a guess","'True size, in cm'","Wide, Deep and High",
-    "'Use the card's text again'","pick another from the list","the prop is the same size in every drawing","to draw the prop exactly as large as its shape","A tracked thing of the scene plan that has no card","makes no image and changes nothing"])
+    "'Use the card's text again'","pick another from the list","the prop is the same size in every drawing","to draw the prop exactly as large as its shape","A tracked thing of the scene plan that has no card","makes no image and changes nothing",
+    "'Build its own model' is a writing step","a bar, a clock and the engine's name show while it works","'Build again'","'Use the standard shape' drops it, after asking","'Layout of its image'",
+    "three equal panels, front, side and close-up","'Make the image from this model'","keeps the model's shape and proportions in each panel","the image you had stays in its versions"])
     assert.ok(fact.includes(t),t);
   assert.ok(!/credit|\$|claude|anthropic|fable|opus|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|kinolot/i.test(fact),"no price, no engine, no internal name");
   assert.ok(!/\btab\b/i.test(g[0].name),"a fact's name with 'tab' in it answers for every tab");

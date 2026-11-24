@@ -581,6 +581,26 @@ function combinedPropPrompt(p, project){
 }
 window.combinedPropPrompt = combinedPropPrompt;
 
+/* THE IMAGE MADE FROM THE MODEL (owner 2026-11-24, props in code, stage 2: "the prop sheet is made from the model's
+   drawing, so the image engine only adds texture and light"). The prop's model, laid out as its sheet is (three equal
+   panels: front, side, close-up; prop-model.js sheet(), drawn by prop-model-ui.jsx), goes out as Image 1. These words
+   lead the sheet's own prompt: the layout decides shape, proportion and placing; the description decides the rest. */
+function propModelLayoutLead(p){
+  const M = window.KinolotPropModel, m = M ? M.modelOf(p, null) : null;
+  const size = m ? M.sizeWords(m.dims) : "";
+  const own = !!(m && m.built && m.colours && Object.keys(m.colours).length);
+  return "IMAGE 1 IS THE LAYOUT: this object built in code as a plain 3D model at its true proportions"+(size ? " ("+size+")" : "")+", already laid out as this sheet is: three equal panels, FRONT, SIDE, CLOSE-UP. "
+    +"Draw the SAME sheet, finished. In every panel keep exactly the model\u2019s outline, its proportions, how large it is in its panel, the angle it is seen from, and where each of its parts sits: the layout wins over any other words about shape or proportion. "
+    +"Add only what a plain model cannot show: the real material and finish, true colour, texture, small details, any lettering the description states, wear, soft studio light and a soft contact shadow. "
+    +"Do not add, remove or move a part, and do not make the object rounder, slimmer, taller, thicker or more elegant than the model. "
+    +(own ? "The model\u2019s flat colours are the object\u2019s own base colours. " : "The model\u2019s flat greys and blue are placeholders, never its colours: take every colour from the description. ")
+    +"Never leave the model\u2019s plain flat surfaces as they are. Keep the thin lines between the panels and the flat off-white background. "
+    +"The close-up may show finer detail than the model has, of the same part from the same angle. "
+    +"A character sheet named further down is a separate, later image: it gives style and world only, never shape.";
+}
+function buildPropFromModelPrompt(p, project){ return propModelLayoutLead(p)+"\n\n"+combinedPropPrompt(p, project); }
+window.propModelLayoutLead = propModelLayoutLead; window.buildPropFromModelPrompt = buildPropFromModelPrompt;
+
 /* simplified fallback — fewer words, less likely to trip a content filter */
 function buildSimplePropPrompt(p){
   const form = (p.form||"").replace(/\.$/,"").trim();
@@ -1400,19 +1420,27 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
   const initials = (p.name||"?").replace(/^the\s+/i,"").split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
   const referenceImages = Array.isArray(p.referenceImages) ? p.referenceImages.filter(r=>r&&r.url) : [];
 
+  // FROM ITS MODEL (props in code, stage 2): the model's layout a render was asked to follow, held for that one render
+  // (set and cleared by the fold "Model in code": prop-model-ui.jsx). It is the base image, and leads every prompt of
+  // that render, the simpler second try too: the person asked for an image from the model, never for another kind.
+  const modelBaseRef = React.useRef(null);
   const gen = useImageGen({
     keepEdits:true, noun:"image",
     id: p.id, slotId: "propref-"+p.id,
     entity: p,
     buildFinal: ()=> finalPrompt,
     buildFromPhoto: ()=> buildPropFromPhotoPrompt(p, project),
-    buildSimple: ()=> buildSimplePropPrompt(p),
+    buildSimple: ()=> (modelBaseRef.current ? propModelLayoutLead(p)+" " : "")+buildSimplePropPrompt(p),
+    referenceFallback: async (gopts)=> (gopts && gopts.modelBase && gopts.modelBase.url) || null,
+    buildFromBase: ()=> buildPropFromModelPrompt(p, project),
     // reference the OWNER's character sheet so the prop matches their look (worn props
     // especially must read as part of THAT body, not a generic grey object).
     attachments: propOwnerAttachments(p),
     attachmentsText: propAttachmentsText(p),
     // record WHICH owner-sheet version this sheet was anchored against (transaction-derived)
-    metaExtra: propAnchorMetaExtra(p),
+    // (an image made from the model records the model it followed: its shape, its size, where the size came from)
+    metaExtra: async (x)=>{ const extra = await propAnchorMetaExtra(p)(x), b = modelBaseRef.current;
+      return (x && x.mode==="base" && b) ? { ...(extra||{}), fromModel:{ form:b.form||"", basis:b.basis||"", dims:b.dims||null } } : extra; },
     // clearing the base sheet also clears this prop's state variants (no orphans)
     relatedClearIds: ()=> (Array.isArray(p.states)?p.states:[]).map(s=> p.id+":"+s.id)
       .concat((Array.isArray(p.continuityEvents)?p.continuityEvents:[]).map(e=> e && e.referenceAssetId).filter(id=> id && String(id).indexOf(p.id+":")===0)),
@@ -1959,7 +1987,7 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
         // THE MODEL IN CODE (owner 2026-11-24, "props in code"): this prop as every shot's drawing has it, its shape and
         // its true size (prop-model.js / prop-model-ui.jsx), under the Physical design it is read from. Worn things
         // are never drawn as a thing of their own.
-        window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView }),
+        window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView, gen:genForFrame, modelBase:modelBaseRef }),
 
       ),
       React.createElement(CardFold,{label:"Continuity \u00b7 story events",count:continuityEvents.length||null,defaultOpen:false},

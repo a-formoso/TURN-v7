@@ -38,7 +38,7 @@ function shotPrevisSig(sh, plan, cam, loc, ctx){
   const block = ((plan.blocking||[]).find(b=>b && Number(b.beat)===Number(sh.beatN))) || null;
   return JSON.stringify([sh.id, sh.startState||null, sh.endState||null, sh.size, sh.angle, sh.lens, sh.subjects||[], sh.planThings||[], cam,
     plan.marks||[], block, (plan.things||[]).map(t=>[t.key,t.kind,t.propId]), loc.id, place, dress,
-    cast.filter(c=>here.has(c.id)).map(c=>[c.id,c.height||""]), props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x"),p.name||"",p.detail||"",p.form||"",p.modelForm||""])]);
+    cast.filter(c=>here.has(c.id)).map(c=>[c.id,c.height||""]), props.map(p=>[p.id,p.size||"",p.scale||"",(p.dims||[]).join("x"),p.name||"",p.detail||"",p.form||"",p.modelForm||"",(p.model&&p.model.at)||""])]);
 }
 const shotPrevisNum = (n,d)=>{ const v = Number(n); return Number.isFinite(v) ? String(Math.round(v*Math.pow(10,d||0))/Math.pow(10,d||0)) : ""; };
 
