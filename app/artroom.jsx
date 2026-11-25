@@ -4382,7 +4382,7 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
     : null;
   const writingRows = writingSources.map((p,i)=>React.createElement("div",{
     key:[p.task,p.modelId,p.at,i].join("-"),className:"dt-continuity-row",
-    title:[p.modelId,writingDate(p.at)].filter(Boolean).join(" · ")
+    title:writingDate(p.at)||undefined   // the date; the engine's name is on the row, its id is never shown (2026-11-25)
   },
     React.createElement("span",{className:"dt-continuity-name"},p.task||"Specification"),
     React.createElement("span",{className:"dt-continuity-mode dt-writing-model"},p.model)));
@@ -4518,7 +4518,8 @@ function SheetDetails({ gen, name, noun, onClose, onView, extraMeta }){
               const layerLabel = hm.carriedFrom ? nbCarriedFromLabel(hm.carriedFrom) : isEdit
                 ? ("Edit: "+(hm.editInstruction||"adjustment"))
                 : (hm.mode==="photo" ? "From reference photo" : hm.mode==="cameo" ? "From the likeness" : styleLabel || "Original generation");
-              const modelName = (hm.codeEdit && hm.codeEdit.by) ? hm.codeEdit.by : (hm.modelId || hm.modelLabel || "unknown model");
+              // the engine by its name in the engine list, never its saved id (2026-11-25; nbShownModel, as the Model field)
+              const modelName = nbShownModel(hm).label || "unknown engine";
               const active = selVer && selVer.idx===i;
               return React.createElement("div",{key:i,className:"dt-hist-item"+(active?" active":"")},
                 React.createElement("div",{className:"dt-hist-row"},
@@ -6427,7 +6428,7 @@ function SheetFrame({ gen, slotId, name, avatarColor, initials, drafted, draftin
                   return React.createElement("span",{key:k,className:"sheet-meta-item none",title:lab0+": not saved with this image"},
                     IC0 ? React.createElement(IC0,{s:10,sw:1.8}) : null, short0+" \u2014");
                 }
-                if(k==="model") return React.createElement("span",{key:k,className:"sheet-meta-item sheet-meta-model",title:(()=>{ const sm = nbShownModel(genMeta); return "Model: "+sm.label+(sm.id ? " ("+sm.id+")" : "")+(sm.code ? ". This version was put together in code; Details say how." : ""); })()},
+                if(k==="model") return React.createElement("span",{key:k,className:"sheet-meta-item sheet-meta-model",title:(()=>{ const sm = nbShownModel(genMeta); return "Model: "+sm.label+(sm.code ? ". This version was put together in code; Details say how." : ""); })()},
                   React.createElement(Icon.sparkles,{s:10,sw:1.8}),
                   /* the commercial name (e.g. "Nano Banana 2.1"), not the raw model id */
                   React.createElement("span",{className:"sheet-meta-model-name"},v));
@@ -6491,7 +6492,7 @@ function sheetCapWrite(list){
 function sheetCapValue(field, genMeta, resLabel){
   const m = genMeta || {};
   if(field==="model" && m.codeEdit && m.codeEdit.by) return (typeof codeEditByShown==="function") ? codeEditByShown(m.codeEdit).by : String(m.codeEdit.by);   // a change made in code names its planner (2026-11-20)
-  if(field==="model") return m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "";
+  if(field==="model") return nbEngineShown(m);
   if(field==="aspect") return m.aspect || "";
   if(field==="size") return (m.uploaded || m.modelId==="uploaded") ? String(resLabel||"").split(" \u00b7 ")[0] : (resLabel||"");
   if(field==="pixels") return (Number(m.pixelW)>0 && Number(m.pixelH)>0) ? (Number(m.pixelW)+"\u00d7"+Number(m.pixelH)) : "";
@@ -6643,7 +6644,24 @@ window.turnUpscaleInCode = turnUpscaleInCode; window.upscaleTiersFor = upscaleTi
 function nbShownModel(meta){
   const m = meta || {}, ce = m.codeEdit;
   if(ce && ce.by){ const who = codeEditByShown(ce); return { label:who.by, id:who.byId, code:true }; }
-  return { label:m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : ((window.NB_MODELS||[]).find(x=>x.id===m.modelId)||{}).label) || m.modelId || "", id:m.modelId||"", code:false };
+  return { label:nbEngineShown(m), id:m.modelId||"", code:false };
+}
+/* THE NAME AN IMAGE'S ENGINE IS SHOWN BY (2026-11-25): the engine list's name for the saved id (a retired engine's own
+   name included), never the id itself: an id names its maker, and no maker is named to users. Stored records are not
+   rewritten; the id is mapped where it is shown. An id the list does not know falls back to the name saved with the
+   image, and "" when there is none (each place then says so in its own words: "unknown engine", a dash, no line). */
+function nbEngineShown(meta){
+  const m = meta || {}, id = String(m.modelId||"").trim(), saved = String(m.modelLabel||"").trim();
+  const idLike = x=> /^[a-z0-9]+(?:[-_.\/:][a-z0-9]+)+$/.test(x);      // "gemini-nano-banana-2.1": lower case, joined by marks
+  const named = x=>{
+    if(!x) return "";
+    const hit = (window.NB_MODELS||[]).find(e=>e && e.id===x);
+    if(hit && hit.label) return String(hit.label);
+    const l = (typeof nbModelLabel==="function") ? String(nbModelLabel(x)||"") : "";
+    return (l && l!==x) ? l : "";                                      // nbModelLabel hands back an id it does not know
+  };
+  return named(id) || named(saved) || ((saved && saved!==id && !idLike(saved)) ? saved : "")
+    || ((id==="uploaded" || m.uploaded) ? "Uploaded" : "");
 }
 /* WHO A CHANGE MADE IN CODE IS CREDITED TO (owner 2026-11-20: "they should see [the planner] as the model that did the
    editing"; 2026-11-21: "when a user chooses to resize an image, Fable 5.2 is automatically selected for this task").
@@ -6664,7 +6682,7 @@ window.codeEditBy = codeEditBy; window.codeEditByShown = codeEditByShown;
 function codeEditLines(meta){
   const m = meta || {}, ce = m.codeEdit;
   if(!ce || !ce.by) return { did:"", drew:"" };
-  const engine = m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) : "") || "";
+  const engine = nbEngineShown(m);
   const from = m.restoredFromVersion ? "v"+m.restoredFromVersion : (m.builtFromVersion ? "v"+m.builtFromVersion : "the version before");
   if(ce.kind==="upscale-detail") return { did:"Enlarged in code"+((m.upscaledFrom && m.pixelW) ? ", from "+m.upscaledFrom.w+"\u00d7"+m.upscaledFrom.h+" to "+m.pixelW+"\u00d7"+m.pixelH : "")+", with fine detail taken from an image engine\u2019s 4K drawing on "+Math.round((Number(m.detailCoverage)||0)*100)+"% of the picture. Its shapes, faces and colours are the picture\u2019s own.", drew:engine };
   if(ce.kind==="resize-back") return { did:"Brought back to its full size in code: this is the picture it was resized from, exactly as it was"+(m.pixelW ? " ("+m.pixelW+"\u00d7"+m.pixelH+")" : "")+". Nothing was lost and no engine was used.", drew:"" };
@@ -6674,7 +6692,7 @@ function codeEditLines(meta){
   return { did:(typeof turnKeptSummary==="function" ? turnKeptSummary(m) : "") || "Put together in code from "+from+".",
     drew:(ce.drew && engine && engine!==ce.by) ? engine : "" };
 }
-window.nbShownModel = nbShownModel; window.codeEditLines = codeEditLines;
+window.nbShownModel = nbShownModel; window.nbEngineShown = nbEngineShown; window.codeEditLines = codeEditLines;
 window.sheetCapRead = sheetCapRead; window.sheetCapValue = sheetCapValue; window.SHEET_CAP_FIELDS = SHEET_CAP_FIELDS;
 /* (these sit after the frame, before it goes on window: whoever lifts the frame's source up to that line takes them too) */
 window.SheetFrame = SheetFrame;

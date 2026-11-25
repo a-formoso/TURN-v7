@@ -361,6 +361,24 @@ safely("E mappings", ()=>{
   vm.runInContext(fnSource("app/team.jsx", "teamRoleLabel", { alsoConst:["TEAM_ROLES"] }), c5);
   ok("E teamRoleLabel(): the stored role 'writer' shows as 'Co-writer' (the Writer PLAN keeps its name)",
     vm.runInContext("teamRoleLabel('writer')", c5)==="Co-writer");
+
+  // (2026-11-25) an image's engine is shown by its name in the engine list, never by the id saved with the image
+  const c6 = vm.createContext({}); c6.window = c6;
+  vm.runInContext(fnSource("app/imagegen.jsx", "nbModelLabel", { alsoConst:["NB_MODELS", "NB_HISTORICAL_MODEL_LABELS"] })
+    +"\n"+["nbEngineShown", "nbShownModel", "codeEditBy", "codeEditByShown"].map(f=>fnSource("app/artroom.jsx", f)).join("\n")
+    +"\nthis.ENGINES = NB_MODELS.map(m=>[m.id, m.label]).concat(Object.entries(NB_HISTORICAL_MODEL_LABELS));", c6);
+  const engineShown = meta=>c6.nbShownModel(meta).label;
+  ok("E nbEngineShown(): every engine, a retired one too, is shown by its name, whatever name was saved with the image",
+    c6.ENGINES.length>=11 && c6.ENGINES.every(([id, label])=> label!==id && engineShown({ modelId:id })===label && engineShown({ modelId:id, modelLabel:id })===label)
+      && engineShown({ modelId:"gemini-nano-banana-2.1" })==="Nano Banana 2.1" && engineShown({ modelId:"gemini-3-pro-image" })==="Nano Banana Pro");
+  ok("E …an id the list does not know is never shown: the name saved with the image, else nothing",
+    engineShown({ modelId:"mystery-engine-9" })==="" && engineShown({ modelId:"mystery-engine-9", modelLabel:"mystery-engine-9" })===""
+      && engineShown({ modelId:"mystery-engine-9", modelLabel:"vendor/mystery-9" })==="" && engineShown({ modelId:"mystery-engine-9", modelLabel:"Mystery 9" })==="Mystery 9"
+      && engineShown({ modelId:"uploaded", modelLabel:"Uploaded" })==="Uploaded" && engineShown({ modelId:"uploaded" })==="Uploaded" && engineShown({})==="");
+  const artSrc = read("app/artroom.jsx");
+  ok("E the Details window: Earlier versions, the caption's tooltip and the writing rows' tooltip print no saved id",
+    artSrc.includes('const modelName = nbShownModel(hm).label || "unknown engine";') && artSrc.includes('if(field==="model") return nbEngineShown(m);')
+      && !/hm\.modelId\s*\|\||\|\|\s*m\.modelId\s*\|\|\s*""|sm\.id\s*\?|title:\[p\.modelId/.test(artSrc));
 });
 
 /* ───────────────────────── F. the guard bites ───────────────────────── */

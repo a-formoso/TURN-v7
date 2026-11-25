@@ -355,7 +355,7 @@ await test("E old assets keep their historical labels", () => {
   assert.equal(A.nbModelLabel(SEED), "Seedream 5 Pro"); assert.equal(A.nbModelLabel(SEED55), "Seedream 5.5");
   assert.deepEqual(plain(vm.runInContext("NB_HISTORICAL_MODEL_LABELS", A)), { "gemini-3.1-flash-lite-image": "Nano Banana 2 Lite", "gemini-3.1-flash-image": "Nano Banana 2",
     "gemini-3-pro-image": "Nano Banana Pro", "gpt-image-2": "GPT Image 2", "gpt-image-2.5-flare": "GPT Image 2.5 Flare", "gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst" });
-  assert.ok(artSrc.includes('if(field==="model") return m.modelLabel || (typeof nbModelLabel==="function" ? nbModelLabel(m.modelId) :'));   // (2026-11-17) the chip's words come from sheetCapValue
+  assert.ok(artSrc.includes('if(field==="model") return nbEngineShown(m);'));   // (2026-11-17) the chip's words come from sheetCapValue
 });
 
 /* ═══ F ═══ */

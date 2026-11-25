@@ -46,6 +46,9 @@ const nodeText=n=>n==null||n===false?"":typeof n!=="object"?String(n):(n.childre
   const historyView=details(originalMeta);
   assert.equal(nodeText(generated(historyView)),"GeneratedSep 10, 2026 · 8:00 PM");
   assert.match(nodeText(find(historyView,n=>n.props.className==="dt-hist-meta")),/Sep 10, 2026 8:00 PM/);
+  // (2026-11-25) each earlier version names its engine as the engine list does, never by its saved id
+  assert.equal(nodeText(find(historyView,n=>n.props.className==="dt-hist-meta")),"GPT Image 2.5 Sunburst \u00b7 Sep 10, 2026 8:00 PM");
+  assert.doesNotMatch(nodeText(historyView),/gpt-image-2\.5-sunburst/,"the saved id is nowhere in the Details window");
   s.React.useState=oldUseState;
 
   const sb={window:{},React:{createElement:noop}};vm.createContext(sb);
