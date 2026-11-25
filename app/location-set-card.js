@@ -213,12 +213,16 @@
 
   // The three pictures of a reference pack, in order: what each is called, its look in the viewer and its one line.
   // The three looks of a view (KinolotPrevis: colour, clay, depth) and the three pictures of a reference pack.
+  /* (owner 2026-11-25: the same four words as a shot's picture has, "Previs", "Clay", "Depth" and "Frame". The first,
+     the set with its surfaces, was called "Colour"; its id stays. "Frame" is no drawing: it is the place's finished
+     picture, its location image.) */
   const LOOKS=[
-    {id:"colour",look:"",name:"Colour",title:"The set with its surfaces: brick, floor, glass, furniture"},
+    {id:"colour",look:"",name:"Previs",title:"The set with its surfaces: brick, floor, glass, furniture"},
     {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light. The stand-ins keep their colours."},
-    {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"}];
+    {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"},
+    {id:"frame",look:"",name:"Frame",title:"The location image: the finished picture of this place",frame:true}];
   const PACK=[
-    {id:"colour",look:"",name:"Colour",text:"This camera, the set with its surfaces and the two stand-ins."},
+    {id:"colour",look:"",name:"Previs",text:"This camera, the set with its surfaces and the two stand-ins."},
     {id:"clay",look:"clay",name:"Clay",text:"The set in one matt white, so only shape and light are left. The stand-ins keep their colours."},
     {id:"depth",look:"depth",name:"Depth",text:"How far each thing is from the camera. Near is light."}];
 

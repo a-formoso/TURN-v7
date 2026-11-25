@@ -162,8 +162,10 @@ test("6b the plan, ready to draw: the whole place with the chosen space lit, wal
 });
 
 test("7 the looks and the pack: Colour, Clay, Depth, drawn by the viewer's own looks; the stand-ins stand in the view", ()=>{
-  assert.deepEqual(K.LOOKS.map(x=>x.name),["Colour","Clay","Depth"]); assert.deepEqual(K.LOOKS.map(x=>x.look),["","clay","depth"]);
-  assert.deepEqual(K.PACK.map(x=>x.name),["Colour","Clay","Depth"]); assert.deepEqual(K.PACK.map(x=>x.look),["","clay","depth"]);
+  // (owner 2026-11-25: the same four words as a shot's picture; the fourth is the place's finished picture, no drawing)
+  assert.deepEqual(K.LOOKS.map(x=>x.name),["Previs","Clay","Depth","Frame"]); assert.deepEqual(K.LOOKS.map(x=>x.look),["","clay","depth",""]); assert.deepEqual(K.LOOKS.map(x=>!!x.frame),[false,false,false,true]);
+  assert.deepEqual(K.LOOKS.map(x=>x.id),["colour","clay","depth","frame"],"the ids stay: what a card was last looking at is kept by id");
+  assert.deepEqual(K.PACK.map(x=>x.name),["Previs","Clay","Depth"]); assert.deepEqual(K.PACK.map(x=>x.look),["","clay","depth"]);
   assert.deepEqual(K.PEOPLE.map(k=>[k.id,k.colour,k.height]),[["A",0xD08A2E,1.66],["B",0x3E73B8,1.72]]);
   // the viewer: surfaces on request, a look and a cast per drawing; the set itself is put back as it was
   // (the looks themselves are tested in test-previs-looks.mjs)
@@ -231,7 +233,7 @@ test("8 the card is laid out top to bottom as designed, then in sections that fo
   assert.ok(t.includes("MASTER SET")&&t.includes("CAM 1 \u00b7 18 MM")&&t.includes("Whole room"));
   assert.ok(t.includes("Build reference pack for House, camera 1"));
   assert.deepEqual(flat(el).filter(x=>x.props.className==="lsc-chip").map(x=>[x.children.join(""),x.props["aria-pressed"]]),[["House","true"],["Kitchen","false"]]);
-  assert.deepEqual(flat(el).find(x=>x.props.className==="lsc-seg").children.map(b=>b.children.join("")),["Colour","Clay","Depth"]);
+  assert.deepEqual(flat(el).find(x=>x.props.className==="lsc-seg").children.map(b=>b.children.join("")),["Previs","Clay","Depth","Frame"]);
   // a place with no rooms has no chips; with no floor plan the plan says so
   const alone=tree({place:{id:"p",name:"Cab"},rooms:[],project:{},scenes:[]}).el;
   assert.ok(!flat(alone).some(x=>x.props.className==="lsc-chips"));
@@ -347,15 +349,23 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+});
+
+test("11b Frame, the fourth word of the switch: the place's location image, shown where the drawings are shown", ()=>{
+  const ui=read("app/location-set-card-ui.jsx");
+  for(const t of ["const isFrame = !!look.frame, frameId = space.location.id;",'let u = typeof nbGetImage==="function" ? (nbGetImage(frameId)||"") : "";',"u = (await nbLoadImage(frameId))||\"\";",
+    'window.addEventListener("nb-gen-done", again);','},[isFrame, frameId, hasImage]);','"data-testid":"set-card-frame"','"data-testid":"set-card-no-frame"','LSC_E("b",null,"No location image yet")',
+    '"The location image is made from this set, in The set in 3D."','view && !cannot && !isFrame && LSC_E("span",{ className:"lsc-camtag"','disabled:cannot && !x.frame,','onUpdate=null, hasImage=false }){']) assert.ok(ui.includes(t),t);
+  assert.ok(!/nbCommit|proxyGenerate|claude\.complete/.test(ui.slice(ui.indexOf("const isFrame = !!look.frame"),ui.indexOf("const frameNow ="))),"it only shows the image: nothing is made and nothing is saved");
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{
   const at=ai.indexOf('name:"Location card: the set card on top (one card per set)"'); assert.ok(at>0);
   const fact=ai.slice(at,ai.indexOf("\n",at));
-  for(const s of ["THE SET CARD is the top of every place's card","COLOUR, CLAY, DEPTH","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
+  for(const s of ["THE SET CARD is the top of every place's card","PREVIS, CLAY, DEPTH, FRAME","Frame shows the place's finished picture, its location image, in the same spot","'No location image yet'","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
     "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","The render style is chosen there too","DRESSING RUNS BY ITSELF","It adds nothing loose and nothing invented",
-    "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","every Colour drawing of a set is painted the same way, on the set card, on the Previs sheet and on a shot's drawing"]) assert.ok(fact.includes(s),s);
+    "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","every Previs drawing of a set (the one called 'Colour' until 2026-11-25) is painted the same way, on the set card, on the Previs sheet and on a shot's drawing"]) assert.ok(fact.includes(s),s);
   assert.ok(!/credit|\bTURN\b|MUSE|Claude|Anthropic|three\.js|WebGL/i.test(fact));
 });
 

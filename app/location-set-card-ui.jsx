@@ -4,7 +4,7 @@
    able to do for other tab cards ... a floor plan section ... the exact same level of detail we have on the demo").
    Top to bottom, as designed:
      the chosen camera's view (MASTER SET, CAM n) · the name, and a chip for the place and each room · the facts and
-     what the camera is for · Colour / Clay / Depth
+     what the camera is for · Previs / Clay / Depth / Frame
    then sections that fold, as on a character or a prop card:
      Location sheet (four views, tap one, and what the space connects to) · The place (its description, the card's
      own section) · Floor plan (the walls, the doors and windows, the chosen room lit, the camera and what it takes
@@ -135,7 +135,7 @@ function LocationSetPlan({ model, label, onMove }){
 // what a place's card was last looking at (the look, and where the stand-ins were put): kept while the tab is open,
 // so that pressing a room's chip, which brings that room's own card, does not start over
 const lscKept = {};
-function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project, scenes, readOnly=false, slots=null, planOpen=false, planReady=false, onUpdate=null }){
+function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project, scenes, readOnly=false, slots=null, planOpen=false, planReady=false, onUpdate=null, hasImage=false }){
   const K = window.KinolotSetCard;
   const ref = React.useRef(null), onScreen = useLscOnScreen(ref);
   const all = K.spaces(place, rooms);
@@ -219,6 +219,25 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   };
   const packNow = pack.of===packKey ? pack : { of:"", urls:null, busy:false, error:"" };
   const go = n=>()=>{ if(typeof window.goToLocationStep==="function") window.goToLocationStep(space.location, n); };
+  /* FRAME (owner 2026-11-25: the same four words as a shot's picture, "Previs", "Clay", "Depth" and "Frame"): the
+     fourth is the place's finished picture, its location image, shown where the drawings are shown. Read when it is
+     asked for, and again when an image of this place has just been made. Nothing is drawn and nothing is saved. */
+  const isFrame = !!look.frame, frameId = space.location.id;
+  const [frame, setFrame] = React.useState({ of:"", url:"" });
+  React.useEffect(()=>{
+    if(!isFrame) return undefined;
+    let live = true;
+    const read = async ()=>{
+      let u = typeof nbGetImage==="function" ? (nbGetImage(frameId)||"") : "";
+      if(!u && typeof nbLoadImage==="function"){ try{ u = (await nbLoadImage(frameId))||""; }catch(e){ u = ""; } }
+      if(live) setFrame({ of:frameId, url:u });
+    };
+    read();
+    const again = e=>{ const d = (e && e.detail) || {}; if(d.id===frameId || (Array.isArray(d.ids) && d.ids.indexOf(frameId)>=0)) read(); };
+    window.addEventListener("nb-gen-done", again); window.addEventListener("nb-prefetched", again);
+    return ()=>{ live = false; window.removeEventListener("nb-gen-done", again); window.removeEventListener("nb-prefetched", again); };
+  },[isFrame, frameId, hasImage]);
+  const frameNow = frame.of===frameId ? frame.url : "";
   const cannot = sameSpace && !!pics.error && !heroNow;
   const S = slots || {};
   // the Floor plan section of the card itself: its name, its count and its link id, with its tools inside
@@ -228,7 +247,13 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   return LSC_E("div",{ ref, className:"lsc", "data-testid":"set-card", "data-set-card":place.id },
     // the chosen camera's view
     LSC_E("div",{ className:"lsc-stage"+(pics.drawing?" drawing":""), "aria-busy":pics.drawing?"true":"false", "data-look":look.id },
-      heroNow ? LSC_E("img",{ src:heroNow, alt:(space.name||"This place")+", camera "+(view?view.n:1)+": "+(view?view.role:""), draggable:false })
+      isFrame ? (frameNow ? LSC_E("img",{ src:frameNow, alt:(space.name||"This place")+", its location image", draggable:false, "data-testid":"set-card-frame" })
+          : LSC_E("div",{ className:"lsc-empty", "data-testid":"set-card-no-frame" },
+              LSC_E("b",null,"No location image yet"),
+              LSC_E("span",null,"The location image is made from this set, in The set in 3D."),
+              !readOnly && LSC_E("div",{ className:"lsc-empty-acts" },
+                LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open The set in 3D"))))
+      : heroNow ? LSC_E("img",{ src:heroNow, alt:(space.name||"This place")+", camera "+(view?view.n:1)+": "+(view?view.role:""), draggable:false })
         : cannot ? LSC_E("div",{ className:"lsc-empty", "data-testid":"set-card-empty" },
             LSC_E("b",null,"The set cannot be drawn yet"),
             // (until the floor plan is confirmed that is the one thing to say, in plain words)
@@ -239,7 +264,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
               ready && LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open The set in 3D")))
         : LSC_E("span",{ className:"lsc-wait" }, onScreen ? "Drawing the set…" : ""),
       LSC_E("span",{ className:"lsc-badge" },"MASTER SET"),
-      view && !cannot && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view))),
+      view && !cannot && !isFrame && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view))),
     LSC_E("div",{ className:"lsc-body" },
       // the name, and the place and its rooms
       LSC_E("div",{ className:"lsc-head" },
@@ -253,9 +278,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
       LSC_E("div",{ className:"lsc-info" },
         LSC_E("p",{ className:"lsc-mono", "data-testid":"set-card-facts" }, K.facts(space, all, plan, coords) || (drawn ? "" : "No floor plan yet")),
         LSC_E("p",{ className:"lsc-role" }, view ? view.role : "")),
-      // the same view, three ways
+      // the same view, three ways, and the place's finished picture (which needs no set to be drawn)
       LSC_E("div",{ className:"lsc-seg", role:"group", "aria-label":"How the view is drawn" },
-        K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot,
+        K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot && !x.frame,
           onClick:()=>setPick(p=>({ ...p, look:x.id })) }, x.name))),
 
       // the set being dressed by itself: what it is doing, or what went wrong

@@ -171,21 +171,21 @@ await test("6 a shot's drawing and a beat's take the look; a frame is still made
 });
 
 await test("7 the switch on a shot card's Previs: Colour, Clay, Depth; each look kept apart for the session", ()=>{
-  assert.ok(shotUi.includes('{ id:"", name:"Colour", title:"The set as built. A frame is made from this drawing." },'));
+  assert.ok(shotUi.includes('{ id:"", name:"Previs", title:"The set as built. A frame is made from this drawing." },'),"called Previs since 2026-11-25 (owner), as on the shot's picture");
   assert.ok(shotUi.includes('{ id:"clay", name:"Clay",')&&shotUi.includes('{ id:"depth", name:"Depth",'));
   assert.ok(shotUi.includes('const sig = colourSig+(look ? "|look:"+look : "");'),"a look never replaces another's drawing");
   assert.ok(shotUi.includes("const [look, setLookNow] = React.useState(()=> SHOT_PREVIS_LOOK.get(sh.id) || \"\");")&&shotUi.includes("SHOT_PREVIS_LOOK.set(sh.id, id);"),"a shot remembers the look it was left on");
   assert.ok(shotUi.includes("...(look ? { look } : {}),"));
   assert.ok(shotUi.includes('"data-testid":"shot-previs-looks"')&&shotUi.includes('"data-look":look||"colour"'));
-  assert.ok(shotUi.includes('onMake && look && SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-look-note"},"A frame is made from the Colour drawing, not from this one."),'));
+  assert.ok(shotUi.includes('onMake && look && SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-look-note"},"A frame is made from the Previs drawing, not from this one."),'));
   assert.ok(css.includes(".shot-previs-looks{display:flex;")&&css.includes('.shot-previs-looks button[aria-pressed="true"]{background:var(--hs-amber,var(--pos));'));
 });
 
 await test("8 the switch on the location card: Colour, Clay, Depth, each look's picture kept", ()=>{
   const box={console};box.window=box;vm.createContext(box);vm.runInContext(card,box);
   const K=box.KinolotSetCard;
-  assert.deepEqual(JSON.parse(JSON.stringify(K.LOOKS.map(x=>[x.id,x.name,x.look]))),[["colour","Colour",""],["clay","Clay","clay"],["depth","Depth","depth"]]);
-  assert.deepEqual(JSON.parse(JSON.stringify(K.PACK.map(x=>[x.name,x.look]))),[["Colour",""],["Clay","clay"],["Depth","depth"]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(K.LOOKS.map(x=>[x.id,x.name,x.look]))),[["colour","Previs",""],["clay","Clay","clay"],["depth","Depth","depth"],["frame","Frame",""]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(K.PACK.map(x=>[x.name,x.look]))),[["Previs",""],["Clay","clay"],["Depth","depth"]]);
   assert.ok(face.includes("const heroes = React.useRef(new Map());")&&face.includes("heroes.current.set(heroKey, res.urls[res.urls.length-1]);"));
   assert.ok(face.includes("if(!needThumbs && heroes.current.has(heroKey)){"),"going back to a look is at once");
   assert.ok(face.includes('const kept = lscKept[place.id] || (lscKept[place.id] = { look:"colour", moved:{} });'));
@@ -195,11 +195,11 @@ await test("8 the switch on the location card: Colour, Clay, Depth, each look's 
 await test("9 Frances knows the three looks; the files have fresh keys", ()=>{
   const shots=ai.slice(ai.indexOf('name:"Shots: the previs of a shot, and its camera on the floor plan"'));
   const fact=shots.slice(0,shots.indexOf("\n"));
-  for(const s of ["COLOUR, CLAY, DEPTH (2026-11-23)","Colour is the set as built, and the one a frame is made from","with the people and the props in their own colours","white at 40 cm, black at the far end of the space the shot plays in","lit softly from three sides","A frame is always made from the Colour drawing"]) assert.ok(fact.includes(s),s);
+  for(const s of ["PREVIS, CLAY, DEPTH (2026-11-23; the first was called 'Colour' until 2026-11-25)","Previs is the set as built, and the one a frame is made from","with the people and the props in their own colours","white at 40 cm, black at the far end of the space the shot plays in","lit softly from three sides","A frame is always made from the Previs drawing"]) assert.ok(fact.includes(s),s);
   const place=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"'));
-  assert.ok(place.slice(0,place.indexOf("\n")).includes("COLOUR, CLAY, DEPTH: three ways to draw the same view; each is kept as drawn"));
+  assert.ok(place.slice(0,place.indexOf("\n")).includes("Previs, Clay and Depth are three ways to draw the same view; each is kept as drawn"));
   for(const f of ["app/set-previs.js","app/shot-previs.js","app/shot-previs-ui.jsx","app/location-set-card.js","app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 /* ---- STEP 2: LIGHT AND SHEEN (owner 2026-11-23: "go with your recommendation on depth and start step 2") ---- */
@@ -298,7 +298,7 @@ await test("14 a person in a shot's Previs is a jointed figure: two new shapes d
   assert.ok(shot.includes('+" figure is "+p.name')&&ai.includes("its drawn surfaces, plain jointed figures and boxes are stand-in")&&shotsUi.includes("never its drawn surfaces, its plain jointed figures or it"));
   assert.ok(ai.includes("Each person is a plain jointed figure in one colour (a body, a head with a nose that shows which way they look, arms with hands, legs with shoes)"));
   for(const f of ["app/camera-angle-preview.js","app/shot-previs.js","app/shots.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 await test("15 the furniture kit: a chair of the set is drawn from its parts; the set keeps its shapes; clay covers the parts too", async()=>{
@@ -370,7 +370,7 @@ await test("16 painted surfaces on every Colour drawing: the sheet, the viewer a
   assert.deepEqual(["kit_steel","kit_glass","kit_linen","kit_cover","kit_book3","kit_worktop","kit_dark","kit_bulb","d_oak_kitshade","d_darkdoor_kitshade"].map(id=>kind(id,"")),["metal","glass","fabric","fabric","paper","gloss","plain","lamp","wood","gloss"]);
   // the words: the image engine is told the drawn surfaces are stand-ins, and the help assistant knows
   assert.ok(previs.includes("The sheet's drawn surfaces and simple light only point to materials and the hour;")&&!/flat colours, plain jointed/.test(ai+read("app/shots.jsx")+read("app/shots-ui.jsx")));
-  assert.ok(ai.split("\n").filter(l=>l.startsWith("APP_FEATURES.push")&&/PAINTED SURFACES EVERYWHERE \(2026-11-24\): every Colour drawing of a set is painted the same way/.test(l)).length===1);
+  assert.ok(ai.split("\n").filter(l=>l.startsWith("APP_FEATURES.push")&&/PAINTED SURFACES EVERYWHERE \(2026-11-24\): every Previs drawing of a set \(the one called 'Colour' until 2026-11-25\) is painted the same way/.test(l)).length===1);
 });
 
 console.log(pass+" passed, "+fail+" failed");

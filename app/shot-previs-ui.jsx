@@ -43,11 +43,12 @@ function shotPrevisSig(sh, plan, cam, loc, ctx){
 const shotPrevisNum = (n,d)=>{ const v = Number(n); return Number.isFinite(v) ? String(Math.round(v*Math.pow(10,d||0))/Math.pow(10,d||0)) : ""; };
 
 /* COLOUR, CLAY, DEPTH (owner 2026-11-23, the Previs look brief, step 1): the same drawing of the shot three ways.
+   (Since 2026-11-25 the first is CALLED "Previs" wherever it is shown, as on the shot's picture: owner.)
    Colour is the set as built, and the one a frame is made from; Clay is the set in one matt white, the people and
    props in their colours; Depth is how far each thing is from the camera. Each look is drawn when it is first asked
    for and kept apart from the others for the session; a shot remembers the look it was left on. */
 const SHOT_PREVIS_LOOKS = [
-  { id:"", name:"Colour", title:"The set as built. A frame is made from this drawing." },
+  { id:"", name:"Previs", title:"The set as built. A frame is made from this drawing." },
   { id:"clay", name:"Clay", title:"The set in one matt white: only shape and light. People and props keep their colours." },
   { id:"depth", name:"Depth", title:"How far each thing is from the camera: near is light, far is dark." }];
 const SHOT_PREVIS_LOOK = new Map();          // shot id → the look it was left on (this session)
@@ -122,7 +123,7 @@ function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig:colourSig, onView, beatLa
     SPV_E("p",{className:"shot-previs-line","data-testid":"shot-previs-camera"},line),
     notes.map((t,i)=>SPV_E("p",{key:i,className:"shot-previs-note"},t)),
     // (a frame is always made from the Colour drawing: said while another look is on)
-    onMake && look && SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-look-note"},"A frame is made from the Colour drawing, not from this one."),
+    onMake && look && SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-look-note"},"A frame is made from the Previs drawing, not from this one."),
     // step 2: the frame made FROM this drawing (the image engine only adds the people, the surfaces and the light)
     onMake && SPV_E("div",{className:"shot-previs-make"},
       SPV_E("button",{type:"button",className:"char-draft-btn","data-testid":"shot-previs-make",disabled:!!makeDisabled,
