@@ -223,14 +223,16 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
      fourth is the place's finished picture, its location image, shown where the drawings are shown. Read when it is
      asked for, and again when an image of this place has just been made. Nothing is drawn and nothing is saved. */
   const isFrame = !!look.frame, frameId = space.location.id;
-  const [frame, setFrame] = React.useState({ of:"", url:"" });
+  const [frame, setFrame] = React.useState({ of:"", url:"", panels:null });
   React.useEffect(()=>{
     if(!isFrame) return undefined;
     let live = true;
     const read = async ()=>{
       let u = typeof nbGetImage==="function" ? (nbGetImage(frameId)||"") : "";
       if(!u && typeof nbLoadImage==="function"){ try{ u = (await nbLoadImage(frameId))||""; }catch(e){ u = ""; } }
-      if(live) setFrame({ of:frameId, url:u });
+      // (a location image made in Previs is a sheet of four views, one for each camera: its record says so)
+      const m = (u && typeof nbGetMeta==="function") ? nbGetMeta(frameId) : null;
+      if(live) setFrame({ of:frameId, url:u, panels:(m && m.platePanels) || null });
     };
     read();
     const again = e=>{ const d = (e && e.detail) || {}; if(d.id===frameId || (Array.isArray(d.ids) && d.ids.indexOf(frameId)>=0)) read(); };
@@ -238,6 +240,14 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
     return ()=>{ live = false; window.removeEventListener("nb-gen-done", again); window.removeEventListener("nb-prefetched", again); };
   },[isFrame, frameId, hasImage]);
   const frameNow = frame.of===frameId ? frame.url : "";
+  /* THE CAMERA CHOSEN IN LOCATION SHEET IS THE PART OF THE FRAME THAT IS SHOWN (owner 2026-11-25: "ensure selected panel
+     in Location sheet section reflects the equivalent Frame"). A location image made from the set is one picture of
+     four views, two by two, each made from one camera of the set (its record names them: TL, TR, BL, BR, the cameras'
+     own keys). With Frame on, the picture on top is the chosen camera's view of it, and the four small views are its
+     four parts. An image with no such record (an upload, an older picture) is shown whole, as before. */
+  const framePanels = (frameNow && frame.panels && frame.panels.layout==="2x2" && frame.panels.panels) || null;
+  const quadOf = key=> (framePanels && key && framePanels[key]) ? key : "";
+  const quad = isFrame && view ? quadOf(view.key) : "";
   const cannot = sameSpace && !!pics.error && !heroNow;
   const S = slots || {};
   // the Floor plan section of the card itself: its name, its count and its link id, with its tools inside
@@ -247,7 +257,10 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   return LSC_E("div",{ ref, className:"lsc", "data-testid":"set-card", "data-set-card":place.id },
     // the chosen camera's view
     LSC_E("div",{ className:"lsc-stage"+(pics.drawing?" drawing":""), "aria-busy":pics.drawing?"true":"false", "data-look":look.id },
-      isFrame ? (frameNow ? LSC_E("img",{ src:frameNow, alt:(space.name||"This place")+", its location image", draggable:false, "data-testid":"set-card-frame" })
+      isFrame ? (frameNow ? LSC_E("img",{ src:frameNow, alt:(space.name||"This place")+", its location image"+(quad ? ", camera "+view.n+": "+view.role : ""), draggable:false,
+              "data-testid":"set-card-frame", className:quad ? "lsc-quad" : undefined, "data-quad":quad || undefined })
+          // (while the image is being read nothing is said about it: "No location image yet" is said only once it is known)
+          : frame.of!==frameId ? LSC_E("span",{ className:"lsc-wait" },"Opening the location image…")
           : LSC_E("div",{ className:"lsc-empty", "data-testid":"set-card-no-frame" },
               LSC_E("b",null,"No location image yet"),
               LSC_E("span",null,"The location image is made from this set, in The set in 3D."),
@@ -269,7 +282,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
       LSC_E("div",{ className:"lsc-seg", role:"group", "aria-label":"How the view is drawn" },
         K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot && !x.frame,
           onClick:()=>setPick(p=>({ ...p, look:x.id })) }, x.name))),
-      view && !cannot && !isFrame && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view))),
+      view && !cannot && (!isFrame || quad) && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view))),
     LSC_E("div",{ className:"lsc-body" },
       // the name, and the place and its rooms
       LSC_E("div",{ className:"lsc-head" },
@@ -291,7 +304,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
           LSC_E("div",{ className:"lsc-thumbs", "data-testid":"set-card-sheet" },
             views.map((v,i)=>LSC_E("button",{ key:v.key, type:"button", className:"lsc-thumb", "aria-pressed":i===camIndex?"true":"false",
                 "aria-label":"Camera "+v.n+": "+v.role, title:"Camera "+v.n+": "+v.role+". Press to see it on top.", onClick:()=>setPick(p=>({ ...p, cam:i })) },
-              thumbsNow && thumbsNow[v.key] ? LSC_E("img",{ src:thumbsNow[v.key], alt:"", draggable:false }) : LSC_E("span",{ className:"lsc-thumb-wait" }),
+              // (with Frame on, each small view is its camera's part of the location image)
+              (isFrame && quadOf(v.key)) ? LSC_E("img",{ src:frameNow, alt:"", draggable:false, className:"lsc-quad", "data-quad":v.key })
+                : thumbsNow && thumbsNow[v.key] ? LSC_E("img",{ src:thumbsNow[v.key], alt:"", draggable:false }) : LSC_E("span",{ className:"lsc-thumb-wait" }),
               LSC_E("span",{ className:"lsc-num" }, v.n)))),
           // what the space connects to, with its views (owner 2026-11-23: one section, not two)
           LSC_E("div",{ className:"lsc-sec lsc-connects", "data-testid":"set-card-connects" },
