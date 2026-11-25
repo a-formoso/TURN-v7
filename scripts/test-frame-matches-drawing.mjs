@@ -75,25 +75,10 @@ test("3 the same, in sentences the image engine is given", ()=>{
   assert.ok(!/claude|anthropic|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|kinolot/i.test(t));
 });
 
-test("3b nothing added and nothing pulled back (after the first frame that matched: the people a tenth smaller, a door frame and a coat added on plain wall)", ()=>{
-  const m=V.measure(POSE,PEOPLE,THINGS,FIXED);
-  const bands=[["Hussain Flat wall"],["kitchen doorway frame","DARREN PIKE (stand-in)".replace(" (stand-in)","")],["Narrow hall wall shelf","Hussain Flat wall"],["LIAQAT HUSSAIN","Hussain Flat wall"],["Hussain Flat wall"]];
-  const t=V.frameMap(m,1.7,bands);
-  assert.ok(t.includes("Each head is as large in the finished picture as measured here and stands where measured, with no more room above it than measured: never pull back, and never add room above the heads."));
-  assert.ok(t.includes("The frame in fifths, from left to right: far left: only the Hussain Flat wall; left: the kitchen doorway frame, DARREN PIKE; centre: the Narrow hall wall shelf, the Hussain Flat wall; right: LIAQAT HUSSAIN, the Hussain Flat wall; far right: only the Hussain Flat wall."),t.slice(t.indexOf("The frame in fifths"),t.indexOf("The frame in fifths")+330));
-  assert.ok(t.includes("The far left and the far right of the frame hold plain wall and nothing else: no door frame, no doorway, no furniture, no shelf, no hook, no coat and nothing hanging is added there. Every other fifth holds what is listed for it and nothing more."));
-  // a shelf on a wall is a shelf: only a name that ends in wall, floor or ceiling is plain
-  assert.ok(!t.includes("centre: only"));
-  // no fifths read: nothing said about them; one bare fifth: "holds"
-  assert.ok(!V.frameMap(m,1.7).includes("in fifths")); assert.ok(V.frameMap(m,1.7,[["A"],["B"],["C"],["D"],["Hall floor"]]).includes("The far right of the frame holds plain wall and nothing else"));
-  // read by the same rays that name what the frame holds
-  assert.ok(src.includes("const band=bands[Math.min(4,Math.floor(c*5/COLS))]; band.set(name,(band.get(name)||0)+1);")&&src.includes("list.bands=bands.map(b=>{"));
-});
-
 test("4 measured when a frame is made, with how deep the picture goes; it rides with the drawing", ()=>{
   assert.ok(src.includes("reach.push(hit.distance);")&&src.includes("list.far=reach.length>=COLS*ROWS*0.6?Math.round(reach[Math.floor(reach.length*0.97)]*10)/10:0;"),"how far the frame reaches, read by the same rays that name what it holds");
-  assert.ok(src.includes("out.start.frame=measure(found.pose,first.people,first.things,first.surfaces); out.start.map=frameMap(out.start.frame,seen.far,seen.bands);"));
-  assert.ok(src.includes("out.end.frame=measure(found.pose,last.people,last.things,last.surfaces); out.end.map=frameMap(out.end.frame,seen.far,seen.bands);"),"an end frame is measured as it ends");
+  assert.ok(src.includes("out.start.frame=measure(found.pose,first.people,first.things,first.surfaces); out.start.map=frameMap(out.start.frame,seen.far);"));
+  assert.ok(src.includes("out.end.frame=measure(found.pose,last.people,last.things,last.surfaces); out.end.map=frameMap(out.end.frame,seen.far);"),"an end frame is measured as it ends");
   assert.ok(ui.includes('map:pic.map||"", size:(pic.frame && pic.frame.size)||"", pitch:(pic.frame ? pic.frame.pitch : 0)||0, placed };'));
   // in the prompt, after what Image 1 shows; what an edge cuts stays cut
   const at=shots.indexOf('clean(_previs.map)+" What an edge of Image 1 cuts, the same edge of the finished picture cuts in the same place: do not pull back to show more of anyone or of the room. "');
@@ -124,11 +109,9 @@ test("6 the location's image rides as swatches, and a prop's sheet says where th
 });
 
 test("7 fresh keys, and Frances knows", ()=>{
-  for(const f of ["app/shot-previs.js","app/shot-previs-ui.jsx","app/shots-ui.jsx","app/shots.jsx","app/ai.jsx","app/script.jsx"]) assert.ok(["20261124-framing1", "20261125-framing2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+  for(const f of ["app/shot-previs.js","app/shot-previs-ui.jsx","app/shots-ui.jsx","app/shots.jsx","app/ai.jsx","app/script.jsx"]) assert.ok(["20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const fact=ai.split("\n").find(l=>l.startsWith('APP_FEATURES.push({ name:"Shots: the previs of a shot, and its camera on the floor plan"'));
-  for(const t of ["SO THAT THE FRAME MATCHES THE DRAWING, the drawing is measured","where the lower edge of the frame cuts each person","the size of shot and the tilt the drawing really has","cut into shuffled swatches, for its materials, colour and light only","says where the drawing has that prop",
-    "what each fifth of the frame holds, from left to right","a fifth of plain wall stays plain","never to pull back or to add room above the heads"]) assert.ok(fact.includes(t),t);
-  for(const f of ["app/shot-previs.js","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-framing2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has the second fix's key");
+  for(const t of ["SO THAT THE FRAME MATCHES THE DRAWING, the drawing is measured","where the lower edge of the frame cuts each person","the size of shot and the tilt the drawing really has","cut into shuffled swatches, for its materials, colour and light only","says where the drawing has that prop"]) assert.ok(fact.includes(t),t);
   assert.ok(!/credit|\$|claude|anthropic|opus|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|kinolot/i.test(fact.slice(fact.indexOf("SO THAT THE FRAME"),fact.indexOf("SO THAT THE FRAME")+900)));
 });
 

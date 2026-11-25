@@ -266,7 +266,7 @@ test("6 what Frances is told, the pipeline and the keys", ()=>{
   assert.equal((pipe.match(/^### \d+\. /gm)||[]).length,11,"no step was added or removed");
   assert.ok(html.includes('app/scene-order.js?v=20261122-end1"'));
   for(const f of ["shots.jsx","shots-ui.jsx","breakdown.jsx","ai.jsx","script.jsx","styles.css"])
-    assert.ok(["20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-framing2"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
+    assert.ok(["20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes('app/'+f+'?v='+k+'"')),f+" has a current key");
 });
 
 console.log("\n"+pass+" passed, "+fail+" failed");
