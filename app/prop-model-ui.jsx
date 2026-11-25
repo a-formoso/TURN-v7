@@ -194,7 +194,8 @@ function PropModelFold({ p, onUpdate, onView, gen, modelBase }){
   if(!M || !p) return null;
   const model = M.modelOf(p, null);
   const tip = window.InfoTip && PMU_E(window.InfoTip,{label:"About the model in code",
-    text:"This prop built in code: its shape and its true size. Every shot’s drawing puts this same model in the set, so the prop is the same size in every frame, and the frame is told that size. The size is read from Physical dimensions; three numbers set here are exact and win. Drawing it costs nothing. ‘Build its own model’ builds this prop part by part from its card, in its own colours. ‘Make the image from this model’ sends the layout shown here, so the image keeps the model’s shape."});
+    text:"This prop built in code: its shape and its true size. Every shot’s drawing puts this same model in the set, so the prop is the same size in every frame, and the frame is told that size. The size is read from Physical dimensions; three numbers set here are exact and win. Drawing it costs nothing. ‘Build its own model’ builds this prop part by part from its card, in its own colours. ‘Make the image from this model’ sends the layout shown here, so the image keeps the model’s shape."
+      +(p.kind==="worn" ? " While it is worn, it is drawn on its wearer. This model is what a shot draws once it is taken off, held or put down." : "")});
   return PMU_E(CardFold,{label:"Model in code",count:M.sizeWords(model.dims)+(model.basis==="guess" ? " · a guess" : ""),defaultOpen:false,foldId:"prop-model-"+p.id},
     PMU_E("div",{className:"shot-previs-head"},PMU_E("span",{className:"shot-end-lab"},"This prop, built in code"),tip),
     PMU_E(PropModelBody,{p,onUpdate,onView,gen,modelBase}));

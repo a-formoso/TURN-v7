@@ -50,6 +50,12 @@ test("2 which shape a prop is: the words its name ends with, once what follows a
   // when the name tells nothing, the first clause of the card's form text is read the same way
   is("Lunch","tub","A rectangular takeaway-style food box with rounded corners. Its lid is blue.");
   is("Lunch","","A modest bunch on one split ring: a black plastic car key.");
+  // worn things (2026-11-25): the film's own cards. A lanyard and a pair of earrings measure their pieces, so the usual size is used
+  is("work lanyard","lanyard"); is("tiny gold stud earrings","earrings"); is("Dad’s wristwatch","watch"); is("engagement ring","ring");
+  const lan=M.modelOf({name:"work lanyard",size:"Strap ~90 cm total loop length (~45 cm drop when hung) × ~2 cm wide × ~1.5 mm thick. Card holder ~11 cm wide × ~7.5 cm tall × ~3 mm deep."});
+  assert.equal(lan.basis,"usual"); assert.deepEqual(plain(lan.dims),[0.11,0.5,0.004]); assert.equal(lan.parts.length,6,"the strap's two sides and its bend, the clip, the holder, the card");
+  const ear=M.modelOf({name:"tiny gold stud earrings",size:"Each: ~4 mm face diameter × ~2.5 mm deep; post ~10 mm long × ~0.8 mm dia"});
+  assert.equal(ear.basis,"usual"); assert.deepEqual(plain(ear.dims),[0.026,0.006,0.012]); assert.equal(ear.parts.length,4,"two studs, each with its post");
   // every shape: a usual size in metres, parts that are numbers, and words a name can end with
   assert.ok(M.FORMS.length>=70);
   const ids=new Set();
@@ -167,7 +173,11 @@ test("7 the prop card: the fold 'Model in code', three drawings beside a ruler, 
     assert.ok(d>0.1&&near(p.position[0]/d,-look[0]/Math.hypot(look[0],look[1]),0.02),k+" faces the thing"); }
   assert.ok(st.poses.front.position[1]>0,"the front camera stands on the thing's front side");
   // the card
-  assert.ok(props.includes('window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView, gen:genForFrame, modelBase:modelBaseRef }),'));
+  // (owner 2026-11-25: "show the section on worn cards too") a worn thing has the fold as well; its note says when its model is drawn
+  assert.ok(props.includes('window.PropModelFold && React.createElement(window.PropModelFold,{ p, onUpdate, onView, gen:genForFrame, modelBase:modelBaseRef }),'));
+  assert.ok(!/PropModelFold && p\.kind!=="worn"/.test(props));
+  assert.ok(read("app/prop-model-ui.jsx").includes('p.kind==="worn" ? " While it is worn, it is drawn on its wearer. This model is what a shot draws once it is taken off, held or put down."'));
+  assert.ok(/A WORN THING \(a ring, a lanyard, earrings, a watch\) has it too/.test(read("app/ai.jsx")));
   // inside "The object", under the Physical design it is read from: the card keeps its three rows (The object, Continuity, Advanced)
   const obj_=props.slice(props.indexOf('React.createElement(window.CardGroup,{label:"The object"'),props.indexOf('React.createElement(CardFold,{label:"Continuity \\u00b7 story events"'));
   assert.ok(obj_.indexOf("window.PropModelFold &&")>obj_.indexOf('label:"Physical dimensions"')&&/modelBase:modelBaseRef \}\),\n\n      \),\n\s*$/.test(obj_),"the last thing in The object");
@@ -324,7 +334,7 @@ test("13 closed or open, and no part made only to round a corner (after the firs
     "THE OBJECT IS SHOWN OPEN, its inside to the camera, in every panel, as the model is.","THE OBJECT IS SHOWN CLOSED in every panel, as the model is: draw its outside only.","cannot be seen and is left out"]) assert.ok(lead.includes(t),t);
   const fact=ai.split("\n").find(l=>l.startsWith('APP_FEATURES.push({ name:"Props: the model in code"'));
   for(const t of ["'Built' offers 'Closed, as it is carried' or 'Open, as it is shown'","built closed, the image shows its outside only; built open, its inside"]) assert.ok(fact.includes(t),t);
-  for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/props.jsx","app/ai.jsx","app/script.jsx","app/styles.css"]) assert.ok(["20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this fix's key");
+  for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/props.jsx","app/ai.jsx","app/script.jsx","app/styles.css"]) assert.ok(["20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this fix's key");
 });
 
 test("8 loaded in order, fresh keys, and Frances knows", ()=>{
@@ -332,9 +342,9 @@ test("8 loaded in order, fresh keys, and Frances knows", ()=>{
   assert.ok(i("app/prop-model.js?v=")>0&&i("app/prop-model.js?v=")<i("app/shot-previs.js?v="),"the model before the drawing that uses it");
   assert.ok(i("app/props.jsx?v=")<i("app/prop-model-ui.jsx?v=")&&i("app/artroom.jsx?v=")<i("app/prop-model-ui.jsx?v="));
   for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/shot-previs.js","app/shot-previs-ui.jsx","app/props.jsx","app/shots.jsx","app/stage.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
-    assert.ok(["20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   for(const f of ["app/prop-model.js","app/prop-model-ui.jsx","app/props.jsx","app/shot-previs-ui.jsx","app/ai.jsx","app/script.jsx","app/styles.css"])
-    assert.ok(["20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has stage 2's key");
+    assert.ok(["20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has stage 2's key");
   const g=[]; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Props: the model in code"')).join("\n"))(g);
   assert.equal(g.length,1);
   const fact=g[0].what;

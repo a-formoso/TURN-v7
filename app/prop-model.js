@@ -76,6 +76,19 @@
     const one=x=>[box([w*0.42,d,h*0.2],[x,0,h*0.1],"dark"),soft([w*0.4,d*0.6,h*0.8],[x,-d*0.19,h*0.6]),soft([w*0.4,d*0.5,h*0.42],[x,d*0.24,h*0.38])];
     return one(-w*0.27).concat(one(w*0.27));
   }
+  // lying flat: the strap (its two sides and the bend at the top), its clip, and the card holder with its card
+  function lanyard(w,d,h){
+    const s=w*0.18, t=Math.max(0.001,h*0.5);
+    return [box([s,d*0.78,t],[-w*0.13,d*0.11,t/2],"main",0.05),box([s,d*0.78,t],[w*0.13,d*0.11,t/2],"main",-0.05),box([w*0.5,s,t],[0,d*0.5-s/2,t/2]),
+      box([w*0.12,d*0.07,h],[0,-d*0.3,h/2],"dark"),box([w,d*0.15,h*0.8],[0,-d*0.42,h*0.4],"light"),box([w*0.78,d*0.108,h*0.3],[0,-d*0.42,h*0.9],"second")];
+  }
+  // two studs, face down as they rest, each with its post standing
+  function earrings(w,d,h){
+    const one=x=>[cyl(d,d,h*0.25,[x,0,h*0.125],"light"),cyl(Math.max(0.0005,d*0.2),Math.max(0.0005,d*0.2),h*0.75,[x,0,h*0.625],"light")];
+    return one(-w*0.35).concat(one(w*0.35));
+  }
+  // open and flat: the strap, the case and its face
+  function watch(w,d,h){ return [box([w*0.5,d,h*0.25],[0,0,h*0.125],"second"),cyl(w,w,h,[0,0,h/2],"light"),cyl(w*0.82,w*0.82,h*0.1,[0,0,h*1.02],"dark")]; }
   function hat(w,d,h){ return [cyl(w,d,h*0.14,[0,0,h*0.07]),soft([w*0.66,d*0.66,h*0.9],[0,0,h*0.55])]; }
   function pan(w,d,h){ const x=-(w-d)/2; return [cyl(d,d,h*0.8,[x,0,h*0.4]),cyl(d*0.9,d*0.9,h*0.06,[x,0,h*0.8],"dark"),rod(w-d,Math.max(0.015,h*0.35),[x+d/2+(w-d)/2,0,h*0.7],"second")]; }
   function pot(w,d,h){ return [cyl(d,d,h*0.82,[0,0,h*0.41]),cyl(d*1.02,d*1.02,h*0.1,[0,0,h*0.87],"second"),ball([d*0.14,d*0.14,h*0.14],[0,0,h*0.95],"dark"),
@@ -157,6 +170,10 @@
     F("lighter","a lighter",[0.025,0.08,0.012],"lighter",(w,d,h)=>[box([w,d*0.78,h],[0,-d*0.11,h/2]),box([w,d*0.22,h],[0,d*0.39,h/2],"light")]),
     F("camera","a camera",[0.13,0.07,0.09],"camera|camcorder",camera),
     F("radio","a radio",[0.24,0.08,0.14],"radio|speaker|recorder",radio),
+    // worn things (2026-11-25: their cards show the model too; it is what a shot draws once the thing is off its wearer)
+    F("lanyard","a lanyard",[0.11,0.5,0.004],"lanyard",lanyard,{loose:true}),
+    F("earrings","a pair of earrings",[0.026,0.006,0.012],"earrings?|ear ?studs?",earrings,{loose:true}),
+    F("watch","a watch",[0.04,0.23,0.011],"watch|wristwatch",watch),
     F("ring","a ring",[0.021,0.021,0.005],"ring|band",(w,d,h)=>[hoop(w,d,h,[0,0,h/2],"light")],{round:true}),
     F("chain","a chain",[0.14,0.14,0.004],"necklace|chain|bracelet|bangle|rosary|beads",(w,d,h)=>[hoop(w,d,h,[0,0,h/2],"light")],{round:true}),
     F("rope","a coil",[0.3,0.3,0.06],"rope|cable|hose|wire|lead|leash|tape",(w,d,h)=>[hoop(w,d,h,[0,0,h/2])],{round:true}),

@@ -1994,9 +1994,10 @@ function PropSheet({ p, project, characters, scenes, drafts, onUpdate, onDelete,
           React.createElement("p",{className:"sheet-props-note"},"Later edits belong in Continuity → Updated events. Check important wording in the generated image; a prompt cannot guarantee legibility."))),
 
         // THE MODEL IN CODE (owner 2026-11-24, "props in code"): this prop as every shot's drawing has it, its shape and
-        // its true size (prop-model.js / prop-model-ui.jsx), under the Physical design it is read from. Worn things
-        // are never drawn as a thing of their own.
-        window.PropModelFold && p.kind!=="worn" && React.createElement(window.PropModelFold,{ p, onUpdate, onView, gen:genForFrame, modelBase:modelBaseRef }),
+        // its true size (prop-model.js / prop-model-ui.jsx), under the Physical design it is read from. A worn thing
+        // has it too (owner 2026-11-25): on its wearer it is drawn on the figure, but a ring left on a table or a
+        // lanyard hung on a hook is drawn as this model, so its card must show it and let it be corrected.
+        window.PropModelFold && React.createElement(window.PropModelFold,{ p, onUpdate, onView, gen:genForFrame, modelBase:modelBaseRef }),
 
       ),
       React.createElement(CardFold,{label:"Continuity \u00b7 story events",count:continuityEvents.length||null,defaultOpen:false},
