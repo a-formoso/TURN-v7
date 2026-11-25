@@ -199,21 +199,24 @@
      is lit; a space that is not on the plan yet lights nothing (missing). Every wall is drawn at its thickness, a
      door is a gap in it and a window a pane of glass. width = the picture's width in px; its height follows what is
      shown, 170 to 380 px. */
-  function planModel(plan,space,cameraKey,people,width,shotCams,tight){
+  /* hold = {W, H, scale, origin} of the picture as it was: the plan is drawn at that scale and place (a wall being
+     dragged changes the room's size; the picture must not rescale under the pointer). */
+  function planModel(plan,space,cameraKey,people,width,shotCams,tight,hold){
     const P=obj(plan), all=arr(P.spaces); if(!all.length) return null;
     const me=all.find(s=>s.id===space.id)||null;
     const whole=boundsOf([].concat(...all.map(s=>s.footprint))), fit=me?boundsOf(me.footprint):whole; if(!fit||!whole) return null;
-    const W=Math.max(200,Math.round(width||440)), TALL=380;
+    const held=hold&&hold.scale>0&&arr(hold.origin).length===2&&hold.W>0&&hold.H>0?hold:null;
+    const W=held?held.W:Math.max(200,Math.round(width||440)), TALL=380;
     const bw=Math.max(0.5,fit.maxX-fit.minX), bh=Math.max(0.5,fit.maxY-fit.minY), aw=Math.max(0.5,whole.maxX-whole.minX), ah=Math.max(0.5,whole.maxY-whole.minY);
     const m=Math.max(0.6,0.08*Math.max(aw,ah)), mine=Math.max(0.9,0.17*Math.max(bw,bh));
     // the whole place in the picture; the chosen space alone; and the least the chosen space may be (half of it)
     const sAll=Math.min(W/(aw+2*m),TALL/(ah+2*m)), sMine=Math.min(W/(bw+2*mine),TALL/(bh+2*mine)), sLeast=Math.min(0.5*W/bw,0.5*TALL/bh);
     // (tight: the chosen space fills the picture, for moving things on it by hand; the place around it is cut off)
-    const s=me?(tight?sMine:Math.min(sMine,Math.max(sAll,sLeast))):sAll;
-    const H=Math.round(Math.max(170,Math.min(TALL,(ah+2*m)*s)));
+    const s=held?held.scale:me?(tight?sMine:Math.min(sMine,Math.max(sAll,sLeast))):sAll;
+    const H=held?held.H:Math.round(Math.max(170,Math.min(TALL,(ah+2*m)*s)));
     // centred on the whole place when all of it shows; else on the chosen space, kept inside the place
     const vw=W/s, vh=H/s, mid=(lo,hi,want,view)=>hi-lo+2*m<=view?(lo+hi)/2:Math.max(lo-m+view/2,Math.min(hi+m-view/2,want));
-    const cx=mid(whole.minX,whole.maxX,(fit.minX+fit.maxX)/2,vw), cy=mid(whole.minY,whole.maxY,(fit.minY+fit.maxY)/2,vh);
+    const cx=held?held.origin[0]:mid(whole.minX,whole.maxX,(fit.minX+fit.maxX)/2,vw), cy=held?held.origin[1]:mid(whole.minY,whole.maxY,(fit.minY+fit.maxY)/2,vh);
     const X=x=>Math.round((W/2+(x-cx)*s)*10)/10, Y=y=>Math.round((H/2-(y-cy)*s)*10)/10, at=p=>[X(p[0]),Y(p[1])];
     const lit=id=>!!me&&id===space.id;
     const area=b=>(b.maxX-b.minX)*(b.maxY-b.minY);

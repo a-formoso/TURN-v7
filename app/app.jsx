@@ -1113,19 +1113,14 @@ function App(){
   /* THE FLOOR PLAN WAS CHANGED BY HAND (owner 2026-11-25, floor-plan-drag-ui.jsx): a scene plan's marks are numbers on
      that floor plan, each beside a thing of the set (mark.near). When that thing is moved, its marks move with it,
      by the same amount, in every planned scene set in one of those spaces. Free, in code. Returns how many moved. */
-  window.turnFloorPlanMoved = (locationIds, moves)=>{
-    const ids = (Array.isArray(locationIds) ? locationIds : []).map(String), by = {};
-    (Array.isArray(moves) ? moves : []).forEach(m=>{ if(m && m.id && Array.isArray(m.by)) by[String(m.id)] = m.by; });
-    const plans = (project && project.scenePlans) || {}; let count = 0; const next = {};
-    Object.keys(plans).forEach(sceneId=>{ const plan = plans[sceneId]; if(!plan || !Array.isArray(plan.marks)) return;
-      const sets = (plan.sets||[]).filter(s=>s && ids.indexOf(String(s.locationId))>=0).map(s=>String(s.id)); if(!sets.length) return;
-      let hit = false;
-      const marks = plan.marks.map(m=>{ const d = m && by[String(m.near||"")];
-        if(!d || sets.indexOf(String(m.set||""))<0 || !Array.isArray(m.xy) || m.xy.length!==2) return m;
-        hit = true; count++; return { ...m, xy:[Math.round((Number(m.xy[0])+d[0])*1000)/1000, Math.round((Number(m.xy[1])+d[1])*1000)/1000] }; });
-      if(hit) next[sceneId] = { ...plan, marks }; });
-    if(count) setProject(p=>p ? { ...p, scenePlans:{ ...(p.scenePlans||{}), ...next } } : p);
-    return count;
+  /* carry (floor-plan-drag.js carry, step 2: the walls) = how the walls moved: a mark or a camera of a planned scene
+     that a wall reached is kept inside the room (25 / 30 cm clear of it). Worked out in floor-plan-drag.js
+     (sceneMoves), saved here. */
+  window.turnFloorPlanMoved = (locationIds, moves, carry)=>{
+    const D = window.KinolotPlanDrag; if(!D || typeof D.sceneMoves!=="function") return 0;
+    const r = D.sceneMoves((project && project.scenePlans) || {}, locationIds, moves, carry, (window.turnContinuity||{}).shots||[], window.ScenePlan && window.ScenePlan.shotCameraKey);
+    if(r.count) setProject(p=>p ? { ...p, scenePlans:{ ...(p.scenePlans||{}), ...r.next } } : p);
+    return r.count;
   };
   // a scene's shots, from anywhere in the Art Room (the location card's floor plan: owner 2026-11-25, "the natural bridge")
   window.turnOpenSceneShots = (sceneId)=>{

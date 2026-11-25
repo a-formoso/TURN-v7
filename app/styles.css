@@ -12997,6 +12997,15 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .lsc-edit-open-bar{stroke:var(--hs-amber,var(--pos));stroke-width:6;stroke-linecap:round}
 .lsc-edit-obj.on .lsc-edit-shape,.lsc-edit-obj:focus-visible .lsc-edit-shape{fill:color-mix(in srgb,var(--hs-amber,var(--pos)) 55%,transparent);stroke-dasharray:none;stroke-width:1.6}
 .lsc-edit-obj.on .lsc-edit-dot,.lsc-edit-open.on .lsc-edit-dot,.lsc-edit-obj:focus-visible .lsc-edit-dot,.lsc-edit-open:focus-visible .lsc-edit-dot{fill:var(--hs-amber,var(--pos));stroke:var(--txt-0)}
+.lsc-edit-wall{outline:none;touch-action:none}
+.lsc-edit-wall-hit{stroke:transparent;stroke-width:16;stroke-linecap:butt}
+.lsc-edit-wall-bar{stroke:transparent;stroke-width:4;stroke-linecap:round;pointer-events:none}
+.lsc-edit-wall-grip{stroke:var(--bg-1);stroke-width:3.5;stroke-linecap:round;pointer-events:none}
+.lsc-edit-wall:hover .lsc-edit-wall-bar,.lsc-edit-wall:focus-visible .lsc-edit-wall-bar{stroke:color-mix(in srgb,var(--hs-amber,var(--pos)) 55%,transparent)}
+.lsc-edit-wall.on .lsc-edit-wall-bar{stroke:var(--hs-amber,var(--pos))}
+.lsc-edit-wall:hover .lsc-edit-wall-grip,.lsc-edit-wall.on .lsc-edit-wall-grip,.lsc-edit-wall:focus-visible .lsc-edit-wall-grip{stroke:var(--txt-0)}
+.lsc-edit-wall.locked .lsc-edit-wall-bar{stroke-dasharray:4 4}
+.lsc-edit-wall.locked.on .lsc-edit-wall-bar,.lsc-edit-wall.locked:hover .lsc-edit-wall-bar{stroke:var(--txt-2)}
 .lsc-edit-name{font:600 10px var(--f-ui);fill:var(--txt-0);paint-order:stroke;stroke:var(--bg-1);stroke-width:3px;pointer-events:none}
 .lsc-edit-bar{display:flex;flex-direction:column;gap:8px;min-width:0}
 .lsc-edit-bar.on{padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2)}

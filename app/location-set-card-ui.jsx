@@ -199,7 +199,10 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const cast = people ? K.PEOPLE.map(k=>({ xy:people[k.id], z:start.floorZ, to:people[k.id==="A"?"B":"A"], colour:k.colour, height:k.height })) : [];
   const castKey = people ? K.PEOPLE.map(k=>people[k.id].map(n=>n.toFixed(2)).join(",")).join(";") : "";
   // (while things are moved, the plan is the floor alone: no stand-ins and no shot cameras over what is dragged)
-  const model = drawn ? K.planModel(plan, space, view ? view.key : "", editing ? null : people, 440, !editing && sceneNow ? sceneNow.cameras : null, editing) : null;
+  // (while a wall is dragged the picture keeps the scale and place it had when the drag began: floor-plan-drag-ui.jsx)
+  const planHold = React.useRef(null), holding = editing && !!planEdit.holding;
+  const model = drawn ? K.planModel(plan, space, view ? view.key : "", editing ? null : people, 440, !editing && sceneNow ? sceneNow.cameras : null, editing, holding ? planHold.current : null) : null;
+  if(!holding) planHold.current = model ? { W:model.W, H:model.H, scale:model.scale, origin:model.origin } : null;
 
   /* the pictures: the four views (drawn again when the set changes or a stand-in is let go) and the chosen view,
      larger. While a new picture is on its way the one before stays up. */
@@ -324,7 +327,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
 
         LSC_E(LscFold,{ label:planFold.label || "Floor plan", foldId:planFold.foldId, count:planFold.count, defaultOpen:true, testid:"set-card-fold-plan" },
           model ? LSC_E(React.Fragment,null,
-              LSC_E(LocationSetPlan,{ model, label:"Plan of "+(place.name||"this place")+(editing ? ". Drag a piece of furniture, a door or a window." : people ? ". Drag A and B to try where people stand; nothing is saved." : ""),
+              LSC_E(LocationSetPlan,{ model, label:"Plan of "+(place.name||"this place")+(editing ? ". Drag a wall, a piece of furniture, a door or a window." : people ? ". Drag A and B to try where people stand; nothing is saved." : ""),
                 onMove:people && !readOnly && !editing ? movePerson : null, edit:editing ? planEdit : null }),
               // moving things on the plan: its switch, and Undo, Cancel and Save while it is on
               planReady && window.PlanEditBar ? LSC_E(window.PlanEditBar,{ edit:planEdit }) : null,
