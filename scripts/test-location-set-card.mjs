@@ -157,7 +157,7 @@ test("6b the plan, ready to draw: the whole place with the chosen space lit, wal
   const gone=K.planModel(PLAN,{id:"kitchen",whole:false},"TL",null,440);
   assert.deepEqual(gone.rooms.map(r=>r.lit),[false,false]); assert.equal(gone.missing,true);
   assert.ok(face.includes('model.missing ? (space.name||"This space")+" is not on the floor plan yet, so it cannot be shown on it. Add it in Edit the floor plan, below."'));
-  assert.ok(face.includes('model.rooms.filter(r=>r.lit).map(r=>LSC_E("polygon",{ key:"lit"+r.id, points:pts(r.points), className:"lsc-room-lit" })),'),"the chosen space is outlined over its walls");
+  assert.ok(face.includes('model.rooms.filter(r=>r.lit).map(r=>LSC_E("polygon",{ key:"lit"+r.id, points:pts(r.points), className:"lsc-room-lit" })),'),"the chosen space keeps its own outline in the drawing (it carries no colour of its own since 2026-11-25: the walls are black)");
   assert.equal(K.planModel({spaces:[]},FLAT,"TL",null,440),null); assert.equal(K.planModel(null,FLAT,"TL",null,440),null);
 });
 
@@ -220,17 +220,22 @@ test("8 the card is laid out top to bottom as designed, then in sections that fo
     {locationPanelPoses:()=>[{key:"TL",label:"Top-left",purpose:"whole room",pose:{position:[0,0,1.5],yaw:0,lensMm:18}}]});
   assert.equal(el.props.className,"lsc"); assert.equal(el.props["data-set-card"],"p");
   const order=flat(el).map(x=>x.props.className).filter(Boolean).map(c=>c.split(" ")[0]);
-  const want=["lsc-stage","lsc-badge","lsc-camtag","lsc-body","lsc-head","lsc-name","lsc-chips","lsc-info","lsc-seg","lsc-folds"];
+  // (owner 2026-11-25) the switch sits ON the picture, top left, where the MASTER SET tag was; the facts and what the
+  // camera is for are in Location sheet, the section they belong to
+  const want=["lsc-stage","lsc-seg","lsc-camtag","lsc-body","lsc-head","lsc-name","lsc-chips","lsc-folds","lsc-info","lsc-thumbs"];
+  const stage=flat(el).find(x=>x.props.className&&String(x.props.className).split(" ")[0]==="lsc-stage");
+  assert.ok(flat(stage).some(x=>x.props&&x.props.className==="lsc-seg"),"the switch is inside the picture's frame");
+  assert.ok(!flat(el).some(x=>x.props&&x.props.className==="lsc-badge")&&!text(el).includes("MASTER SET"),"the MASTER SET tag gave its place to the switch");
   let at=-1; want.forEach(c=>{ const i=order.indexOf(c,at+1); assert.ok(i>at,c+" comes after "+(want[want.indexOf(c)-1]||"the top")); at=i; });
   // the sections, in order, each a fold (the stand-in React does not open them: their names and state are props)
   const folds=flat(el).filter(x=>x.props&&x.props.testid&&String(x.props.testid).indexOf("set-card-fold-")===0);
   assert.deepEqual(folds.map(f=>[f.props.label,f.props.defaultOpen]),[["Location sheet",true],["Floor plan",true],["Reference pack",true]]);
   // what the space connects to is part of Location sheet, under the views (owner 2026-11-23: one section, not two)
   const sheetFold=folds[0], inSheet=flat(sheetFold).map(x=>x.props&&x.props["data-testid"]).filter(Boolean);
-  assert.deepEqual(inSheet,["set-card-sheet","set-card-connects"]);
+  assert.deepEqual(inSheet,["set-card-facts","set-card-sheet","set-card-connects"]);
   assert.ok(text(sheetFold).includes("Connects to"));
   const t=text(el);
-  assert.ok(t.includes("MASTER SET")&&t.includes("CAM 1 \u00b7 18 MM")&&t.includes("Whole room"));
+  assert.ok(t.includes("CAM 1 \u00b7 18 MM")&&t.includes("Whole room"));
   assert.ok(t.includes("Build reference pack for House, camera 1"));
   assert.deepEqual(flat(el).filter(x=>x.props.className==="lsc-chip").map(x=>[x.children.join(""),x.props["aria-pressed"]]),[["House","true"],["Kitchen","false"]]);
   assert.deepEqual(flat(el).find(x=>x.props.className==="lsc-seg").children.map(b=>b.children.join("")),["Previs","Clay","Depth","Frame"]);
@@ -341,7 +346,10 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   const block=css.slice(css.indexOf("THE SET CARD (owner 2026-11-23)"));
   for(const t of [".lsc-stage{position:relative;aspect-ratio:16/9;",".lsc-body{padding:15px;display:flex;flex-direction:column;gap:15px}",
     ".lsc-name{margin:0;font:600 20px/1.25 var(--f-display);",".lsc-thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}",
-    ".lsc-room-lit{fill:none;stroke:var(--hs-amber,var(--pos));stroke-width:2;stroke-linejoin:miter;pointer-events:none}",".lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}",
+    // (owner 2026-11-25) black walls on every room; the chosen space is told by its amber floor; the chosen chip is black; the switch is a white pill on the picture
+    ".lsc-room{fill:var(--bg-1);stroke:var(--txt-0);stroke-linejoin:miter}",".lsc-room.lit{fill:color-mix(in srgb,var(--hs-amber,var(--pos)) 30%,var(--bg-1));stroke:var(--txt-0)}",".lsc-room-lit{fill:none;stroke:none;pointer-events:none}",
+    ".lsc-chip[aria-pressed=\"true\"]{background:var(--txt-0);border-color:var(--txt-0);color:var(--bg-1)}",".lsc-seg{position:absolute;top:10px;left:10px;z-index:3;display:inline-flex;",".lsc-seg button[aria-pressed=\"true\"]{background:var(--txt-0);color:var(--bg-1)}",
+    ".lsc-folds > .location-scenes{margin:0;padding:10px 0;border-top:1px solid var(--line-1)}",".lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}",
     ".lsc-person.can-move{cursor:grab;touch-action:none}",".lsc-fold .sheet-fold-body[hidden]{display:none !important}"])
     assert.ok(block.includes(t),t);
   assert.ok(!/#1B1A19|#252422|#F0B255|Inter\b/.test(block),"none of the demo's own colours or type");
@@ -349,7 +357,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("11b Frame, the fourth word of the switch: the place's location image, shown where the drawings are shown", ()=>{
@@ -358,6 +366,15 @@ test("11b Frame, the fourth word of the switch: the place's location image, show
     'window.addEventListener("nb-gen-done", again);','},[isFrame, frameId, hasImage]);','"data-testid":"set-card-frame"','"data-testid":"set-card-no-frame"','LSC_E("b",null,"No location image yet")',
     '"The location image is made from this set, in The set in 3D."','view && !cannot && !isFrame && LSC_E("span",{ className:"lsc-camtag"','disabled:cannot && !x.frame,','onUpdate=null, hasImage=false }){']) assert.ok(ui.includes(t),t);
   assert.ok(!/nbCommit|proxyGenerate|claude\.complete/.test(ui.slice(ui.indexOf("const isFrame = !!look.frame"),ui.indexOf("const frameNow ="))),"it only shows the image: nothing is made and nothing is saved");
+});
+
+test("11c Scenes sits in the set card, just above The place (owner 2026-11-25)", ()=>{
+  const ui=read("app/location-set-card-ui.jsx"), loc=read("app/locations-ui.jsx");
+  assert.ok(ui.indexOf("S.scenes || null,")>0&&ui.indexOf("S.scenes || null,")<ui.indexOf("S.place || null,")&&ui.indexOf("S.scenes || null,")>ui.indexOf('label:"Location sheet"'));
+  assert.ok(loc.includes('slot("scenes",React.createElement("div",{className:"prop-scenes location-scenes"},'),"the same row, moved: a card without the set card on top keeps it where it was");
+  const fact=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"')); const f=fact.slice(0,fact.indexOf("\n"));
+  for(const t of ["the switch Previs, Clay, Depth, Frame sits on the picture itself, at its top left","(the chosen one is black)","LOCATION SHEET: first THE FACTS","SCENES: between Location sheet and The place"]) assert.ok(f.includes(t),t);
+  assert.ok(!f.includes("tagged Master set"));
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{

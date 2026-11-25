@@ -263,7 +263,12 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
               // (a confirmed plan whose set still cannot be drawn: the cameras are fitted and fixed in The set in 3D)
               ready && LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open The set in 3D")))
         : LSC_E("span",{ className:"lsc-wait" }, onScreen ? "Drawing the set…" : ""),
-      LSC_E("span",{ className:"lsc-badge" },"MASTER SET"),
+      /* THE SWITCH SITS ON THE PICTURE (owner 2026-11-25: "place [it] inside the frame ... top left corner, replacing"
+         the MASTER SET tag): what the picture shows is chosen on the picture itself, as on a location image.
+         The same view three ways, and the place's finished picture (which needs no set to be drawn). */
+      LSC_E("div",{ className:"lsc-seg", role:"group", "aria-label":"How the view is drawn" },
+        K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot && !x.frame,
+          onClick:()=>setPick(p=>({ ...p, look:x.id })) }, x.name))),
       view && !cannot && !isFrame && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view))),
     LSC_E("div",{ className:"lsc-body" },
       // the name, and the place and its rooms
@@ -274,20 +279,15 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
           LSC_E(typeof LocationChipScroller==="function" ? LocationChipScroller : React.Fragment, null,
             all.map(s=>LSC_E("button",{ key:s.id, type:"button", className:"lsc-chip", "aria-pressed":s.id===space.id?"true":"false",
               title:s.whole ? "The whole place" : s.name, onClick:()=>choose(s.id) }, s.chip))))),
-      // the facts, and what this camera is for
-      LSC_E("div",{ className:"lsc-info" },
-        LSC_E("p",{ className:"lsc-mono", "data-testid":"set-card-facts" }, K.facts(space, all, plan, coords) || (drawn ? "" : "No floor plan yet")),
-        LSC_E("p",{ className:"lsc-role" }, view ? view.role : "")),
-      // the same view, three ways, and the place's finished picture (which needs no set to be drawn)
-      LSC_E("div",{ className:"lsc-seg", role:"group", "aria-label":"How the view is drawn" },
-        K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot && !x.frame,
-          onClick:()=>setPick(p=>({ ...p, look:x.id })) }, x.name))),
-
       // the set being dressed by itself: what it is doing, or what went wrong
       undressed && window.PrevisAutoLine && LSC_E(window.PrevisAutoLine,{ location:space.location, project, onUpdate, readOnly }),
 
       LSC_E("div",{ className:"lsc-folds" },
         LSC_E(LscFold,{ label:"Location sheet", defaultOpen:true, testid:"set-card-fold-sheet", count:views.length ? views.length+(views.length===1?" view":" views") : "" },
+          // the facts, and what the chosen camera is for: in the section they belong to (owner 2026-11-25)
+          LSC_E("div",{ className:"lsc-info" },
+            LSC_E("p",{ className:"lsc-mono", "data-testid":"set-card-facts" }, K.facts(space, all, plan, coords) || (drawn ? "" : "No floor plan yet")),
+            LSC_E("p",{ className:"lsc-role" }, view ? view.role : "")),
           LSC_E("div",{ className:"lsc-thumbs", "data-testid":"set-card-sheet" },
             views.map((v,i)=>LSC_E("button",{ key:v.key, type:"button", className:"lsc-thumb", "aria-pressed":i===camIndex?"true":"false",
                 "aria-label":"Camera "+v.n+": "+v.role, title:"Camera "+v.n+": "+v.role+". Press to see it on top.", onClick:()=>setPick(p=>({ ...p, cam:i })) },
@@ -300,7 +300,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
                 links.map(x=>LSC_E("li",{ key:x.name }, LSC_E("span",null,x.name), LSC_E("span",{ className:"lsc-mono dim" }, x.kinds.join(", ")))))
               : LSC_E("p",{ className:"lsc-mono dim" }, drawn ? "No doors or windows on the plan yet." : "Shown once the place has a floor plan."))),
 
-        // the description of the place, to read and to edit: the card's own section, first after the views
+        // the scenes that play here, then the description of the place (owner 2026-11-25: Scenes just above The place)
+        S.scenes || null,
+        // the description of the place, to read and to edit: the card's own section
         S.place || null,
 
         LSC_E(LscFold,{ label:planFold.label || "Floor plan", foldId:planFold.foldId, count:planFold.count, defaultOpen:true, testid:"set-card-fold-plan" },

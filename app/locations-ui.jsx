@@ -2522,11 +2522,12 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       // (with the set card on top the render style sits in The set in 3D, where the image is made)
       !setFace&&styleRow,
 
-      React.createElement("div",{className:"prop-scenes location-scenes"},
+      // (with the set card on top the scenes sit in it, just above The place: owner 2026-11-25)
+      slot("scenes",React.createElement("div",{className:"prop-scenes location-scenes"},
         React.createElement("span",{className:"prop-scenes-lab"},"SCENES"),
         React.createElement(SceneChipPager,{ none:"No scenes reference this place",
           items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
-            title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \u00b7 "+sceneTimeOf[String(s.no)].join(", "):""), onClick:()=>onChipClick&&onChipClick(s.id) })) })),
+            title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \u00b7 "+sceneTimeOf[String(s.no)].join(", "):""), onClick:()=>onChipClick&&onChipClick(s.id) })) }))),
 
       // THE CARD IN FIVE SECTIONS (owner 2026-11-21, "build the 5 sections, no numbers"): The place, Floor plan, The set in 3D,
       // Variants, Advanced. Like a character or a prop card: what it is, the working sections, then Advanced, closed.
