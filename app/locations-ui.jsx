@@ -2560,6 +2560,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             title:"Which sides of this place the screenplay shows \u2014 your pick stays even when the script changes",
             onChange:e=>onUpdate(l.id,{intExt:e.target.value, intExtLocked:true})},
             [["INT","INT"],["EXT","EXT"],["INT/EXT","INT+EXT"]].map(o=>React.createElement("option",{key:o[0],value:o[0]},o[1])))),
+        // WHERE THINGS STAND NOW, from the floor plan's numbers (owner 2026-11-25: "ensure The Place description updates also
+        // dynamically, as a consequence of the floor changes"): it changes the moment the floor plan is saved
+        window.PlanWhere&&React.createElement(window.PlanWhere,{l}),
         React.createElement(LocationIdentityField,{l,field:"architecture",label:"Architecture & layout",value:l.architecture,
           placeholder:"The space's layout, scale, structure and defining built features\u2026",onUpdate}),
         React.createElement(LocationIdentityField,{l,field:"materials",label:"Materials & palette",value:l.materials,

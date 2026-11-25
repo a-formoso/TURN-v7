@@ -12987,3 +12987,23 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 /* a scene chip with its hour stays on one line ("05 · Dawn"); on a narrow card the row wraps, never the chip */
 .location-scenes .prop-scene-chip{white-space:nowrap}
 .lsc-folds > .location-scenes{flex-wrap:wrap;row-gap:6px}
+
+/* (2026-11-25) THE FLOOR PLAN, CHANGED BY HAND: what can be dragged, over the plan, and the buttons under it */
+.lsc-edit-shape{fill:color-mix(in srgb,var(--hs-amber,var(--pos)) 22%,transparent);stroke:var(--txt-0);stroke-width:1;stroke-dasharray:3 2}
+.lsc-edit-obj,.lsc-edit-open{cursor:grab;outline:none;touch-action:none}
+.lsc-edit-obj:active,.lsc-edit-open:active{cursor:grabbing}
+.lsc-edit-hit{fill:transparent;stroke:none}
+.lsc-edit-dot{fill:var(--txt-0);stroke:var(--bg-1);stroke-width:1.2}
+.lsc-edit-open-bar{stroke:var(--hs-amber,var(--pos));stroke-width:6;stroke-linecap:round}
+.lsc-edit-obj.on .lsc-edit-shape,.lsc-edit-obj:focus-visible .lsc-edit-shape{fill:color-mix(in srgb,var(--hs-amber,var(--pos)) 55%,transparent);stroke-dasharray:none;stroke-width:1.6}
+.lsc-edit-obj.on .lsc-edit-dot,.lsc-edit-open.on .lsc-edit-dot,.lsc-edit-obj:focus-visible .lsc-edit-dot,.lsc-edit-open:focus-visible .lsc-edit-dot{fill:var(--hs-amber,var(--pos));stroke:var(--txt-0)}
+.lsc-edit-name{font:600 10px var(--f-ui);fill:var(--txt-0);paint-order:stroke;stroke:var(--bg-1);stroke-width:3px;pointer-events:none}
+.lsc-edit-bar{display:flex;flex-direction:column;gap:8px;min-width:0}
+.lsc-edit-bar.on{padding:10px 12px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-2)}
+.lsc-edit-bar .lsc-ghost,.lsc-edit-bar .lsc-primary{min-height:36px;padding:6px 14px;font-size:13px}
+.lsc-edit-bar > .lsc-ghost{align-self:flex-start}
+.lsc-edit-bar p{margin:0}
+.lsc-edit-save{flex:1 1 140px}
+.loc-where-list{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font:12.5px/1.45 var(--f-ui);color:var(--txt-1)}
+.loc-where-list b{color:var(--txt-0);font-weight:600}
+.loc-where-list li.hand b::after{content:" \00b7 by hand";font-weight:500;color:var(--amber-ink,#8a5a12)}

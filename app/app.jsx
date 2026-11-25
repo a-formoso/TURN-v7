@@ -1110,6 +1110,23 @@ function App(){
   };
   // open a location's card in the Art Room (a shot's missing location view, 2026-10-20): the Locations tab, scrolled to it
   // …and with imageId, the exact room & time view: its room shown, "Variants" opened, the view scrolled to and flashed
+  /* THE FLOOR PLAN WAS CHANGED BY HAND (owner 2026-11-25, floor-plan-drag-ui.jsx): a scene plan's marks are numbers on
+     that floor plan, each beside a thing of the set (mark.near). When that thing is moved, its marks move with it,
+     by the same amount, in every planned scene set in one of those spaces. Free, in code. Returns how many moved. */
+  window.turnFloorPlanMoved = (locationIds, moves)=>{
+    const ids = (Array.isArray(locationIds) ? locationIds : []).map(String), by = {};
+    (Array.isArray(moves) ? moves : []).forEach(m=>{ if(m && m.id && Array.isArray(m.by)) by[String(m.id)] = m.by; });
+    const plans = (project && project.scenePlans) || {}; let count = 0; const next = {};
+    Object.keys(plans).forEach(sceneId=>{ const plan = plans[sceneId]; if(!plan || !Array.isArray(plan.marks)) return;
+      const sets = (plan.sets||[]).filter(s=>s && ids.indexOf(String(s.locationId))>=0).map(s=>String(s.id)); if(!sets.length) return;
+      let hit = false;
+      const marks = plan.marks.map(m=>{ const d = m && by[String(m.near||"")];
+        if(!d || sets.indexOf(String(m.set||""))<0 || !Array.isArray(m.xy) || m.xy.length!==2) return m;
+        hit = true; count++; return { ...m, xy:[Math.round((Number(m.xy[0])+d[0])*1000)/1000, Math.round((Number(m.xy[1])+d[1])*1000)/1000] }; });
+      if(hit) next[sceneId] = { ...plan, marks }; });
+    if(count) setProject(p=>p ? { ...p, scenePlans:{ ...(p.scenePlans||{}), ...next } } : p);
+    return count;
+  };
   // a scene's shots, from anywhere in the Art Room (the location card's floor plan: owner 2026-11-25, "the natural bridge")
   window.turnOpenSceneShots = (sceneId)=>{
     if(!sceneId) return;

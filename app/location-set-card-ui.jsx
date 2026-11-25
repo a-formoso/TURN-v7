@@ -100,7 +100,7 @@ function LscFold({ label, count, defaultOpen, foldId, keep=false, testid, childr
    lit with its size, the chosen camera as a numbered dot with what it takes in, and the two stand-ins. A stand-in is
    dragged with a finger or the mouse, or moved 10 cm at a time with the arrow keys; onMove(id, [x, y] in metres,
    done) says where. */
-function LocationSetPlan({ model, label, onMove }){
+function LocationSetPlan({ model, label, onMove, edit=null }){
   const svg = React.useRef(null), drag = React.useRef("");
   if(!model) return null;
   const K = window.KinolotSetCard;
@@ -138,7 +138,9 @@ function LocationSetPlan({ model, label, onMove }){
       LSC_E("title",null,"Shot "+c.key+": where its camera stands"),
       LSC_E("circle",{ r:3.5 }),
       c.label ? LSC_E("text",{ x:5, y:-4 }, c.key) : null)),
-    model.people.map(person));
+    model.people.map(person),
+    // the floor plan being changed by hand: what can be dragged, over the plan (floor-plan-drag-ui.jsx)
+    edit && edit.on && window.PlanEditLayer ? LSC_E(window.PlanEditLayer,{ model, edit, metres }) : null);
 }
 
 // what a place's card was last looking at (the look, and where the stand-ins were put): kept while the tab is open,
@@ -158,12 +160,16 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const views = K.views(space.location, list);
   const camIndex = Math.min(pick.cam, Math.max(0, views.length-1)), view = views[camIndex] || null;
   const look = K.LOOKS.find(x=>x.id===pick.look) || K.LOOKS[0];
+  /* THE FLOOR PLAN, CHANGED BY HAND (owner 2026-11-25, step 1): while things are being moved the plan shown is the one
+     being edited; it is saved by the edit itself (floor-plan-drag-ui.jsx), never from this file. */
+  const planEdit = typeof window.usePlanEdit==="function" ? window.usePlanEdit(place, onUpdate, readOnly) : null;
+  const editing = !!(planEdit && planEdit.on);
   // the floor plan, whatever its state (a plan not confirmed yet is still worth looking at)
   let plan = null, coords = null, ready = false;
   try{ const st = typeof locationSpatialPlanState==="function" ? locationSpatialPlanState(place) : null;
-    const owner = (st && st.owner) || place;
-    plan = typeof locationFloorPlanScene==="function" ? locationFloorPlanScene(owner, st && st.plan) : null;
-    coords = st && st.plan && st.plan.coordinates; ready = !!(st && st.ready); }catch(_){ plan = null; }
+    const owner = (st && st.owner) || place, shown = editing ? planEdit.plan : (st && st.plan);
+    plan = typeof locationFloorPlanScene==="function" ? locationFloorPlanScene(owner, shown) : null;
+    coords = shown && shown.coordinates; ready = !!(st && st.ready); }catch(_){ plan = null; }
   const drawn = !!(plan && (plan.spaces||[]).length);
   const links = drawn ? K.connections(space.id, plan) : [];
   const sig = lscSig(space.location);
@@ -192,7 +198,8 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
     if(done) setSettled(n=>n+1); };
   const cast = people ? K.PEOPLE.map(k=>({ xy:people[k.id], z:start.floorZ, to:people[k.id==="A"?"B":"A"], colour:k.colour, height:k.height })) : [];
   const castKey = people ? K.PEOPLE.map(k=>people[k.id].map(n=>n.toFixed(2)).join(",")).join(";") : "";
-  const model = drawn ? K.planModel(plan, space, view ? view.key : "", people, 440, sceneNow ? sceneNow.cameras : null) : null;
+  // (while things are moved, the plan is the floor alone: no stand-ins and no shot cameras over what is dragged)
+  const model = drawn ? K.planModel(plan, space, view ? view.key : "", editing ? null : people, 440, !editing && sceneNow ? sceneNow.cameras : null, editing) : null;
 
   /* the pictures: the four views (drawn again when the set changes or a stand-in is let go) and the chosen view,
      larger. While a new picture is on its way the one before stays up. */
@@ -317,14 +324,16 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
 
         LSC_E(LscFold,{ label:planFold.label || "Floor plan", foldId:planFold.foldId, count:planFold.count, defaultOpen:true, testid:"set-card-fold-plan" },
           model ? LSC_E(React.Fragment,null,
-              LSC_E(LocationSetPlan,{ model, label:"Plan of "+(place.name||"this place")+(people ? ". Drag A and B to try where people stand; nothing is saved." : ""),
-                onMove:people && !readOnly ? movePerson : null }),
-              LSC_E("p",{ className:"lsc-mono dim", "data-testid":"set-card-people" },
+              LSC_E(LocationSetPlan,{ model, label:"Plan of "+(place.name||"this place")+(editing ? ". Drag a piece of furniture, a door or a window." : people ? ". Drag A and B to try where people stand; nothing is saved." : ""),
+                onMove:people && !readOnly && !editing ? movePerson : null, edit:editing ? planEdit : null }),
+              // moving things on the plan: its switch, and Undo, Cancel and Save while it is on
+              planReady && window.PlanEditBar ? LSC_E(window.PlanEditBar,{ edit:planEdit }) : null,
+              !editing && LSC_E("p",{ className:"lsc-mono dim", "data-testid":"set-card-people" },
                 // a space that is not on the plan cannot be lit on it: said, with where to add it
                 model.missing ? (space.name||"This space")+" is not on the floor plan yet, so it cannot be shown on it. Add it in Edit the floor plan, below."
                   : K.peopleLine(people, names)+(start && start.sceneNo!=null && (names.A || names.B) ? "   ·   marks of scene "+start.sceneNo : "")),
               // the scenes shot here: choose one, see its marks and cameras, go to its shots
-              shotHere.length>0 && sceneNow && LSC_E("div",{ className:"lsc-scene-row", "data-testid":"set-card-scene-row" },
+              !editing && shotHere.length>0 && sceneNow && LSC_E("div",{ className:"lsc-scene-row", "data-testid":"set-card-scene-row" },
                 LSC_E("label",{ className:"lsc-scene-pick" },
                   LSC_E("span",{ className:"lsc-lab" },"Scene"),
                   LSC_E("select",{ className:"prop-select", "data-testid":"set-card-scene", value:sceneNow.sceneId, disabled:shotHere.length<2, onChange:e=>chooseScene(e.target.value) },

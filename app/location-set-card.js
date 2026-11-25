@@ -199,7 +199,7 @@
      is lit; a space that is not on the plan yet lights nothing (missing). Every wall is drawn at its thickness, a
      door is a gap in it and a window a pane of glass. width = the picture's width in px; its height follows what is
      shown, 170 to 380 px. */
-  function planModel(plan,space,cameraKey,people,width,shotCams){
+  function planModel(plan,space,cameraKey,people,width,shotCams,tight){
     const P=obj(plan), all=arr(P.spaces); if(!all.length) return null;
     const me=all.find(s=>s.id===space.id)||null;
     const whole=boundsOf([].concat(...all.map(s=>s.footprint))), fit=me?boundsOf(me.footprint):whole; if(!fit||!whole) return null;
@@ -208,7 +208,8 @@
     const m=Math.max(0.6,0.08*Math.max(aw,ah)), mine=Math.max(0.9,0.17*Math.max(bw,bh));
     // the whole place in the picture; the chosen space alone; and the least the chosen space may be (half of it)
     const sAll=Math.min(W/(aw+2*m),TALL/(ah+2*m)), sMine=Math.min(W/(bw+2*mine),TALL/(bh+2*mine)), sLeast=Math.min(0.5*W/bw,0.5*TALL/bh);
-    const s=me?Math.min(sMine,Math.max(sAll,sLeast)):sAll;
+    // (tight: the chosen space fills the picture, for moving things on it by hand; the place around it is cut off)
+    const s=me?(tight?sMine:Math.min(sMine,Math.max(sAll,sLeast))):sAll;
     const H=Math.round(Math.max(170,Math.min(TALL,(ah+2*m)*s)));
     // centred on the whole place when all of it shows; else on the chosen space, kept inside the place
     const vw=W/s, vh=H/s, mid=(lo,hi,want,view)=>hi-lo+2*m<=view?(lo+hi)/2:Math.max(lo-m+view/2,Math.min(hi+m-view/2,want));
@@ -244,6 +245,8 @@
   }
   // a point of the plan's picture, back in metres (for a stand-in that is dragged)
   const planMetres=(model,px,py)=>[model.origin[0]+(px-model.W/2)/model.scale,model.origin[1]-(py-model.H/2)/model.scale];
+  // and a point of the floor plan, in the picture (for what is dragged on it: floor-plan-drag-ui.jsx)
+  const planPx=(model,p)=>[Math.round((model.W/2+(p[0]-model.origin[0])*model.scale)*10)/10,Math.round((model.H/2-(p[1]-model.origin[1])*model.scale)*10)/10];
 
   // The looks of a view (KinolotPrevis: colour, clay, depth).
   /* (owner 2026-11-25: the same four words as a shot's picture has, "Previs", "Clay", "Depth" and "Frame". The first,
@@ -254,5 +257,5 @@
     {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light. The stand-ins keep their colours."},
     {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"},
     {id:"frame",look:"",name:"Frame",title:"The location image: the finished picture of this place",frame:true}];
-  root.KinolotSetCard={KEYS,LOOKS,PEOPLE,spaces,views,camTag,sizeText,facts,connections,marks,shotScenes,marksLine,standIns,keepInside,peopleLine,planModel,planMetres};
+  root.KinolotSetCard={KEYS,LOOKS,PEOPLE,spaces,views,camTag,sizeText,facts,connections,marks,shotScenes,marksLine,standIns,keepInside,peopleLine,planModel,planMetres,planPx};
 })(typeof window!=="undefined"?window:globalThis);
