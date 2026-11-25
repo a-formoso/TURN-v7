@@ -65,7 +65,7 @@ test("3 the facts: a room's size and ceiling; the place adds its rooms and camer
   assert.equal(K.sizeText(PLAN.spaces[1].footprint),"1.0 × 3.0 m");
   assert.equal(K.sizeText([]),"");
   const coords={spaces:[{id:"flat",ceilingH:2.4},{id:"hall",openSky:true}]};
-  assert.equal(K.facts(FLAT,[FLAT,HALL],PLAN,coords),"4.0 × 3.0 m footprint · 2.4 m ceiling · 1 room · 2 cameras");
+  assert.equal(K.facts(FLAT,[FLAT,HALL],PLAN,coords),"4.0 × 3.0 m footprint · 2.4 m ceiling · 1 room","no camera count: the sheet says how many views it has (2026-11-25)");
   assert.equal(K.facts(HALL,[FLAT,HALL],PLAN,coords),"1.0 × 3.0 m · open sky");
   assert.equal(K.facts(FLAT,[FLAT],PLAN,null),"4.0 × 3.0 m","a place with no rooms is a room like any other");
   assert.equal(K.facts({id:"gone"},[FLAT],PLAN,coords),"","a space that is not on the plan has no facts");
@@ -357,7 +357,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("11b Frame, the fourth word of the switch: the place's location image, shown where the drawings are shown", ()=>{
@@ -375,7 +375,7 @@ test("11d with Frame on, the camera chosen in Location sheet is the part of the 
     'const quadOf = key=> (framePanels && key && framePanels[key]) ? key : "";','const quad = isFrame && view ? quadOf(view.key) : "";','className:quad ? "lsc-quad" : undefined, "data-quad":quad || undefined',
     'view && !cannot && (!isFrame || quad) && LSC_E("span",{ className:"lsc-camtag"','(isFrame && quadOf(v.key)) ? LSC_E("img",{ src:frameNow, alt:"", draggable:false, className:"lsc-quad", "data-quad":v.key })']) assert.ok(ui.includes(t),t);
   assert.deepEqual(K.KEYS,["TL","TR","BL","BR"],"the cameras' keys are the sheet's four parts");
-  for(const f of ["app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this change's key");
+  for(const f of ["app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this change's key");
   assert.ok(ui.includes(': frame.of!==frameId ? LSC_E("span",{ className:"lsc-wait" },"Opening the location image\u2026")'),"while the image is being read, the card does not say there is none");
   // the part asked for fills the frame: the whole picture at twice the size, moved
   for(const c of [".lsc-stage img.lsc-quad,.lsc-thumb img.lsc-quad{position:absolute;top:0;left:0;width:200%;height:200%;max-width:none;object-fit:fill}",'img.lsc-quad[data-quad="TR"]{left:-100%}','img.lsc-quad[data-quad="BL"]{top:-100%}','img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}']) assert.ok(css.includes(c),c);

@@ -2526,7 +2526,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       slot("scenes",React.createElement("div",{className:"prop-scenes location-scenes"},
         React.createElement("span",{className:"prop-scenes-lab"},"SCENES"),
         React.createElement(SceneChipPager,{ none:"No scenes reference this place",
-          items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
+          // each scene with its hour ("05 · Dawn": owner 2026-11-25), as the variants below are named
+          items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0")+(sceneTimeOf[String(s.no)] ? " \u00b7 "+(typeof window.shotHourWords==="function" ? window.shotHourWords(sceneTimeOf[String(s.no)][0]) : sceneTimeOf[String(s.no)][0]) : ""), className:"prop-scene-chip",
             title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \u00b7 "+sceneTimeOf[String(s.no)].join(", "):""), onClick:()=>onChipClick&&onChipClick(s.id) })) }))),
 
       // THE CARD IN FIVE SECTIONS (owner 2026-11-21, "build the 5 sections, no numbers"): The place, Floor plan, The set in 3D,
@@ -2831,7 +2832,8 @@ function locationCardSteps({l,drafted,spatialState,gen,previs}){
     // Previs: optional (it never holds up the next step), done once the set is dressed
     {n:4,key:"previs",name:"Previs",optional:true,done:!!(l.previs&&l.previs.v===1),
       todo:"Optional and free: see the set in 3D in your browser, dress it for the film and make the location image from it."},
-    {n:5,key:"image",name:"Location image",done:!!gen.genUrl&&!imageStale,goTo:viaPrevis?4:0,
+    // (stale: there is an image, and the place changed after it was made: the tracker says so on the step itself)
+    {n:5,key:"image",name:"Location image",done:!!gen.genUrl&&!imageStale,stale:!!gen.genUrl&&imageStale,goTo:viaPrevis?4:0,
       todo:gen.genUrl?"Make the image again: the description or the layout changed since it was made."+(viaPrevis?" Open Previs, make a draft and choose Use as location image.":" Open Quick image & image check, in Advanced, and make a new quick image.")
         :viaPrevis?"Open Previs, choose Make the location image, then Use as location image on the draft. A quick image, from the description alone, is in Advanced, under Quick image & image check."
         :"Open Quick image & image check, in Advanced, and make a quick image from the description."}];
@@ -3144,7 +3146,7 @@ function locationGuideSteps(steps){
     {key:"plan",name:"Floor plan",done:!!s(2).done,todo:s(2).todo||"",to:2},
     {key:"set",name:"The set in 3D",done:!!cams.done&&(!hasPre||!!pre.done),to:cams.done&&hasPre?4:3,
       todo:!cams.done?(cams.todo||"Set the four cameras."):"Dress the set in Previs: the image keeps to a dressed set much more closely."},
-    {key:"image",name:"Location image",done:!!img.done,todo:img.todo||"",to:img.goTo||5}];
+    {key:"image",name:"Location image",done:!!img.done,stale:!!img.stale&&!img.done,todo:img.todo||"",to:img.goTo||5}];
   list.forEach((x,i)=>{x.n=i+1;});
   const next=list.find(x=>!x.done);if(next)next.next=true;
   return list;
@@ -3165,7 +3167,9 @@ function LocationStepGuide({l,steps:cardSteps}){
       E("button",{type:"button",className:"loc-step"+(st.done?" done":st.next?" next":""),onClick:()=>go(st.n),
         "aria-current":st.next?"step":undefined,
         title:(st.done?"Done":st.next?"Next":"Later")+(st.todo&&!st.done?" \u2014 "+st.todo:"")},
-        E("span",{className:"loc-step-n"},st.done?"\u2713":st.n),E("span",{className:"loc-step-name"},st.name))))));
+        E("span",{className:"loc-step-n"},st.done?"\u2713":st.n),E("span",{className:"loc-step-name"},st.name),
+        // an image that is there but out of date says so, not only on hover (owner 2026-11-25: "a stale image isn't explained")
+        st.stale&&E("span",{className:"loc-step-stale","data-testid":"location-step-stale"},"out of date"))))));
 }
 
 /* Camera-relative composition, not a measured room plan. The visual editor

@@ -12959,3 +12959,10 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .prop-model-building{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:11.5px;color:var(--txt-2)}
 .prop-model-layout{margin:0}
 .prop-model-state{margin:0}
+
+/* (2026-11-25) Locations and Shots point at each other: the scene header's place is a link; a step that is there but
+   out of date says so */
+.ssx-loc-link{background:none;border:0;padding:0;margin:0;font:500 13px/24px var(--f-ui);color:var(--hs-ink,var(--txt-0));text-align:left;cursor:pointer;
+  text-decoration:underline;text-decoration-color:var(--line-2);text-underline-offset:3px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ssx-loc-link:hover,.ssx-loc-link:focus-visible{text-decoration-color:currentColor}
+.loc-step-stale{margin-left:6px;font-size:11px;color:var(--amber-ink,#8a5a12);white-space:nowrap}

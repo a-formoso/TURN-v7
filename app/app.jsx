@@ -1110,6 +1110,13 @@ function App(){
   };
   // open a location's card in the Art Room (a shot's missing location view, 2026-10-20): the Locations tab, scrolled to it
   // …and with imageId, the exact room & time view: its room shown, "Variants" opened, the view scrolled to and flashed
+  // a scene's shots, from anywhere in the Art Room (the location card's floor plan: owner 2026-11-25, "the natural bridge")
+  window.turnOpenSceneShots = (sceneId)=>{
+    if(!sceneId) return;
+    setRoom("art");
+    if(typeof window.turnFocusArtScene==="function") window.turnFocusArtScene("shots", sceneId);
+    setArtView("shots");
+  };
   window.turnOpenLocationCard = (locationId, imageId)=>{
     setRoom("art"); setArtView("locations");
     const clean = (v)=> String(v||"").replace(/["\\]/g,"");

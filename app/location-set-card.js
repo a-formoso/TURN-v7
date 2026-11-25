@@ -37,8 +37,8 @@
   const metres=n=>(Math.round(n*10)/10).toFixed(1);
   // "6.0 × 4.2 m" from a footprint (its width east to west, then its depth)
   function sizeText(footprint){ const b=boundsOf(footprint); return b?metres(b.maxX-b.minX)+" × "+metres(b.maxY-b.minY)+" m":""; }
-  /* THE LINE OF FACTS under the name. A room: its size and its ceiling. The place: its own size, how many rooms it
-     holds and how many cameras look at it. plan = the floor plan as locationFloorPlanScene gives it; coords = the
+  /* THE LINE OF FACTS under the name. A room: its size and its ceiling. The place: its own size and how many rooms it
+     holds. plan = the floor plan as locationFloorPlanScene gives it; coords = the
      plan's own numbers (ceiling heights). */
   function facts(space,all,plan,coords){
     const fp=arr(obj(plan).spaces).find(s=>s.id===space.id), c=arr(obj(coords).spaces).find(s=>s&&s.id===space.id);
@@ -47,9 +47,9 @@
     if(c&&c.openSky) bits.push("open sky");
     else if(c&&Number.isFinite(Number(c.ceilingH))&&Number(c.ceilingH)>0) bits.push(metres(Number(c.ceilingH))+" m ceiling");
     if(space.whole&&arr(all).length>1){
-      const rooms=arr(all).length-1, cams=arr(obj(plan).cameras).length;
+      // (no camera count: it counted every space's cameras, "8 cameras" over a sheet of 4 views; the sheet says its own: 2026-11-25)
+      const rooms=arr(all).length-1;
       bits.push(rooms+(rooms===1?" room":" rooms"));
-      if(cams) bits.push(cams+(cams===1?" camera":" cameras"));
     }
     return bits.join(" · ");
   }

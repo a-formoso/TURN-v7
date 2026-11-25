@@ -625,6 +625,21 @@ function shotFaceNotes(res, sh){
   if(sh && sh.move && sh.move!=="static") know.push("The camera moves in this shot: both pictures are from where it starts.");
   return { found, know };
 }
+
+/* THE HOUR A SCENE PLAYS AT, from its slugline ("INT. HUSSAIN FLAT - DAWN" → "Dawn"); "" when it has none. */
+function shotSceneHour(scene){
+  try{ const p = (scene && scene.loc && typeof window.parseSlugline==="function") ? window.parseSlugline(scene.loc) : null; return (p && p.time) ? shotHourWords(p.time) : ""; }catch(e){ return ""; }
+}
+// an hour as it is written in a sentence: "DAWN" and "pre-dawn" → "Dawn", "Pre-Dawn"
+function shotHourWords(t){ return String(t||"").trim().toLowerCase().replace(/(^|[\s-])([a-z])/g,(m,a,b)=>a+b.toUpperCase()); }
+/* THE HOUR A LOCATION REFERENCE IS OF, read from its own label once the place's name is cut off ("Hussain Flat —
+   … at Dawn", "Hussain Flat · INT · Dawn"); "" for the location image itself, which has no hour of its own. */
+function shotRefHour(label, name){
+  const rest = String(label||"").slice(String(name||"").length);
+  const m = rest.match(/\b((?:pre|mid|late|early)-)?(night|nighttime|day|daytime|dawn|daybreak|dusk|morning|evening|afternoon|noon|midday|midnight|twilight|sunset|sunrise)\b/i);
+  if(!m) return "";
+  const t = (m[1]||"")+m[2]; return t.charAt(0).toUpperCase()+t.slice(1).toLowerCase();
+}
 function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, laterShots, sceneShots, isHead, isFirst, onToggleHead, onUpdate, onDelete, onView, onDeleteShotReference, batchActiveId, onBatchDone, onGenerateShot, onRegenDownstream, onStopChain, subLabel, plan, beatContext, scriptedContent, redraftControl, shotMenuExtra, readOnly=false,
   // the beat-first layout (owner 2026-11-24): face = this card is laid out as the design's open shot; faceOpen = it is the one showing
   face=false, faceOpen=true }){
@@ -1644,8 +1659,9 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       const seed = r.kind==="seed" || r.kind==="seed-pending";
       return !(seed ? !!sh.anchor : (r.refId!=null && (sh.refOff||[]).indexOf(r.refId)>=0)); })
     // (a reference's own label can be long: "Hussain Flat — … at Dawn"; here only whose it is)
-    .map(r=>{ const nm = String(r.label||"").split(/ · | — | – | - | \(/)[0].trim();
-      return r.kind==="character" ? nm+"’s sheet" : r.kind==="location" ? nm+" image" : (r.kind==="seed" || r.kind==="seed-pending") ? "The frame before" : nm; })
+    // a location's image says which hour it is when it is a variant ("Hussain Flat image · Dawn": owner 2026-11-25)
+    .map(r=>{ const nm = String(r.label||"").split(/ · | — | – | - | \(/)[0].trim(), hour = r.kind==="location" ? shotRefHour(r.label, nm) : "";
+      return r.kind==="character" ? nm+"’s sheet" : r.kind==="location" ? nm+" image"+(hour ? " · "+hour : "") : (r.kind==="seed" || r.kind==="seed-pending") ? "The frame before" : nm; })
     .filter((t,i,a)=>t && a.indexOf(t)===i);
   const fWhy = gen.genUrl ? [
     characterSheetsChanged && "A character sheet changed since this frame was made.",
@@ -1704,7 +1720,11 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       (res && res.start && !res.end) && _el("p",{className:"sbc-text sbc-quiet"},"Nothing moves in this shot: it ends as it starts."),
       fCheck && _el("div",{className:"sbc-check","data-testid":"shot-face-check"},Icon.check && _el(Icon.check,{s:14}),_el("span",null,fCheck)),
       fNotes.found.map((t,i)=>_el("p",{key:"f"+i,className:"sbc-note"},t)),
-      fNotes.know.map((t,i)=>_el("p",{key:"k"+i,className:"sbc-text sbc-quiet"},t))),
+      fNotes.know.map((t,i)=>_el("p",{key:"k"+i,className:"sbc-text sbc-quiet"},t)),
+      // what is wrong in a drawing is put right in the set (owner 2026-11-25: a shelf in the wrong place, hooks in a wall)
+      (drawColour.loc && drawColour.loc.id && typeof window.turnOpenLocationCard==="function") && _el("button",{type:"button",className:"sbc-link","data-testid":"shot-face-open-set",
+        title:"The drawing is made from this place’s set. Its floor plan, its dressing and its cameras are on its card, in Locations.",
+        onClick:()=>window.turnOpenLocationCard(drawColour.loc.id)},"Open this place’s set")),
     // 4 · Frame
     _el(window.ShotStep,{step:fSteps[3]},
       !readOnly && _el("button",{type:"button",className:"sbc-btn"+(fSteps[3].state==="next"?" primary":""),"data-testid":"shot-face-make",
@@ -2856,9 +2876,14 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           _el("div",{className:"loc-slate-cell ssx-look"},
             _el("span",{className:"loc-slate-lab"},"Look"),
             _el(SceneStyleChip,{project:ctx.project,sceneId:scene.id})),
+          // the place and the hour, and the way to its card (owner 2026-11-25: "Shots doesn't point back")
           _el("div",{className:"loc-slate-cell"},
             _el("span",{className:"loc-slate-lab"},"Location"),
-            _el("b",{title:loc?loc.name:""}, loc ? loc.name : "—")),
+            (()=>{ const hour = shotSceneHour(scene), text = loc ? loc.name+(hour ? " · "+hour : "") : "—";
+              return (loc && loc.id && typeof window.turnOpenLocationCard==="function")
+                ? _el("button",{type:"button",className:"ssx-loc-link","data-testid":"scene-location-link",title:"Open "+loc.name+" in Locations",
+                    onClick:()=>window.turnOpenLocationCard(loc.id)}, text)
+                : _el("b",{title:loc?loc.name:""}, text); })()),
           _el("div",{className:"loc-slate-cell"},
             _el("span",{className:"loc-slate-lab"},"Shots"),
             _el("b",null, shots.length+(ordered.length ? " · "+approved+" approved" : ""))),
@@ -3784,3 +3809,4 @@ function exportShotList(scenesWithShots, shotsByScene, ctxFor, project, beatsMap
     w.document.close(); }
 }
 window.exportShotList = exportShotList;
+Object.assign(window, { shotSceneHour, shotRefHour, shotHourWords });
