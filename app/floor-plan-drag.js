@@ -330,9 +330,11 @@
       const gap=E=>{ const along=dot(sub(xy,E.a),E.u); return along<-0.05||along>E.L+0.05?Infinity:Math.abs(dot(sub(E.a,xy),E.n))-half(E); };
       const nearest=mine?Math.min(...before.map(gap)):Infinity, own=gap(E0);
       const d=taken(xy,E0,s,mine,h,mine&&own>nearest+0.03?-Infinity:AGAINST,0); if(d) delta.set(k,d); });
-    // what stands on a thing that goes, goes with it (a kettle on a worktop; and what stands on that)
-    for(let turn=0;turn<2;turn++) all.forEach((x,k)=>{ if(delta.has(k)||!pt(x&&x.xy)) return;
-      for(const [j,d] of Array.from(delta)){ if(standsOn(was[k],was[j])){ delta.set(k,d); break; } } });
+    /* what stands on a thing that goes, goes with it (a kettle on a worktop; and what stands on that), and that
+       comes BEFORE what the wall would do to it by itself (found on the first real save of a wall, 2026-11-25: on the
+       way back in, the wall reached the kettle and pushed it along the worktop it was riding on). */
+    for(let turn=0;turn<2;turn++) all.forEach((x,k)=>{ if(!pt(x&&x.xy)) return;
+      for(const [j,d] of Array.from(delta)){ if(j!==k&&standsOn(was[k],was[j])){ delta.set(k,d); break; } } });
     for(const [k,d] of delta){ const a=all[k], xy=pt(a.xy); a.xy=[r2(xy[0]+d[0]),r2(xy[1]+d[1])]; a.posBasis="user"; }
     // nothing is left outside its room that was inside it
     for(let k=0;k<all.length;k++){ const a=all[k], xy0=pt(was[k]&&was[k].xy), xy=pt(a&&a.xy), info=xy0&&list.find(x=>x.id===String(a.id)); if(!info||info.door) continue;

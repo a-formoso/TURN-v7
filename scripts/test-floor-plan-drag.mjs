@@ -147,6 +147,12 @@ test("4b a wall is moved square to itself: what is in it and against it goes wit
   assert.deepEqual(plain(e.coordinates.spaces[0].openings[1].centre), [3, 3], "a window of another wall stays");
   // what stands against it goes with it, and what stands on that; a chair in the room stays
   assert.deepEqual([at(e, "units"), at(e, "kettle"), at(e, "chair")], [[4.7, 2.2], [4.7, 2.4], [2, 1.5]]);
+  // and back in: the kettle stays on the units it stands on (the wall would reach it first and push it by itself)
+  const eIn = D.slideWall(q, "r", 1, [3.5, 1]);
+  assert.deepEqual(fp(eIn.plan)[1], [3.55, 0], "as far as the window of the north wall lets it");
+  assert.deepEqual([at(eIn.plan, "units"), at(eIn.plan, "kettle")], [[3.25, 2.2], [3.25, 2.4]]);
+  const there = D.moveWall(q, "r", 1, [4.5, 1]), again = D.moveWall(there, "r", 1, [4, 1]);
+  assert.deepEqual([at(again, "units"), at(again, "kettle"), at(again, "d")], [[3.7, 2.2], [3.7, 2.4], [4, 1]], "out and back: everything is where it was");
   // a camera of the plan that stood beside the wall goes with it; one in the middle of the room stays
   assert.deepEqual(plain(e.coordinates.cameras.map(c => c.position)), [[4.6, 0.4, 1.6], [2, 2, 1.6]]);
   // AGAINST a wall means the wall it stands at: a picture on the east wall whose end is near the north wall stays when the north wall goes out
@@ -366,7 +372,7 @@ test("6 the page: an Edit switch on a confirmed plan, Undo, Cancel, Save; The pl
   // loaded before the card that uses them, under this change's key
   assert.ok(html.indexOf("app/floor-plan-drag.js?v=") > 0 && html.indexOf("app/floor-plan-drag.js?v=") < html.indexOf("app/floor-plan-drag-ui.jsx?v=") && html.indexOf("app/floor-plan-drag-ui.jsx?v=") < html.indexOf("app/location-set-card-ui.jsx?v="));
   for (const f of ["app/floor-plan-drag.js", "app/floor-plan-drag-ui.jsx", "app/location-set-card.js", "app/location-set-card-ui.jsx", "app/locations-ui.jsx", "app/app.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/MOVE THINGS AND WALLS ON THE PLAN \(2026-11-25\)/.test(ai) && /Where things stand/.test(ai));
   assert.ok(!/Hussain|Pike|Liaqat/.test(ai.slice(ai.indexOf("MOVE THINGS AND WALLS ON THE PLAN"), ai.indexOf("MOVE THINGS AND WALLS ON THE PLAN") + 3000)), "no name of a film in what the assistant is told");
 });
