@@ -375,13 +375,49 @@ function useShortScreen(){
    and the heading itself don't. A fold changes the area's height, so the next 400 ms of scroll (the browser's own
    clamp) are ignored, or a page near its end would fold and unfold. resetKey: a new room or tab starts unfolded. */
 function useHeadAutoHide(on, resetKey){
-  const [hidden, setHidden] = React.useState(false);
-  React.useEffect(()=>{ setHidden(false); }, [resetKey, on]);
+  /* SMOOTH, AND AT ONCE (owner 2026-11-25: "there is a little jerk ... smooth and with no latency"). Measured on a
+     phone-sized screen: the fold was a React state, so the whole app was drawn again before the heading moved (the
+     page stood still, a second in the unbuilt app), and the heading then jumped 36px, stalled and snapped shut (its
+     max-height ran down from 420px, far above its real height, and its gaps had no transition).
+     Now the class goes on the room's root in the same frame as the scroll, nothing is drawn again, and each folding
+     part starts from its own measured height (set for the length of the move only, then taken off again). */
+  const st = React.useRef({ cur:false, timer:0 });
+  const apply = React.useCallback((v)=>{
+    const s = st.current, root = typeof document!=="undefined" ? document.querySelector(".app") : null;
+    s.cur = !!v;
+    if(!root || root.classList.contains("head-hidden")===s.cur) return;
+    const parts = Array.from(root.querySelectorAll(".wr-head-copy, .wr-actions"));
+    const rest = ()=>parts.forEach(e=>{ e.style.maxHeight = ""; e.style.overflow = ""; });
+    clearTimeout(s.timer);
+    if(s.cur){
+      parts.forEach(e=>{ e.style.maxHeight = e.offsetHeight+"px"; });
+      void root.offsetHeight;                        // the start of the move is taken in before the class changes it
+      root.classList.add("head-hidden");
+      rest();
+    }else{
+      // each part's full height, read with its limit lifted for a moment (nothing is painted in between). Its
+      // scrollHeight will not do: a row that centres its buttons reads half its height while it is shut.
+      parts.forEach(e=>{ e.style.maxHeight = "none"; });
+      const to = parts.map(e=>e.offsetHeight);
+      parts.forEach(e=>{ e.style.maxHeight = "0px"; e.style.overflow = "hidden"; });
+      root.classList.remove("head-hidden");
+      void root.offsetHeight;
+      parts.forEach((e,i)=>{ e.style.maxHeight = to[i]+"px"; });
+      s.timer = setTimeout(rest, 320);               // then free again: a heading that grows later is never cut
+    }
+  },[]);
+  React.useEffect(()=>{ apply(false); }, [resetKey, on]);
+  // (React writes the root's class again when another part of it changes: the fold is put back before the paint)
+  React.useLayoutEffect(()=>{
+    const root = typeof document!=="undefined" ? document.querySelector(".app") : null, want = !!on && st.current.cur;
+    if(root && root.classList.contains("head-hidden")!==want) root.classList.toggle("head-hidden", want);
+  });
+  React.useEffect(()=>()=>clearTimeout(st.current.timer), []);
   React.useEffect(()=>{
     if(!on || typeof document==="undefined") return undefined;
     const last = new WeakMap();
-    let acc = 0, cur = false, lockUntil = 0;
-    const set = (v)=>{ if(v===cur) return; cur = v; acc = 0; lockUntil = Date.now()+400; setHidden(v); };
+    let acc = 0, lockUntil = 0;
+    const set = (v)=>{ if(v===st.current.cur) return; acc = 0; lockUntil = Date.now()+400; apply(v); };
     const onScroll = (e)=>{
       const el = e.target;
       if(!el || el.nodeType!==1 || typeof el.closest!=="function") return;
@@ -400,11 +436,10 @@ function useHeadAutoHide(on, resetKey){
     };
     // a view inside a room (the Stage's Shoot / Takes / Timeline / Mix) starts unfolded too
     const unfold = ()=>set(false);
-    document.addEventListener("scroll", onScroll, true);
+    document.addEventListener("scroll", onScroll, { capture:true, passive:true });
     window.addEventListener("turn-head-unfold", unfold);
-    return ()=>{ document.removeEventListener("scroll", onScroll, true); window.removeEventListener("turn-head-unfold", unfold); };
+    return ()=>{ document.removeEventListener("scroll", onScroll, { capture:true }); window.removeEventListener("turn-head-unfold", unfold); };
   },[on]);
-  return on && hidden;
 }
 
 /* ============================================================================
@@ -9877,7 +9912,7 @@ function App(){
   const shortScreen = useShortScreen();
   // (2026-11-17, owner: "shrink the page heading when you scroll") the Art Room folds its heading at every size: its
   // title, line and buttons kept about a third of a laptop's screen over the cards
-  const headHidden = useHeadAutoHide(vp==="mobile" || shortScreen || room==="art", room+"|"+view+"|"+artView);
+  useHeadAutoHide(vp==="mobile" || shortScreen || room==="art", room+"|"+view+"|"+artView);   // puts "head-hidden" on the root itself: the app is not drawn again for it
   if(authGate && !authReady){
     return React.createElement("div",{className:"lp-splash",role:"status","aria-live":"polite"},
       React.createElement("span",{className:"lp-logo"},(typeof BrandMark==="function") && React.createElement(BrandMark,null),"Kinolot"),
@@ -9932,7 +9967,7 @@ function App(){
   const newStoryEpisodeFormat=newStoryFormatEntry&&newStoryFormatEntry.id
     ? String(newStoryFormatEntry.id) : (newStoryBuildsCurrentEpisode?"series":undefined);
 
-  return React.createElement("div",{className:`app hs room-${room} vp-${vp} ${densClass} ${premiumClass}`+(shortScreen?" vp-short":"")+(headHidden?" head-hidden":"")+(roomReadOnly?" is-readonly":"")},
+  return React.createElement("div",{className:`app hs room-${room} vp-${vp} ${densClass} ${premiumClass}`+(shortScreen?" vp-short":"")+(roomReadOnly?" is-readonly":"")},
     window.ConfirmHost && React.createElement(window.ConfirmHost,null),
     /* VIEW-ONLY BANNER — say it UP FRONT. RLS rejects this user's writes, so without a
        standing notice they could work for an hour and only discover it from a failed save. */

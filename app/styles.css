@@ -12242,9 +12242,13 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 /* 2 · THE HEADING FOLDS AWAY WHILE YOU WORK (app.jsx useHeadAutoHide): scrolling a room's page down folds the
    eyebrow, title, line and actions; the tabs stay. Phones and short screens only. */
 @media (max-width:700px), (max-height:520px){
-  .app.hs .wr-head-copy{max-height:420px;transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
-  .app.hs .wr-actions{max-height:200px;transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
-  .app.hs .wr-head-in{transition:padding .24s ease}
+  /* (2026-11-25, "a little jerk") no max-height while it is open: the fold starts from each part's own measured
+     height (app.jsx sets it for the length of the move), and the gaps and margins move with it, not in one jump */
+  .app.hs .wr-head-copy{transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
+  .app.hs .wr-actions{transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
+  .app.hs .wr-head-in{transition:padding .24s ease,gap .24s ease}
+  .app.hs .wr-head-side{transition:gap .24s ease}
+  .app.hs .art-head-top{transition:gap .24s ease,margin .24s ease}
   .app.hs.head-hidden .wr-head-copy,
   .app.hs.head-hidden .wr-actions{max-height:0;opacity:0;margin-top:0;margin-bottom:0;overflow:hidden;pointer-events:none}
   .app.hs.head-hidden .wr-head-in{padding-top:4px;padding-bottom:0;gap:0}
@@ -12254,16 +12258,18 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 /* (2026-11-17, owner: "shrink the page heading when you scroll") THE ART ROOM FOLDS ITS HEADING AT EVERY SIZE: on a
    laptop the eyebrow, title, line and the two room buttons kept about a third of the screen over the cards. Scrolling
    the page down leaves the tabs; scrolling up, or the top of the page, brings the heading back. */
-.app.hs.room-art .wr-head-copy{max-height:420px;transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
-.app.hs.room-art .wr-actions{max-height:200px;transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
-.app.hs.room-art .wr-head-in{transition:padding .24s ease}
+.app.hs.room-art .wr-head-copy{transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
+.app.hs.room-art .wr-actions{transition:max-height .24s ease,opacity .18s ease,margin .24s ease}
+.app.hs.room-art .wr-head-in{transition:padding .24s ease,gap .24s ease}
+.app.hs.room-art .wr-head-side{transition:gap .24s ease}
+.app.hs.room-art .art-head-top{transition:gap .24s ease,margin .24s ease}
 .app.hs.room-art.head-hidden .wr-head-copy,
 .app.hs.room-art.head-hidden .wr-actions{max-height:0;opacity:0;margin-top:0;margin-bottom:0;overflow:hidden;pointer-events:none}
 .app.hs.room-art.head-hidden .wr-head-in{padding-top:4px;padding-bottom:0;gap:0}
 .app.hs.room-art.head-hidden .wr-head-side{gap:0}
 .app.hs.room-art.head-hidden .art-head-top{gap:0;margin-bottom:0}
 @media (prefers-reduced-motion:reduce){
-  .app.hs .wr-head-copy,.app.hs .wr-actions,.app.hs .wr-head-in{transition:none}
+  .app.hs .wr-head-copy,.app.hs .wr-actions,.app.hs .wr-head-in,.app.hs .wr-head-side,.app.hs .art-head-top{transition:none}
 }
 /* a short screen (a phone held sideways) never shows the title block: the open tab says where you are */
 .app.hs.vp-short .wr-head-copy{display:none}

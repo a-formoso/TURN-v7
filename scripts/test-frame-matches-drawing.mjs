@@ -109,7 +109,7 @@ test("6 the location's image rides as swatches, and a prop's sheet says where th
 });
 
 test("7 fresh keys, and Frances knows", ()=>{
-  for(const f of ["app/shot-previs.js","app/shot-previs-ui.jsx","app/shots-ui.jsx","app/shots.jsx","app/ai.jsx","app/script.jsx"]) assert.ok(["20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+  for(const f of ["app/shot-previs.js","app/shot-previs-ui.jsx","app/shots-ui.jsx","app/shots.jsx","app/ai.jsx","app/script.jsx"]) assert.ok(["20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const fact=ai.split("\n").find(l=>l.startsWith('APP_FEATURES.push({ name:"Shots: the previs of a shot, and its camera on the floor plan"'));
   for(const t of ["SO THAT THE FRAME MATCHES THE DRAWING, the drawing is measured","where the lower edge of the frame cuts each person","the size of shot and the tilt the drawing really has","cut into shuffled swatches, for its materials, colour and light only","says where the drawing has that prop"]) assert.ok(fact.includes(t),t);
   assert.ok(!/credit|\$|claude|anthropic|opus|gemini|gpt|three\.?js|\bTURN\b|\bMUSE\b|kinolot/i.test(fact.slice(fact.indexOf("SO THAT THE FRAME"),fact.indexOf("SO THAT THE FRAME")+900)));
