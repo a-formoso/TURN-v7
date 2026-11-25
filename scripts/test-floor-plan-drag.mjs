@@ -139,11 +139,22 @@ test("5 Save: the moved plan is confirmed as Floor plan's own Confirm confirms i
   assert.deepEqual(plain(table.xy), [1.6, 2.2]); assert.equal(table.posBasis, "user"); assert.match(table.placement, /Placed by hand on the floor plan\.$/);
   assert.deepEqual(plain(c.plan.anchors.find(a => a.id === "kitchen-fridge")), plain(base.anchors.find(a => a.id === "kitchen-fridge")), "what was not moved is saved as it was");
   assert.equal(JSON.stringify(l.spatialPlan.anchors[0].xy), "[2.1,1.2]", "the film's own plan is not touched by the check");
-  // only what moved changes: the plan keeps its own source (the first real save stamped the image's date on it)
-  assert.deepEqual(plain(c.plan.source), plain(base.source), "the plan's source is saved as it was");
-  const srcPlan = { ...base, source: { ...base.source, iso: "" } }, lSrc = { ...l, spatialPlan: srcPlan }, stSrc = box.locationSpatialPlanState(lSrc);
-  if (stSrc.ready) { const cs = B.commit(lSrc, stSrc.plan, B.moveObject(stSrc.plan, "kitchen-table", [1.6, 2.2]), [lSrc]); assert.equal(cs.ok, true, cs.error); assert.equal(cs.plan.source.iso, "", "an empty date stays empty"); }
-  assert.ok(!read("app/floor-plan-drag.js").includes("source:now.source"));
+  /* A PLACE THAT HAS ITS LOCATION IMAGE, MADE FROM THIS PLAN (most places): the plan is current because the image
+     records its signature. Once a thing has moved the signature no longer matches, so the saved plan must carry the
+     image's own date, as Floor plan's Confirm stamps it, or Save refuses with "the parent image changed"
+     (2026-11-25: it did, on the live site, for a few hours). */
+  const stamp = { iso: "2026-11-22T09:18:29.586Z", spatialPlanSig: box.locationSpatialPlanSig(base) };
+  box.nbGetMeta = id => (id === l.id ? stamp : null); box.nbGetImage = id => (id === l.id ? "data:image/png;base64,AA" : "");
+  try {
+    const stImg = box.locationSpatialPlanState(l);
+    assert.equal(stImg.ready, true, "current: its image was made from it"); assert.equal(stImg.plan.source.iso, "", "and it carries no date of its own");
+    const ci = B.commit(l, stImg.plan, B.moveObject(stImg.plan, "kitchen-table", [1.6, 2.2]), [l]);
+    assert.equal(ci.ok, true, ci.error);
+    assert.deepEqual(plain(ci.plan.source), { assetId: l.id, iso: stamp.iso }, "confirmed against the image as it is now");
+    assert.equal(box.locationSpatialPlanState({ ...l, spatialPlan: ci.plan }).ready, true, "and what is saved is a current, confirmed plan");
+    assert.equal(box.locationSpatialPlanState({ ...l, spatialPlan: { ...ci.plan, source: stImg.plan.source } }).ready, false, "without the stamp it would read as out of date");
+  } finally { delete box.nbGetMeta; delete box.nbGetImage; }
+  assert.ok(read("app/floor-plan-drag.js").includes('const reviewed=norm({...edited,status:"reviewed",source:now.source});'));
   // a window slid along its wall, and the doorway in the wall inside the room slid along that wall
   const win = B.moveOpening(base, "flat", "kitchen-window", [1.9, 0.3]), cw = B.commit(l, base, win, [l]);
   assert.equal(cw.ok, true, cw.error); assert.deepEqual(plain(cw.plan.coordinates.spaces[0].openings.find(o => o.id === "kitchen-window").centre), [1.9, 0]);
@@ -179,7 +190,7 @@ test("6 the page: an Edit switch on a confirmed plan, Undo, Cancel, Save; The pl
   // loaded before the card that uses them, under this change's key
   assert.ok(html.indexOf("app/floor-plan-drag.js?v=") > 0 && html.indexOf("app/floor-plan-drag.js?v=") < html.indexOf("app/floor-plan-drag-ui.jsx?v=") && html.indexOf("app/floor-plan-drag-ui.jsx?v=") < html.indexOf("app/location-set-card-ui.jsx?v="));
   for (const f of ["app/floor-plan-drag.js", "app/floor-plan-drag-ui.jsx", "app/location-set-card.js", "app/location-set-card-ui.jsx", "app/locations-ui.jsx", "app/app.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag3", "20261125-drag4", "20261125-drag5"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/MOVE THINGS ON THE PLAN \(2026-11-25\)/.test(ai) && /Where things stand/.test(ai));
 });
 

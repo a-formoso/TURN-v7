@@ -194,9 +194,13 @@
       if(JSON.stringify(now.plan)!==JSON.stringify(base)) return {ok:false,error:"The floor plan was changed elsewhere while you were moving things. Cancel and start again; nothing was overwritten."};
       const moved=moves(base,edited);
       if(!moved.length) return {ok:true,same:true};
-      /* THE PLAN KEEPS ITS OWN SOURCE: a move by hand is no new reading of the image, so only what moved changes
-         (found on the first real save, 2026-11-25: stamping the image's date changed a field nobody touched). */
-      const reviewed=norm({...edited,status:"reviewed"});
+      /* CONFIRMED AGAINST THE IMAGE AS IT IS NOW, exactly as Floor plan's own Confirm stamps it (source = the
+         location image's id and date). A plan whose image was made FROM it counts as current only while it is
+         unchanged (locations.jsx: the image records the plan's signature); once a thing has moved, the signature no
+         longer matches, and without today's stamp the plan reads "the parent image changed" and cannot be saved.
+         (2026-11-25: the stamp was taken out for a few hours as "a field nobody touched", and Save then refused on
+         every place that has a location image. It belongs here.) */
+      const reviewed=norm({...edited,status:"reviewed",source:now.source});
       const checked=state({...now.owner,spatialPlan:reviewed});
       if(!checked.ready) return {ok:false,error:checked.reason||"The floor plan cannot be confirmed with this change."};
       const R=root.KinolotCloudRender;
