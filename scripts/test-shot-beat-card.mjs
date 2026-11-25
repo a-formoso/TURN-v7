@@ -131,6 +131,8 @@ test("7 one shot open under its beat; every other card stays in the page", ()=>{
   assert.ok(fn.includes("momentsLine:beatMomentsLine({L:Lopen,")&&ui.includes("!face && beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,"),"the beat's moments are said once, on its card");
   assert.ok(ui.includes('className:"beat-card-grid"+((window.ShotBeatFace && window.KinolotBeatCard)?" beat-first":"")')&&css.includes(".sbc-row{display:grid;grid-template-columns:minmax(300px,400px) minmax(0,1fr)"));
   assert.ok(css.includes("@media (max-width:980px){\n  .sbc-row{grid-template-columns:minmax(0,1fr)}"),"under its beat on a narrow screen");
+  // (owner 2026-11-25) the open shot fills the rest of the row: its right edge is the scene header's, on any width
+  assert.ok(css.includes(".sbc-open{min-width:0}\n")&&!/\.sbc-open\{[^}]*max-width:\d/.test(css),"no fixed width on the open shot");
   assert.ok(css.includes(".sbc-side{min-width:0;align-self:stretch}")&&fn.includes('_el("div",{className:"sbc-side"},_el(window.ShotBeatFace,{'),"the beat's card follows the page inside its own column");
   // the earlier layout is still there for when the new cards are not loaded
   assert.ok(ui.includes('window.BeatStrip && _el(window.BeatStrip,{key:"strip"+L.n,scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly}),'));
@@ -174,7 +176,7 @@ test("9 Send this beat to the Stage only goes there; loaded in order; Frances kn
   const i=s=>html.indexOf(s);
   assert.ok(i("app/location-set-card.js?v=")<i("app/shot-beat-card.js?v=")&&i("app/shot-beat-card.js?v=")<i("app/shot-beat-card-ui.jsx?v="),"the plan reader, the words, then the screen");
   for(const f of ["app/shot-beat-card.js","app/shot-beat-card-ui.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/stage.jsx","app/app.jsx","app/styles.css","app/ai.jsx"])
-    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Shots: a beat and its open shot')).join("\n"))(g.APP_FEATURES);
   assert.equal(g.APP_FEATURES.length,1);
   const fact=g.APP_FEATURES[0].what;

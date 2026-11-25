@@ -12852,7 +12852,9 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .beat-card-grid.beat-first{display:flex;flex-direction:column;gap:22px}
 .sbc-row{display:grid;grid-template-columns:minmax(300px,400px) minmax(0,1fr);gap:16px;align-items:start;min-width:0}
 .sbc-side{min-width:0;align-self:stretch}
-.sbc-open{min-width:0;max-width:640px}
+/* (owner 2026-11-25: "I need the card on the right ... to occupy the rest of the width and align with the other
+   elements") the open shot fills its column: its right edge is the scene header's. It was held to 640px. */
+.sbc-open{min-width:0}
 .sbc-shot[hidden]{display:none}
 .sbc-beat{display:flex;flex-direction:column;gap:12px;padding:15px 16px;min-width:0;position:sticky;top:64px}
 .sbc-beat-head{display:flex;flex-direction:column;gap:2px;min-width:0}
