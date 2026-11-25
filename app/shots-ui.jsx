@@ -3255,6 +3255,13 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
         try{ card.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){}
         try{ window.dispatchEvent(new CustomEvent("nb-open-fold",{ detail:"shot-previs-"+shotId })); }catch(e){} };
       setTimeout(go, 300);
+    }else{
+      /* A SCENE HAND-OFF LANDS AT THE TOP OF THE SCENE (owner 2026-11-25: "fix 'Open this scene's shots' so it lands at
+         the top"). The Art Room's page keeps its scroll from one tab to the next, so a jump made from far down a
+         location card opened Shots on the right scene, part-way down it. Once now, and once more when the scene's
+         cards are on the page. A hand-off that names a shot goes to that shot instead (above). */
+      const top = ()=>{ const page = document.querySelector(".artroom"); if(page && page.scrollTop) page.scrollTop = 0; };
+      top(); setTimeout(top, 120);
     }
     if(f.action==="render") setTimeout(()=>{ startSceneRef.current && startSceneRef.current(scenesWithShots[i], { always:true }); }, 400);
   },[scenesWithShots.length]);

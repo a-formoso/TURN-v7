@@ -48,8 +48,11 @@ test("3 Locations: scenes with their hours, facts without a camera count, a stal
 
 test("4 a scene's shots can be opened from anywhere in the Art Room; fresh keys; Frances knows", () => {
   assert.ok(app.includes("window.turnOpenSceneShots = (sceneId)=>{") && app.includes('window.turnFocusArtScene("shots", sceneId);'));
+  // (2026-11-25) a scene hand-off lands at the top of the scene: the Art Room's page keeps its scroll from tab to tab
+  assert.ok(shots.includes('const top = ()=>{ const page = document.querySelector(".artroom"); if(page && page.scrollTop) page.scrollTop = 0; };') && shots.includes("top(); setTimeout(top, 120);"));
+  assert.ok(shots.indexOf("top(); setTimeout(top, 120);") > shots.indexOf('if(String(f.action||"").indexOf("shot:")===0){'), "only when the hand-off names no shot");
   for (const f of ["app/app.jsx", "app/shots-ui.jsx", "app/location-set-card.js", "app/locations-ui.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/SHOTS AND LOCATIONS POINT AT EACH OTHER \(2026-11-25\)/.test(ai) && /marked 'out of date' on the step itself/.test(ai));
   assert.ok(!/Hussain|Liaqat|Pike\b/.test(ai), "no film's own names in what Frances is told");
 });
