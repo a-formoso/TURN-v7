@@ -1,7 +1,7 @@
 /* THE SET CARD: what it shows, worked out from the place's own data (owner 2026-11-23: "build the card ... keep this
    exact same structure and design and layout used in the demo", a card the owner designed: one card per set, the
-   chosen camera's view on top, the place and its rooms as chips, the four views, the plan, what it connects to, and
-   a reference pack). Nothing here draws or saves: location-set-card-ui.jsx draws what these functions return.
+   chosen camera's view on top, the place and its rooms as chips, the four views, the plan, what it connects to; the
+   reference pack of that design left the card on 2026-11-25, and the scenes shot here came in). Nothing here draws or saves: location-set-card-ui.jsx draws what these functions return.
    Everything is read from what the app already has: the place and its rooms (one set), each card's four cameras,
    the floor plan and the marks of the film's scene plans. */
 (function(root){
@@ -94,10 +94,12 @@
   /* THE MARKS PEOPLE STAND ON HERE, from the film's scene plans (the card places nobody itself: a mark belongs to a
      scene). ids = the spaces to look in (a room: itself; the place: itself and its rooms). The first scene, in story
      order, that has marks there: {sceneId, sceneNo, marks:[{letter, name, xy}]} (eight at most), or null. */
-  function marks(project,ids,scenes){
+  function marks(project,ids,scenes,only){
     const plans=obj(obj(project).scenePlans), want=new Set(arr(ids).map(String));
-    const order=arr(scenes).map(s=>s&&s.id).filter(Boolean);
+    let order=arr(scenes).map(s=>s&&s.id).filter(Boolean);
     Object.keys(plans).forEach(id=>{ if(order.indexOf(id)<0) order.push(id); });
+    // (only: the marks of that scene alone, when the card's scene picker has chosen one)
+    if(only) order=order.filter(id=>id===only);
     for(const sceneId of order){
       const plan=obj(plans[sceneId]), sets=arr(plan.sets).filter(s=>s&&want.has(String(s.locationId))).map(s=>String(s.id));
       if(!sets.length) continue;
@@ -108,6 +110,33 @@
         marks:here.slice(0,8).map((m,i)=>({letter:String.fromCharCode(65+i),name:cap(m.name||m.near||"Mark"),xy:[Number(m.xy[0]),Number(m.xy[1])]}))};
     }
     return null;
+  }
+  /* THE SCENES SHOT HERE (owner 2026-11-25: "the location doesn't show its shots"; a scene picker on the floor plan
+     is "the natural bridge between the two tabs"). Every planned scene with a set in one of these spaces, in story
+     order: how many marks it has there and the cameras its plan placed for the shots of that set. shots = the
+     film's shots (each knows its set: planSet); keyOf(shot) = its camera's key in the plan ("2.1"). A camera is
+     listed only for a shot of a set that is here, so a scene that also plays elsewhere shows its own cameras only.
+     → [{sceneId, sceneNo, title, marks, cameras:[{key, at:[x,y], lens}]}] */
+  function shotScenes(project,ids,scenes,shots,keyOf){
+    const plans=obj(obj(project).scenePlans), want=new Set(arr(ids).map(String)), out=[];
+    const order=arr(scenes).map(s=>s&&s.id).filter(Boolean);
+    Object.keys(plans).forEach(id=>{ if(order.indexOf(id)<0) order.push(id); });
+    for(const sceneId of order){
+      const plan=obj(plans[sceneId]), sets=arr(plan.sets).filter(s=>s&&want.has(String(s.locationId))).map(s=>String(s.id));
+      if(!sets.length) continue;
+      const here=arr(plan.marks).filter(m=>m&&sets.indexOf(String(m.set||""))>=0&&arr(m.xy).length===2&&m.xy.every(n=>Number.isFinite(Number(n))));
+      const cams=obj(plan.cameras), seen=new Set(), cameras=[];
+      arr(shots).forEach(sh=>{ if(!sh||sh.sceneId!==sceneId||sets.indexOf(String(sh.planSet||""))<0||typeof keyOf!=="function") return;
+        let key=""; try{ key=String(keyOf(sh)||""); }catch(_){ key=""; }
+        const c=obj(cams[key]), at=arr(c.at).map(Number);
+        if(!key||seen.has(key)||at.length!==2||!at.every(Number.isFinite)) return;
+        seen.add(key); cameras.push({key,at,lens:Number(c.lens)||0}); });
+      cameras.sort((a,b)=>a.key.split(".").map(Number).reduce((n,v,i)=>n+v*(i?1:1000),0)-b.key.split(".").map(Number).reduce((n,v,i)=>n+v*(i?1:1000),0));
+      if(!here.length&&!cameras.length) continue;
+      const scene=arr(scenes).find(s=>s&&s.id===sceneId);
+      out.push({sceneId,sceneNo:scene&&scene.no!=null?scene.no:null,title:cap((scene&&scene.title)||""),marks:here.length,cameras});
+    }
+    return out;
   }
   // "A Front door · B Hall shelf", or the line that says there are none yet
   function marksLine(found){
@@ -170,7 +199,7 @@
      is lit; a space that is not on the plan yet lights nothing (missing). Every wall is drawn at its thickness, a
      door is a gap in it and a window a pane of glass. width = the picture's width in px; its height follows what is
      shown, 170 to 380 px. */
-  function planModel(plan,space,cameraKey,people,width){
+  function planModel(plan,space,cameraKey,people,width,shotCams){
     const P=obj(plan), all=arr(P.spaces); if(!all.length) return null;
     const me=all.find(s=>s.id===space.id)||null;
     const whole=boundsOf([].concat(...all.map(s=>s.footprint))), fit=me?boundsOf(me.footprint):whole; if(!fit||!whole) return null;
@@ -206,13 +235,17 @@
       camera={at:p,n:KEYS.indexOf(cameraKey)+1,cone:f.length===3?[p,ray(f[1]),ray(f[2])]:null};
     }
     const who=people?PEOPLE.map(k=>({id:k.id,css:k.css,at:at(people[k.id])})):[];
-    return {W,H,scale:s,origin:[cx,cy],wall:Math.max(2.5,Math.min(7,0.14*s)),rooms,doors:open.filter(o=>!o.glass),windows:open.filter(o=>o.glass),camera,people:who,missing:!me};
+    // a chosen scene's cameras, each a small dot with its shot's number, where the plan put it (those in the picture)
+    // (a number is written beside a dot only where it has room: cameras in a narrow hall stand on top of each other)
+    const named=[];
+    const shots=arr(shotCams).filter(c=>c&&arr(c.at).length===2).map(c=>({key:String(c.key),at:at(c.at)})).filter(c=>c.at[0]>=0&&c.at[0]<=W&&c.at[1]>=0&&c.at[1]<=H)
+      .map(c=>{ const free=named.every(q=>Math.hypot(q[0]-c.at[0],q[1]-c.at[1])>=18); if(free) named.push(c.at); return {...c,label:free}; });
+    return {W,H,scale:s,origin:[cx,cy],wall:Math.max(2.5,Math.min(7,0.14*s)),rooms,doors:open.filter(o=>!o.glass),windows:open.filter(o=>o.glass),camera,people:who,shots,missing:!me};
   }
   // a point of the plan's picture, back in metres (for a stand-in that is dragged)
   const planMetres=(model,px,py)=>[model.origin[0]+(px-model.W/2)/model.scale,model.origin[1]-(py-model.H/2)/model.scale];
 
-  // The three pictures of a reference pack, in order: what each is called, its look in the viewer and its one line.
-  // The three looks of a view (KinolotPrevis: colour, clay, depth) and the three pictures of a reference pack.
+  // The looks of a view (KinolotPrevis: colour, clay, depth).
   /* (owner 2026-11-25: the same four words as a shot's picture has, "Previs", "Clay", "Depth" and "Frame". The first,
      the set with its surfaces, was called "Colour"; its id stays. "Frame" is no drawing: it is the place's finished
      picture, its location image.) */
@@ -221,10 +254,5 @@
     {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light. The stand-ins keep their colours."},
     {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"},
     {id:"frame",look:"",name:"Frame",title:"The location image: the finished picture of this place",frame:true}];
-  const PACK=[
-    {id:"colour",look:"",name:"Previs",text:"This camera, the set with its surfaces and the two stand-ins."},
-    {id:"clay",look:"clay",name:"Clay",text:"The set in one matt white, so only shape and light are left. The stand-ins keep their colours."},
-    {id:"depth",look:"depth",name:"Depth",text:"How far each thing is from the camera. Near is light."}];
-
-  root.KinolotSetCard={KEYS,PACK,LOOKS,PEOPLE,spaces,views,camTag,sizeText,facts,connections,marks,marksLine,standIns,keepInside,peopleLine,planModel,planMetres};
+  root.KinolotSetCard={KEYS,LOOKS,PEOPLE,spaces,views,camTag,sizeText,facts,connections,marks,shotScenes,marksLine,standIns,keepInside,peopleLine,planModel,planMetres};
 })(typeof window!=="undefined"?window:globalThis);

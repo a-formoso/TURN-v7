@@ -73,7 +73,7 @@ test("4 what the video engine is told a layout is", ()=>{
 
 test("5 nothing about prices: no pricing or server file is part of this step; keys and Frances", ()=>{
   for(const f of ["app/stage.jsx","app/stage-director-brief.js","app/shot-previs-ui.jsx","app/ai.jsx"])
-    assert.ok(["20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const at=stage.indexOf("/* PREVIS LAYOUTS (owner 2026-11-24"), near=stage.slice(stage.indexOf("const [layouts, setLayouts]"),stage.indexOf("// VIDEO ELEMENTS (2026-10-27)",at));
   assert.ok(!/creditsPerSecond|usdPerSecond|turnCreditCost|stageHold|holdCredits/.test(near.slice(0,1800)),"the layouts touch no price");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Stage: each shot\'s layout on a clip"')).join("\n"))(g.APP_FEATURES);

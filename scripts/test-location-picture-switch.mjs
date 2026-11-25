@@ -49,7 +49,8 @@ test("1 the card has five sections with no numbers (and Rooms on a place with ro
   // those are all of them: nine sections or parts in two groups, and none carries a number
   const labels=sheet.match(/Card(?:Fold|Group),\{label:[^,]+/g)||[];
   // (2026-11-23: two more for the card with the set card on top: The set in 3D as one section, and a place with rooms' Extra spaces)
-  assert.equal(labels.length,13);
+  // (2026-11-25: one fewer: with the set card, the making of the image is handed to its Location image section, no fold of its own)
+  assert.equal(labels.length,12);
   for(const x of labels) assert.ok(!/\d \\u00b7|\d ·|sectionNo/.test(x),"no number on "+x);
   for(const gone of ["sectionNo","locationSectionNumbers","imageN"]) assert.ok(!ui.includes(gone),"gone: "+gone);
   // the two groups: the set opens for a link to its cameras or its Previs, Advanced for a link to the quick image
@@ -90,7 +91,7 @@ test("1 the card has five sections with no numbers (and Rooms on a place with ro
   assert.equal(g[2].done,true);assert.equal(g[2].to,3);assert.equal(nextOf(g),"image");
   // the guide draws those four, and a press opens the step's own section
   const guide=ui.slice(ui.indexOf("function LocationStepGuide("),ui.indexOf("/* Camera-relative composition"));
-  assert.ok(guide.includes("function LocationStepGuide({l,steps:cardSteps}){\n  const steps=locationGuideSteps(cardSteps);"));
+  assert.ok(guide.includes("function LocationStepGuide({l,steps:cardSteps,face=false}){\n  // (with the set card, The set in 3D is a section of its own: its step opens it, and the image's step opens Location image)\n  const steps=locationGuideSteps(cardSteps).map(x=>face&&x.key===\"set\"?{...x,to:3}:face&&x.key===\"image\"?{...x,to:4}:x);"));
   assert.ok(guide.includes("const st=steps.find(x=>x.n===n)||{},to=st.to||n;"));
   assert.ok(ui.includes('{n:1,name:"The place",done:!!drafted,'));
 });
@@ -204,9 +205,9 @@ test("6 the top bar names the engine on the Locations tab; the pre-production wi
   // nothing in it names an engine or a vendor, or reads as billing
   assert.ok(!/Fable|Opus|Claude|Anthropic|Gemini|GPT|credit|price/i.test(what));
   for(const f of ["locations-ui.jsx","ai.jsx","styles.css","aiwriter.jsx","app.jsx","artroom.jsx"])
-    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
+    assert.ok(["20261121-back1", "20261121-back2", "20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the new key");
   // the five sections changed the card and what Frances is told: both carry the newest key
-  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
+  for(const f of ["locations-ui.jsx","ai.jsx"]) assert.ok(["20261121-five1", "20261121-five2", "20261121-five3", "20261122-plan1", "20261122-plan2", "20261122-plan3", "20261122-end1", "20261122-end2", "20261122-previs1", "20261123-strip1", "20261123-strip2", "20261123-door1", "20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k=>html.includes(f+'?v='+k+'"')),f+" has the five-sections key");
 });
 
 test("7 the film's images are asked for again when the first read failed (an empty picture on a slow connection)", ()=>{
@@ -280,7 +281,7 @@ test("8 In this card is one line that pans; a location's menus, typed fields and
 
 test("9 Prepare this place is off the card: the tracker's steps open their sections, and Frances says so", ()=>{
   assert.ok(!sheet.includes("React.createElement(LocationPreparePlace,"));
-  assert.ok(sheet.includes("React.createElement(LocationStepGuide,{l,steps:cardSteps})"));
+  assert.ok(sheet.includes('slot("steps",React.createElement(LocationStepGuide,{l,steps:cardSteps,face:setFace})),'));
   const help=ui.slice(ui.indexOf('text:"Locations prepares reusable sets'));
   assert.ok(help.slice(0,6000).includes("Press a step of the tracker to go to its section and do it there"));
   assert.ok(!help.slice(0,help.indexOf('"}))),')).includes("Prepare this place"));

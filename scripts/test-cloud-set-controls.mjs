@@ -51,7 +51,9 @@ assert.ok(!labels.some(t=>/Build the set|Style it/.test(t)),"no Build the set or
 // Cameras and Previs are the parts of The set in 3D, and the last three the parts of Advanced
 // (2026-11-23: with the set card on top, The set in 3D is one section holding Previs alone, and a place with rooms
 //  keeps its Extra spaces in a section of their own; both are written beside the earlier layout's)
-assert.deepEqual(labels,['"The place"','"Floor plan"','"The set in 3D"','"Cameras"','"Previs"','"Variants"','"Extra spaces"','hasRooms?"Rooms":"Extra spaces"',
+// (2026-11-25: with the set card, the making of the image is handed to its Location image section and has no fold of its
+//  own here any more; the earlier layout's Cameras and Previs folds, inside its The set in 3D group, are unchanged)
+assert.deepEqual(labels,['"The place"','"Floor plan"','"Cameras"','"Previs"','"Variants"','"Extra spaces"','hasRooms?"Rooms":"Extra spaces"',
   '"Look & exclusions"','"Quick image & image check"','"Generation prompt"']);
 const groups=descendants.filter(n=>n.type==="CallExpression"&&n.arguments?.[0]?.name==="CardGroup");
 assert.deepEqual(groups.map(n=>n.arguments[1].properties.find(p=>p.key.name==="label").value.value),["The set in 3D","Advanced"]);

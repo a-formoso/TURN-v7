@@ -12967,6 +12967,21 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .ssx-loc-link:hover,.ssx-loc-link:focus-visible{text-decoration-color:currentColor}
 .loc-step-stale{margin-left:6px;font-size:11px;color:var(--amber-ink,#8a5a12);white-space:nowrap}
 
+/* (2026-11-25) THE SET CARD'S SECTIONS ARE THE CARD'S SECTIONS: the same heading as Variants and Advanced under them
+   (they had the small one, so the card read as two cards), and the tracker sits under the name */
+.lsc-folds > .sheet-fold > .sheet-fold-head{min-height:46px;box-sizing:border-box}
+.lsc-folds > .sheet-fold > .sheet-fold-head > .sheet-sec{font-family:var(--f-ui);font-size:13px;line-height:16px;
+  font-weight:600;letter-spacing:0;text-transform:none;color:var(--txt-0)}
+.lsc-body > .loc-steps{margin:0}
+.lsc-whole{margin-top:2px}
+/* the scenes shot here, on the floor plan: a small dot for each shot's camera, and the row that chooses the scene */
+.lsc-shotcam circle{fill:var(--txt-0);stroke:var(--bg-1);stroke-width:1}
+.lsc-shotcam text{font:600 8.5px var(--f-mono);fill:var(--txt-1);paint-order:stroke;stroke:var(--bg-1);stroke-width:2.5px}
+.lsc-scene-row{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding-top:6px}
+.lsc-scene-pick{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 200px}
+.lsc-scene-pick .prop-select{min-width:0;flex:1 1 auto}
+.lsc-scene-row .lsc-ghost{min-height:34px;padding:6px 12px;font-size:12.5px}
+
 /* a scene chip with its hour stays on one line ("05 · Dawn"); on a narrow card the row wraps, never the chip */
 .location-scenes .prop-scene-chip{white-space:nowrap}
 .lsc-folds > .location-scenes{flex-wrap:wrap;row-gap:6px}

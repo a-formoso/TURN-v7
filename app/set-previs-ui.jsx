@@ -103,7 +103,7 @@ function PrevisAutoLine({location:l,project,onUpdate,readOnly=false}){
     st.phase==="dressing"&&window.LocationRunProgress&&E(window.LocationRunProgress,{work:{text:"Dressing the set",since:st.since,est:90,engine}}));
 }
 Object.assign(window,{previsAutoDress,previsAutoRetry,previsAutoState,usePrevisAuto,PrevisAutoLine});
-function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard,styleRow=null}){
+function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,asRoom=false,onOpenCard,styleRow=null,lean=false}){
   const E=React.createElement,D=window.KinolotSetDressing,P=window.KinolotPrevis,api=window.KinolotCloudRender;
   const [sheet,setSheet]=React.useState(""),[error,setError]=React.useState(""),[drawing,setDrawing]=React.useState(false);
   const [info,setInfo]=React.useState(null);
@@ -285,10 +285,14 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
     E("img",{src:d.url,alt:label+": "+draftLine(d),draggable:false,loading:small?"lazy":undefined}),
     small?E("span",null,draftLine(d)):null);
   return E(React.Fragment,null,
-    E("p",{className:"loc-layer-note","data-testid":"previs-intro"},
+    /* LEAN (owner 2026-11-25): inside the set card's Location image section this is the making of the image only. What
+       the sheet is goes behind its (i); the camera tool is in The set in 3D, beside the four views. */
+    !lean&&E("p",{className:"loc-layer-note","data-testid":"previs-intro"},
       "The set in 3D, drawn in your browser from the floor plan and its four cameras. It is free and redraws at once. Check where everything stands, then make the location image from it."),
     E("div",{className:"loc-sub previs-view","data-testid":"previs-sheet"},
-      E("h4",{className:"loc-step-sub"},"The set from its four cameras"),
+      lean?E("h4",{className:"loc-step-sub loc-control-heading"},"The sheet the image follows",
+          window.InfoTip&&E(window.InfoTip,{label:"About this sheet",text:"The set in 3D from its four cameras, drawn in your browser from the floor plan. It is free and redraws at once. The image engine is given this sheet to follow: check where everything stands before you make the image. A camera is moved in The set in 3D, above."}))
+        :E("h4",{className:"loc-step-sub"},"The set from its four cameras"),
       E("div",{className:"previs-sheet"+(drawing?" drawing":""),"aria-busy":drawing?"true":"false"},
         sheet?E("img",{src:sheet,alt:"Previs of "+(l.name||"this location")+": four camera views of the set",draggable:false})
           :E("span",{className:"previs-sheet-wait"},drawing?"Drawing the set\u2026":"")),
@@ -307,7 +311,7 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       tightNote&&E("p",{className:"loc-layer-note",role:"status","data-testid":"camera-check-tight"},tightNote),
       // MOVE A CAMERA (owner 2026-11-16: a live camera on the dressed set, opened from here): the camera tool of
       // Cameras, drawing this same lit, dressed set; saving a view redraws the sheet above
-      sheet&&!readOnly&&typeof onUpdate==="function"&&window.LocationCameraAngleWorkbench&&E("div",{className:"loc-step-actions previs-move-camera","data-testid":"previs-move-camera"},
+      !lean&&sheet&&!readOnly&&typeof onUpdate==="function"&&window.LocationCameraAngleWorkbench&&E("div",{className:"loc-step-actions previs-move-camera","data-testid":"previs-move-camera"},
         E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,inline:true,label:"Move a camera"})),
       // a set with moving parts: which story moment it is drawn at
       moments.length>1&&E("label",{className:"loc-cam-field loc-cloud-moment","data-testid":"previs-moment"},E("span",null,"Drawn at"),
@@ -349,7 +353,9 @@ function LocationPrevisStep({location:l,project,readOnly=false,onUpdate,hasImage
       cancelling&&E("p",{className:"loc-layer-note",role:"status","data-testid":"previs-cancelling"},"The cancelled request is still finishing. Another image can be made when it has."),
       // THE DRAFT, RIGHT UNDER THE BUTTON: look at it, use it or discard it
       cur&&E("div",{className:"style-draft","data-testid":"previs-draft"},
-        thumb(cur,false,"The draft"),
+        // (lean, inside Location image: the draft that IS the location image is the picture at the top of the section,
+        // so it is not shown a second time; its line and its buttons stay)
+        !(lean&&isImage(cur))&&thumb(cur,false,"The draft"),
         E("p",{role:"status",className:"loc-layer-note"},draftLine(cur)+" \u00b7 "+status(cur)),
         !checking&&stale(cur)&&!isImage(cur)&&E("p",{className:"loc-spatial-error","data-testid":"previs-draft-stale"},P.OUT_OF_DATE),
         E("div",{className:"loc-step-actions"},
@@ -429,7 +435,7 @@ function LocationPrevisOverview({location:l}){
    the same card"). On a place that has rooms, Previs opens with a row of its spaces: the whole place from above, the
    place itself, and each room. A room shown here is the room's own Previs (its four cameras, its dressing, its image
    and drafts), inside the same 3D set. A place with no rooms shows the one step as before. */
-function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,onSelectLocation,styleRow=null}){
+function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdate,hasImage=false,imageMeta=null,imageN,onSelectLocation,styleRow=null,lean=false}){
   const E=React.createElement,list=(rooms||[]).filter(r=>r&&r.id&&r.id!==l.id);
   const [view,setView]=React.useState(l.id),[,setTick]=React.useState(0);
   React.useEffect(()=>{setView(l.id);},[l.id]);
@@ -438,7 +444,7 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
     ["nb-gen-done","nb-prefetched"].forEach(n=>window.addEventListener(n,h));
     return ()=>["nb-gen-done","nb-prefetched"].forEach(n=>window.removeEventListener(n,h));
   },[]);
-  const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN,styleRow});
+  const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN,styleRow,lean});
   // THE WHOLE PLACE FIRST (owner 2026-11-16): the rooms with no usable cameras yet get them in one press (free), and a
   // room that is not on the floor plan is named, with the way to add it
   const api=window.KinolotCloudRender,alive=React.useRef(true);
@@ -471,7 +477,8 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
   const got=id=>{try{return typeof window.nbGetImage==="function"?window.nbGetImage(id):"";}catch(_){return "";}};
   const metaOf=id=>{try{return typeof window.nbGetMeta==="function"?window.nbGetMeta(id):null;}catch(_){return null;}};
   return E(React.Fragment,null,
-    E("div",{className:"previs-spaces",role:"group","aria-label":"Which space of "+(l.name||"this place")+" to show","data-testid":"previs-spaces"},
+    // (lean: the set card's own chips choose the space, and the whole place from above is in The set in 3D)
+    !lean&&E("div",{className:"previs-spaces",role:"group","aria-label":"Which space of "+(l.name||"this place")+" to show","data-testid":"previs-spaces"},
       chip("all","Whole place","The whole set from above, ceilings off"),
       chip(l.id,l.name||"This place","The place itself, from its four cameras"),
       list.map(r=>chip(r.id,(r.name||"Room")+(got(r.id)?" \u2713":""),(r.name||"This room")+", from its own four cameras"+(got(r.id)?" (it has its image)":"")))),
@@ -488,7 +495,7 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
       E("p",{style:{margin:"0 0 8px"}},"A room is drawn here once it stands on "+(l.name||"this place")+"\u2019s floor plan."),
       E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Add it in Floor plan")),
     // (2026-11-23: no button to dress the whole place: each space is dressed by itself when its own set is drawn)
-    view==="all"?E(LocationPrevisOverview,{location:l})
+    lean?own:view==="all"?E(LocationPrevisOverview,{location:l})
       :room?E(LocationPrevisStep,{key:room.id,location:room,project,readOnly,onUpdate,hasImage:!!got(room.id),imageMeta:got(room.id)?metaOf(room.id):null,asRoom:true,
         onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
       :own);

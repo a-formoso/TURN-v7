@@ -5,11 +5,14 @@
    Top to bottom, as designed:
      the chosen camera's view (MASTER SET, CAM n) · the name, and a chip for the place and each room · the facts and
      what the camera is for · Previs / Clay / Depth / Frame
-   then sections that fold, as on a character or a prop card:
-     Location sheet (four views, tap one, and what the space connects to) · The place (its description, the card's
-     own section) · Floor plan (the walls, the doors and windows, the chosen room lit, the camera and what it takes
-     in, two stand-ins to drag, their place in metres; the plan's own tools under it) · Reference pack · Location
-     image (the card's picture, with all it could do before).
+   then, since 2026-11-25 (owner: "Let's implement your recommendations"), the step tracker and one section for each
+   of its steps, in the order of the work, with the scenes that play here on top:
+     Scenes · The place (its description, the card's own section) · Floor plan (the walls, the doors and windows,
+     the chosen room lit, the camera and what it takes in, two stand-ins to drag, their place in metres; the plan's
+     own tools under it) · The set in 3D (the four views, tap one; Move a camera; the whole place from above; what
+     the space connects to) · Location image (the card's picture, with all it could do before, and the making of
+     it). It was: Location sheet · The place · Floor plan · Reference pack · Location image, with the tracker and
+     the making under the card.
    The chips are the rooms (owner 2026-11-23): pressing one makes the whole card that space's (onSpace).
    It draws from the place's own 3D set (KinolotPrevis: the floor plan, the four cameras, the saved dressing) with
    painted surfaces and two jointed stand-ins, and saves nothing. A browser keeps only a few 3D views alive, so the
@@ -89,7 +92,8 @@ function LscFold({ label, count, defaultOpen, foldId, keep=false, testid, childr
       LSC_E("span",{ className:"sheet-fold-ic" }, Chev ? LSC_E(Chev,{ s:12 }) : (open ? "▾" : "▸")),
       LSC_E("span",{ className:"sheet-sec", style:{ margin:0, border:0, padding:0 } }, label),
       count!=null && count!=="" && LSC_E("span",{ className:"sheet-fold-count" }, count)),
-    (open || keep) && LSC_E("div",{ className:"sheet-fold-body", hidden:!open }, children));
+    // (children may be a function of whether the section is open: a part that draws only while it is looked at)
+    (open || keep) && LSC_E("div",{ className:"sheet-fold-body", hidden:!open }, typeof children==="function" ? children(open) : children));
 }
 
 /* THE PLAN: every room's walls at their thickness, a door as a gap and a window as a pane of glass, the chosen room
@@ -129,6 +133,11 @@ function LocationSetPlan({ model, label, onMove }){
     model.camera && LSC_E("g",{ className:"lsc-cam", transform:"translate("+model.camera.at[0]+" "+model.camera.at[1]+")" },
       LSC_E("circle",{ r:10 }),
       LSC_E("text",{ textAnchor:"middle", dominantBaseline:"central" }, model.camera.n)),
+    // the chosen scene's cameras: a small dot for each shot, with its number (2.1 = beat 2, shot 1)
+    (model.shots||[]).map(c=>LSC_E("g",{ key:"sc"+c.key, className:"lsc-shotcam", transform:"translate("+c.at[0]+" "+c.at[1]+")" },
+      LSC_E("title",null,"Shot "+c.key+": where its camera stands"),
+      LSC_E("circle",{ r:3.5 }),
+      c.label ? LSC_E("text",{ x:5, y:-4 }, c.key) : null)),
     model.people.map(person));
 }
 
@@ -139,7 +148,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const K = window.KinolotSetCard;
   const ref = React.useRef(null), onScreen = useLscOnScreen(ref);
   const all = K.spaces(place, rooms);
-  const kept = lscKept[place.id] || (lscKept[place.id] = { look:"colour", moved:{} });
+  const kept = lscKept[place.id] || (lscKept[place.id] = { look:"colour", moved:{}, scene:{} });
   const [pick, setPickNow] = React.useState({ space:spaceId || place.id, cam:0, look:kept.look });
   const setPick = fn=>setPickNow(p=>{ const next = fn(p); kept.look = next.look; return next; });
   // space = the card's own space when the card says which (the chips then change the card), else the one picked here
@@ -159,8 +168,17 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const links = drawn ? K.connections(space.id, plan) : [];
   const sig = lscSig(space.location);
 
-  // the two stand-ins: where a scene's marks put them, or the middle of the room, until they are dragged
-  const found = K.marks(project, [space.id], scenes);
+  /* THE SCENES SHOT HERE, ON THE PLAN (owner 2026-11-25: "the location doesn't show its shots"): every planned scene
+     with a set in this space. The one chosen puts the stand-ins on ITS marks and shows where its plan put each
+     shot's camera; "Open this scene's shots" goes to it in Shots. Read from the film as it is; nothing is saved. */
+  const filmShots = (typeof window!=="undefined" && window.turnContinuity && window.turnContinuity.shots) || [];
+  const keyOf = (typeof window!=="undefined" && window.ScenePlan && typeof window.ScenePlan.shotCameraKey==="function") ? window.ScenePlan.shotCameraKey : null;
+  const shotHere = K.shotScenes(project, [space.id], scenes, filmShots, keyOf);
+  const [sceneOf, setSceneOfNow] = React.useState((kept.scene || (kept.scene = {})));
+  const sceneNow = shotHere.find(x=>x.sceneId===sceneOf[space.id]) || shotHere.find(x=>x.marks>0) || shotHere[0] || null;
+  const chooseScene = id=>setSceneOfNow(m=>{ const next = { ...m, [space.id]:id }; kept.scene = next; return next; });
+  // the two stand-ins: where the chosen scene's marks put them, or the middle of the room, until they are dragged
+  const found = K.marks(project, [space.id], scenes, sceneNow ? sceneNow.sceneId : "");
   const start = drawn ? K.standIns(space, plan, found, coords) : null;
   const [moved, setMovedNow] = React.useState(kept.moved);
   const setMoved = fn=>setMovedNow(m=>{ const next = fn(m); kept.moved = next; return next; });
@@ -174,7 +192,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
     if(done) setSettled(n=>n+1); };
   const cast = people ? K.PEOPLE.map(k=>({ xy:people[k.id], z:start.floorZ, to:people[k.id==="A"?"B":"A"], colour:k.colour, height:k.height })) : [];
   const castKey = people ? K.PEOPLE.map(k=>people[k.id].map(n=>n.toFixed(2)).join(",")).join(";") : "";
-  const model = drawn ? K.planModel(plan, space, view ? view.key : "", people, 440) : null;
+  const model = drawn ? K.planModel(plan, space, view ? view.key : "", people, 440, sceneNow ? sceneNow.cameras : null) : null;
 
   /* the pictures: the four views (drawn again when the set changes or a stand-in is let go) and the chosen view,
      larger. While a new picture is on its way the one before stays up. */
@@ -207,17 +225,6 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const sameSpace = pics.space===space.id;
   const heroNow = sameSpace ? pics.hero : "", thumbsNow = sameSpace ? pics.thumbs : null;
 
-  // the reference pack of the chosen view: made on request, shown until the view, the set or the stand-ins change
-  const [pack, setPack] = React.useState({ of:"", urls:null, busy:false, error:"" });
-  const packKey = sig+"|"+(view?view.key:"")+"|"+castKey;
-  const build = ()=>{
-    if(!view || pack.busy) return;
-    setPack({ of:packKey, urls:null, busy:true, error:"" });
-    lscDraw(space.location, K.PACK.map(p=>({ key:view.key, w:1280, h:720, look:p.look })), cast).then(
-      res=>setPack({ of:packKey, urls:res ? res.urls : null, busy:false, error:"" }),
-      e=>setPack({ of:packKey, urls:null, busy:false, error:(e&&e.message)||"The pack could not be made." }));
-  };
-  const packNow = pack.of===packKey ? pack : { of:"", urls:null, busy:false, error:"" };
   const go = n=>()=>{ if(typeof window.goToLocationStep==="function") window.goToLocationStep(space.location, n); };
   /* FRAME (owner 2026-11-25: the same four words as a shot's picture, "Previs", "Clay", "Depth" and "Frame"): the
      fourth is the place's finished picture, its location image, shown where the drawings are shown. Read when it is
@@ -263,9 +270,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
           : frame.of!==frameId ? LSC_E("span",{ className:"lsc-wait" },"Opening the location image…")
           : LSC_E("div",{ className:"lsc-empty", "data-testid":"set-card-no-frame" },
               LSC_E("b",null,"No location image yet"),
-              LSC_E("span",null,"The location image is made from this set, in The set in 3D."),
+              LSC_E("span",null,"The location image is made from this set, in Location image."),
               !readOnly && LSC_E("div",{ className:"lsc-empty-acts" },
-                LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open The set in 3D"))))
+                LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open Location image"))))
       : heroNow ? LSC_E("img",{ src:heroNow, alt:(space.name||"This place")+", camera "+(view?view.n:1)+": "+(view?view.role:""), draggable:false })
         : cannot ? LSC_E("div",{ className:"lsc-empty", "data-testid":"set-card-empty" },
             LSC_E("b",null,"The set cannot be drawn yet"),
@@ -273,8 +280,8 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
             LSC_E("span",null, ready ? pics.error : "The set is built from the floor plan. Check the floor plan and confirm it first."),
             LSC_E("div",{ className:"lsc-empty-acts" },
               LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(2) },"Open Floor plan"),
-              // (a confirmed plan whose set still cannot be drawn: the cameras are fitted and fixed in The set in 3D)
-              ready && LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open The set in 3D")))
+              // (a confirmed plan whose set still cannot be drawn: the cameras are checked and fixed beside the sheet the image follows)
+              ready && LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Check the cameras")))
         : LSC_E("span",{ className:"lsc-wait" }, onScreen ? "Drawing the set…" : ""),
       /* THE SWITCH SITS ON THE PICTURE (owner 2026-11-25: "place [it] inside the frame ... top left corner, replacing"
          the MASTER SET tag): what the picture shows is chosen on the picture itself, as on a location image.
@@ -295,27 +302,15 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
       // the set being dressed by itself: what it is doing, or what went wrong
       undressed && window.PrevisAutoLine && LSC_E(window.PrevisAutoLine,{ location:space.location, project, onUpdate, readOnly }),
 
+      /* THE CARD IN THE ORDER OF THE WORK (owner 2026-11-25, "Let's implement your recommendations": the card showed its
+         result before what it is made from, and its last steps sat under it in another style). The tracker comes
+         first, then one section for each of its steps: The place, Floor plan, The set in 3D, Location image, with the
+         scenes that play here on top. The set in 3D is the four views (it was "Location sheet") with the camera
+         tool; Location image is the picture with its versions and the making of it (they were two sections, and
+         the making sat in a third). The Reference pack is gone: the switch on the picture shows the same three looks. */
+      S.steps || null,
       LSC_E("div",{ className:"lsc-folds" },
-        LSC_E(LscFold,{ label:"Location sheet", defaultOpen:true, testid:"set-card-fold-sheet", count:views.length ? views.length+(views.length===1?" view":" views") : "" },
-          // the facts, and what the chosen camera is for: in the section they belong to (owner 2026-11-25)
-          LSC_E("div",{ className:"lsc-info" },
-            LSC_E("p",{ className:"lsc-mono", "data-testid":"set-card-facts" }, K.facts(space, all, plan, coords) || (drawn ? "" : "No floor plan yet")),
-            LSC_E("p",{ className:"lsc-role" }, view ? view.role : "")),
-          LSC_E("div",{ className:"lsc-thumbs", "data-testid":"set-card-sheet" },
-            views.map((v,i)=>LSC_E("button",{ key:v.key, type:"button", className:"lsc-thumb", "aria-pressed":i===camIndex?"true":"false",
-                "aria-label":"Camera "+v.n+": "+v.role, title:"Camera "+v.n+": "+v.role+". Press to see it on top.", onClick:()=>setPick(p=>({ ...p, cam:i })) },
-              // (with Frame on, each small view is its camera's part of the location image)
-              (isFrame && quadOf(v.key)) ? LSC_E("img",{ src:frameNow, alt:"", draggable:false, className:"lsc-quad", "data-quad":v.key })
-                : thumbsNow && thumbsNow[v.key] ? LSC_E("img",{ src:thumbsNow[v.key], alt:"", draggable:false }) : LSC_E("span",{ className:"lsc-thumb-wait" }),
-              LSC_E("span",{ className:"lsc-num" }, v.n)))),
-          // what the space connects to, with its views (owner 2026-11-23: one section, not two)
-          LSC_E("div",{ className:"lsc-sec lsc-connects", "data-testid":"set-card-connects" },
-            LSC_E("h4",{ className:"lsc-lab" },"Connects to"),
-            links.length ? LSC_E("ul",{ className:"lsc-links", "data-testid":"set-card-links" },
-                links.map(x=>LSC_E("li",{ key:x.name }, LSC_E("span",null,x.name), LSC_E("span",{ className:"lsc-mono dim" }, x.kinds.join(", ")))))
-              : LSC_E("p",{ className:"lsc-mono dim" }, drawn ? "No doors or windows on the plan yet." : "Shown once the place has a floor plan."))),
-
-        // the scenes that play here, then the description of the place (owner 2026-11-25: Scenes just above The place)
+        // the scenes that play here, then the description of the place
         S.scenes || null,
         // the description of the place, to read and to edit: the card's own section
         S.place || null,
@@ -327,7 +322,17 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
               LSC_E("p",{ className:"lsc-mono dim", "data-testid":"set-card-people" },
                 // a space that is not on the plan cannot be lit on it: said, with where to add it
                 model.missing ? (space.name||"This space")+" is not on the floor plan yet, so it cannot be shown on it. Add it in Edit the floor plan, below."
-                  : K.peopleLine(people, names)+(start && start.sceneNo!=null && (names.A || names.B) ? "   ·   marks of scene "+start.sceneNo : "")))
+                  : K.peopleLine(people, names)+(start && start.sceneNo!=null && (names.A || names.B) ? "   ·   marks of scene "+start.sceneNo : "")),
+              // the scenes shot here: choose one, see its marks and cameras, go to its shots
+              shotHere.length>0 && sceneNow && LSC_E("div",{ className:"lsc-scene-row", "data-testid":"set-card-scene-row" },
+                LSC_E("label",{ className:"lsc-scene-pick" },
+                  LSC_E("span",{ className:"lsc-lab" },"Scene"),
+                  LSC_E("select",{ className:"prop-select", "data-testid":"set-card-scene", value:sceneNow.sceneId, disabled:shotHere.length<2, onChange:e=>chooseScene(e.target.value) },
+                    shotHere.map(x=>LSC_E("option",{ key:x.sceneId, value:x.sceneId }, (x.sceneNo!=null ? String(x.sceneNo).padStart(2,"0")+" \u00b7 " : "")+(x.title||"Scene"))))),
+                LSC_E("span",{ className:"lsc-mono dim", "data-testid":"set-card-scene-count" },
+                  sceneNow.cameras.length ? sceneNow.cameras.length+(sceneNow.cameras.length===1 ? " camera: a dot where its shot is taken from" : " cameras: a dot where each shot is taken from") : "Its cameras are not placed yet"),
+                typeof window.turnOpenSceneShots==="function" && LSC_E("button",{ type:"button", className:"lsc-ghost", "data-testid":"set-card-scene-open",
+                  title:"Open this scene in Shots", onClick:()=>window.turnOpenSceneShots(sceneNow.sceneId) },"Open this scene\u2019s shots")))
             : LSC_E("div",{ className:"lsc-noplan" },
                 LSC_E("span",null,"No floor plan yet. The place is drawn to scale from its description and its scenes.")),
           // the plan's own tools (drafting it, checking it, its numbers, its moving parts): open until it is confirmed
@@ -335,22 +340,42 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
             LSC_E("summary",null, planReady ? "Edit the floor plan" : "Draft and confirm the floor plan"),
             planTools)),
 
-        LSC_E(LscFold,{ label:"Reference pack", defaultOpen:true, testid:"set-card-fold-pack" },
-          LSC_E("button",{ type:"button", className:"lsc-primary", "data-testid":"set-card-build", disabled:!view || cannot || packNow.busy, onClick:build },
-            packNow.busy ? "Building the reference pack…" : "Build reference pack for "+space.chip+", camera "+(view?view.n:1)),
-          packNow.error && LSC_E("p",{ className:"lsc-mono dim", role:"status" }, packNow.error),
-          packNow.urls && LSC_E("div",{ className:"lsc-sec", "data-testid":"set-card-pack" },
-            LSC_E("h4",{ className:"lsc-lab" },"1280 × 720"),
-            LSC_E("div",{ className:"lsc-pack" },
-              K.PACK.map((p,i)=>LSC_E("figure",{ key:p.id },
-                LSC_E("img",{ src:packNow.urls[i], alt:p.name+": "+p.text, width:1280, height:720 }),
-                LSC_E("figcaption",null, LSC_E("b",null,p.name+"."), " "+p.text)))),
-            !readOnly && LSC_E("div",{ className:"lsc-row" },
-              LSC_E("button",{ type:"button", className:"lsc-ghost", onClick:go(4),
-                title:"Previs is where the location image is made from this set, in the card’s style." },"Make the location image in Previs")))),
+        LSC_E(LscFold,{ label:"The set in 3D", foldId:S.setFoldId, defaultOpen:true, testid:"set-card-fold-sheet", count:views.length ? views.length+(views.length===1?" view":" views") : "" },
+          // the facts, and what the chosen camera is for
+          LSC_E("div",{ className:"lsc-info" },
+            LSC_E("p",{ className:"lsc-mono", "data-testid":"set-card-facts" }, K.facts(space, all, plan, coords) || (drawn ? "" : "No floor plan yet")),
+            LSC_E("p",{ className:"lsc-role" }, view ? view.role : "")),
+          LSC_E("div",{ className:"lsc-thumbs", "data-testid":"set-card-sheet" },
+            views.map((v,i)=>LSC_E("button",{ key:v.key, type:"button", className:"lsc-thumb", "aria-pressed":i===camIndex?"true":"false",
+                "aria-label":"Camera "+v.n+": "+v.role, title:"Camera "+v.n+": "+v.role+". Press to see it on top.", onClick:()=>setPick(p=>({ ...p, cam:i })) },
+              // (with Frame on, each small view is its camera's part of the location image)
+              (isFrame && quadOf(v.key)) ? LSC_E("img",{ src:frameNow, alt:"", draggable:false, className:"lsc-quad", "data-quad":v.key })
+                : thumbsNow && thumbsNow[v.key] ? LSC_E("img",{ src:thumbsNow[v.key], alt:"", draggable:false }) : LSC_E("span",{ className:"lsc-thumb-wait" }),
+              LSC_E("span",{ className:"lsc-num" }, v.n)))),
+          // the camera tool, beside the views it moves (it sat with the making of the image)
+          !readOnly && typeof onUpdate==="function" && !cannot && views.length>0 && window.LocationCameraAngleWorkbench && LSC_E("div",{ className:"loc-step-actions previs-move-camera", "data-testid":"set-card-move-camera" },
+            LSC_E(window.LocationCameraAngleWorkbench,{ l:space.location, onUpdate, readOnly, inline:true, label:"Move a camera" })),
+          // a place with rooms: the whole of it from above, drawn only when asked for
+          all.length>1 && window.LocationPrevisOverview && LSC_E(LscWhole,{ place }),
+          // what the space connects to, with its views (owner 2026-11-23: one section, not two)
+          LSC_E("div",{ className:"lsc-sec lsc-connects", "data-testid":"set-card-connects" },
+            LSC_E("h4",{ className:"lsc-lab" },"Connects to"),
+            links.length ? LSC_E("ul",{ className:"lsc-links", "data-testid":"set-card-links" },
+                links.map(x=>LSC_E("li",{ key:x.name }, LSC_E("span",null,x.name), LSC_E("span",{ className:"lsc-mono dim" }, x.kinds.join(", ")))))
+              : LSC_E("p",{ className:"lsc-mono dim" }, drawn ? "No doors or windows on the plan yet." : "Shown once the place has a floor plan."))),
 
-        // the card's picture: the location image, with its menu, its versions and its edits, as before
-        S.image && LSC_E(LscFold,{ label:"Location image", keep:true, defaultOpen:false, testid:"set-card-fold-image" }, S.image))));
+        // the card's picture, with its menu, its versions and its edits, and under it the making of it: the sheet it
+        // follows, the style, the engine and the drafts (drawn only while the section is open)
+        (S.image || S.making) && LSC_E(LscFold,{ label:"Location image", foldId:S.imageFoldId, keep:true, defaultOpen:!!S.imageOpen, testid:"set-card-fold-image" },
+          open=>LSC_E(React.Fragment,null, S.image || null, (open && S.making) || null)))));
+}
+/* THE WHOLE PLACE FROM ABOVE, when it is asked for (it was the first chip of the making section): one drawing of the
+   place's single set with the ceilings off. Nothing is drawn until it is opened. */
+function LscWhole({ place }){
+  const [open, setOpen] = React.useState(false);
+  return LSC_E("details",{ className:"loc-nested-section lsc-whole", "data-testid":"set-card-whole", onToggle:e=>setOpen(!!e.currentTarget.open) },
+    LSC_E("summary",null,"The whole place from above"),
+    open && window.LocationPrevisOverview ? LSC_E(window.LocationPrevisOverview,{ location:place }) : null);
 }
 
-Object.assign(window, { LocationSetCard, LocationSetPlan, LscFold, lscDraw, lscClose });
+Object.assign(window, { LocationSetCard, LocationSetPlan, LscFold, LscWhole, lscDraw, lscClose });

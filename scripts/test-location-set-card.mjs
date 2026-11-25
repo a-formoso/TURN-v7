@@ -165,7 +165,7 @@ test("7 the looks and the pack: Colour, Clay, Depth, drawn by the viewer's own l
   // (owner 2026-11-25: the same four words as a shot's picture; the fourth is the place's finished picture, no drawing)
   assert.deepEqual(K.LOOKS.map(x=>x.name),["Previs","Clay","Depth","Frame"]); assert.deepEqual(K.LOOKS.map(x=>x.look),["","clay","depth",""]); assert.deepEqual(K.LOOKS.map(x=>!!x.frame),[false,false,false,true]);
   assert.deepEqual(K.LOOKS.map(x=>x.id),["colour","clay","depth","frame"],"the ids stay: what a card was last looking at is kept by id");
-  assert.deepEqual(K.PACK.map(x=>x.name),["Previs","Clay","Depth"]); assert.deepEqual(K.PACK.map(x=>x.look),["","clay","depth"]);
+  assert.equal(K.PACK,undefined,"the reference pack left the card (2026-11-25)");
   assert.deepEqual(K.PEOPLE.map(k=>[k.id,k.colour,k.height]),[["A",0xD08A2E,1.66],["B",0x3E73B8,1.72]]);
   // the viewer: surfaces on request, a look and a cast per drawing; the set itself is put back as it was
   // (the looks themselves are tested in test-previs-looks.mjs)
@@ -223,20 +223,22 @@ test("8 the card is laid out top to bottom as designed, then in sections that fo
   // (owner 2026-11-25) the switch sits ON the picture, top left, where the MASTER SET tag was; the facts and what the
   // camera is for are in Location sheet, the section they belong to
   const want=["lsc-stage","lsc-seg","lsc-camtag","lsc-body","lsc-head","lsc-name","lsc-chips","lsc-folds","lsc-info","lsc-thumbs"];
+  // (owner 2026-11-25, "Let's implement your recommendations") the sections follow the work: Floor plan, then The set in
+  // 3D (it was "Location sheet", first on the card), then Location image; the Reference pack is gone
   const stage=flat(el).find(x=>x.props.className&&String(x.props.className).split(" ")[0]==="lsc-stage");
   assert.ok(flat(stage).some(x=>x.props&&x.props.className==="lsc-seg"),"the switch is inside the picture's frame");
   assert.ok(!flat(el).some(x=>x.props&&x.props.className==="lsc-badge")&&!text(el).includes("MASTER SET"),"the MASTER SET tag gave its place to the switch");
   let at=-1; want.forEach(c=>{ const i=order.indexOf(c,at+1); assert.ok(i>at,c+" comes after "+(want[want.indexOf(c)-1]||"the top")); at=i; });
   // the sections, in order, each a fold (the stand-in React does not open them: their names and state are props)
   const folds=flat(el).filter(x=>x.props&&x.props.testid&&String(x.props.testid).indexOf("set-card-fold-")===0);
-  assert.deepEqual(folds.map(f=>[f.props.label,f.props.defaultOpen]),[["Location sheet",true],["Floor plan",true],["Reference pack",true]]);
-  // what the space connects to is part of Location sheet, under the views (owner 2026-11-23: one section, not two)
-  const sheetFold=folds[0], inSheet=flat(sheetFold).map(x=>x.props&&x.props["data-testid"]).filter(Boolean);
+  assert.deepEqual(folds.map(f=>[f.props.label,f.props.defaultOpen]),[["Floor plan",true],["The set in 3D",true]]);
+  // what the space connects to is part of The set in 3D, under the views (owner 2026-11-23: one section, not two)
+  const sheetFold=folds[1], inSheet=flat(sheetFold).map(x=>x.props&&x.props["data-testid"]).filter(Boolean);
   assert.deepEqual(inSheet,["set-card-facts","set-card-sheet","set-card-connects"]);
+  assert.ok(!text(el).includes("reference pack")&&!text(el).includes("Reference pack"),"no Reference pack: the switch on the picture shows the same three looks");
   assert.ok(text(sheetFold).includes("Connects to"));
   const t=text(el);
   assert.ok(t.includes("CAM 1 \u00b7 18 MM")&&t.includes("Whole room"));
-  assert.ok(t.includes("Build reference pack for House, camera 1"));
   assert.deepEqual(flat(el).filter(x=>x.props.className==="lsc-chip").map(x=>[x.children.join(""),x.props["aria-pressed"]]),[["House","true"],["Kitchen","false"]]);
   assert.deepEqual(flat(el).find(x=>x.props.className==="lsc-seg").children.map(b=>b.children.join("")),["Previs","Clay","Depth","Frame"]);
   // a place with no rooms has no chips; with no floor plan the plan says so
@@ -254,18 +256,28 @@ test("8b the card's own parts take their place in it: the name row, The place, t
   assert.ok(!flat(el).some(x=>x.props.className==="lsc-name"),"the card's own name row stands in for the plain name");
   assert.ok(text(el).includes("NAME ROW"));
   const folds=flat(el).filter(x=>x.props&&x.props.testid&&String(x.props.testid).indexOf("set-card-fold-")===0);
-  // The place, the card's own section, comes right after the views and before the floor plan
-  assert.deepEqual(folds.map(f=>f.props.label),["Location sheet","The place","Floor plan","Reference pack","Location image"]);
-  const plan=folds[2]; assert.equal(plan.props.foldId,"loc-layout-p","links to Floor plan open this section"); assert.equal(plan.props.count,"2 rooms to add");
+  // in the order of the work: The place, the card's own section, then the floor plan, the set, the image
+  assert.deepEqual(folds.map(f=>f.props.label),["The place","Floor plan","The set in 3D","Location image"]);
+  const plan=folds[1]; assert.equal(plan.props.foldId,"loc-layout-p","links to Floor plan open this section"); assert.equal(plan.props.count,"2 rooms to add");
   const tools=flat(plan).find(x=>x.props&&x.props["data-testid"]==="set-card-plan-tools");
   assert.equal(tools.props.open,true,"open until the floor plan is confirmed"); assert.ok(text(tools).includes("Draft and confirm the floor plan"));
   const done=tree({place:{id:"p",name:"House"},rooms:[],project:{},scenes:[],slots,planReady:true}).el;
   const shut=flat(done).find(x=>x.props&&x.props["data-testid"]==="set-card-plan-tools");
   assert.equal(shut.props.open,undefined); assert.ok(text(shut).includes("Edit the floor plan"));
-  const image=folds[4]; assert.equal(image.props.keep,true,"the location image stays on the page while its section is shut"); assert.equal(image.props.defaultOpen,false);
+  const image=folds[3]; assert.equal(image.props.keep,true,"the location image stays on the page while its section is shut"); assert.equal(image.props.defaultOpen,false);
+  // the card's links to its steps open these two sections: step 3 = The set in 3D, step 4 = Location image
+  const linked=tree({place:{id:"p",name:"House"},rooms:[],project:{},scenes:[],planReady:true,
+    slots:{...slots,setFoldId:"loc-step-3-p",imageFoldId:"loc-step-4-p",imageOpen:true,steps:{type:"div",props:{className:"loc-steps"},children:["TRACKER"]},making:{type:"div",props:{className:"making"},children:["MAKING"]}}}).el;
+  const lf=flat(linked).filter(x=>x.props&&x.props.testid&&String(x.props.testid).indexOf("set-card-fold-")===0);
+  assert.equal(lf[2].props.foldId,"loc-step-3-p"); assert.equal(lf[3].props.foldId,"loc-step-4-p"); assert.equal(lf[3].props.defaultOpen,true,"a link that asked for the image opens it");
+  // the tracker sits under the name, above every section
+  const lo=flat(linked).map(x=>x.props&&x.props.className).filter(Boolean).map(c=>String(c).split(" ")[0]);
+  assert.ok(lo.indexOf("loc-steps")>lo.indexOf("lsc-head")&&lo.indexOf("loc-steps")<lo.indexOf("lsc-folds"));
+  // the making of the image is drawn only while Location image is open (its children are a function of that)
+  assert.ok(face.includes("open=>LSC_E(React.Fragment,null, S.image || null, (open && S.making) || null)"));
   // the section itself: the other cards' fold, by its classes; shut with keep, its inside is hidden, not removed
   assert.ok(face.includes('LSC_E("div",{ className:"sheet-fold lsc-fold "+(open?"open":""), ref, "data-testid":testid, "data-fold":label },'));
-  assert.ok(face.includes('(open || keep) && LSC_E("div",{ className:"sheet-fold-body", hidden:!open }, children)'));
+  assert.ok(face.includes('(open || keep) && LSC_E("div",{ className:"sheet-fold-body", hidden:!open }, typeof children==="function" ? children(open) : children));'));
   assert.ok(face.includes('window.addEventListener("nb-open-fold", h);'));
 });
 
@@ -273,9 +285,9 @@ test("8c the chips are the rooms: a chip changes the whole card when the card sa
   const calls=[]; const props={place:{id:"p",name:"House"},rooms:[{id:"r",name:"Kitchen"}],space:"r",project:{},scenes:[]};
   const {el}=tree(props,{locationPanelPoses:l=>[{key:"TL",label:"Top-left",purpose:l.id==="r"?"the kitchen":"the house",pose:{position:[0,0,1.5],yaw:0,lensMm:18}}]});
   assert.deepEqual(flat(el).filter(x=>x.props.className==="lsc-chip").map(x=>[x.children.join(""),x.props["aria-pressed"]]),[["House","false"],["Kitchen","true"]]);
-  assert.ok(text(el).includes("The kitchen")&&text(el).includes("Build reference pack for Kitchen, camera 1"));
+  assert.ok(text(el).includes("The kitchen"));
   assert.ok(face.includes('const choose = id=>{ if(typeof onSpace==="function") onSpace(id); else setPick(p=>({ ...p, space:id, cam:0 })); };'));
-  assert.ok(face.includes("const kept = lscKept[place.id] || (lscKept[place.id] = { look:\"colour\", moved:{} });"),"the look and the stand-ins are kept from one space's card to the next");
+  assert.ok(face.includes("const kept = lscKept[place.id] || (lscKept[place.id] = { look:\"colour\", moved:{}, scene:{} });"),"the look and the stand-ins are kept from one space's card to the next");
   // the workspace: the chosen space's own card is the one shown
   assert.ok(ui.includes("const shown=group.members.find(l=>l.id===view.chosen)||root;"));
   assert.ok(ui.includes('renderLocation(shown,{...common,initialSection:view.sections[shown.id]||"",faceGroup:{place:root,rooms,select:id=>select(id)}}));'));
@@ -289,7 +301,7 @@ test("9 it draws from the place's own 3D set, with surfaces and the stand-ins, o
   assert.ok(face.includes('if(typeof stale==="function" && stale()) return null;'),"a drawing nobody waits for is skipped");
   assert.ok(face.includes('view.render(cv, pose, j.w, j.h, j.look||"", cast||[]);'));
   assert.ok(face.includes("if(!onScreen || !view) return undefined;")&&face.includes('new IntersectionObserver('));
-  assert.ok(face.includes("K.PACK.map(p=>({ key:view.key, w:1280, h:720, look:p.look })), cast)"));
+  assert.ok(!/K\.PACK|packNow/.test(face),"no Reference pack is built");
   assert.ok(face.includes("const at = K.keepInside(start.footprint, xy, people[id]);"),"a dragged stand-in stays in its room");
   for(const never of ["nbSetImage","nbStore","fetch(","localStorage","JSON.stringify(","onUpdate("]) assert.ok(!face.includes(never),"the face never uses "+never);
   // the one thing it starts: the dressing of a set that was never dressed, which Previs's own runner does and saves
@@ -297,7 +309,7 @@ test("9 it draws from the place's own 3D set, with surfaces and the stand-ins, o
   assert.ok(face.includes("undressed && window.PrevisAutoLine && LSC_E(window.PrevisAutoLine,{ location:space.location, project, onUpdate, readOnly }),"));
   // a place whose floor plan is not confirmed says the one thing to do, in plain words
   assert.ok(face.includes('ready ? pics.error : "The set is built from the floor plan. Check the floor plan and confirm it first."'));
-  assert.ok(face.includes('"Make the location image in Previs"')&&face.includes("onClick:go(4)"));
+  assert.ok(face.includes('onClick:go(4) },"Open Location image")')&&!face.includes('"Make the location image in Previs"'));
   // dragging: a finger or the mouse, or the arrow keys 10 cm at a time
   assert.ok(face.includes("ArrowLeft:[-0.1,0], ArrowRight:[0.1,0], ArrowUp:[0,0.1], ArrowDown:[0,-0.1]")&&face.includes("onPointerDown:down, onPointerMove:move, onPointerUp:up"));
 });
@@ -318,15 +330,24 @@ test("10 the card shown for a place opens with the set card, which takes its nam
 test("10b The set in 3D is Previs alone, with the render style beside the image engine; no Cameras, no Rooms, no dress button", ()=>{
   const step=read("app/set-previs-ui.jsx");
   // one section, no Cameras part: a camera is moved with Move a camera, and a link to Cameras opens this section
-  assert.ok(ui.includes('setFace&&showPrevis&&React.createElement(CardFold,{label:"The set in 3D",foldId:locationStepFoldId(l,4),'));
-  assert.ok(ui.includes('imageMeta:gen.genUrl?gen.genMeta:null,onSelectLocation,styleRow})),'));
+  // (owner 2026-11-25) with the set card, the making is handed to its Location image section, lean: no intro line, no
+  // place chips, no camera tool (that is in The set in 3D, beside the four views)
+  assert.ok(ui.includes('setFace&&showPrevis&&slot("making",React.createElement(React.Fragment,null,'));
+  assert.ok(ui.includes('imageMeta:gen.genUrl?gen.genMeta:null,onSelectLocation,styleRow,lean:true}))),'));
+  assert.ok(ui.includes("if(setFace){ faceSlots.setFoldId=locationStepFoldId(l,3); faceSlots.imageFoldId=locationStepFoldId(l,4);"));
+  assert.ok(ui.includes('slot("steps",React.createElement(LocationStepGuide,{l,steps:cardSteps,face:setFace})),'));
+  assert.ok(ui.includes('const steps=locationGuideSteps(cardSteps).map(x=>face&&x.key==="set"?{...x,to:3}:face&&x.key==="image"?{...x,to:4}:x);'));
+  assert.ok(step.includes('!lean&&E("p",{className:"loc-layer-note","data-testid":"previs-intro"},')&&step.includes('"The sheet the image follows"')&&step.includes('!lean&&sheet&&!readOnly&&typeof onUpdate==="function"&&window.LocationCameraAngleWorkbench&&'));
+  assert.ok(step.includes('!(lean&&isImage(cur))&&thumb(cur,false,"The draft"),'),"the draft that is the location image is not shown twice in one section");
+  assert.ok(step.includes('!lean&&E("div",{className:"previs-spaces",')&&step.includes('lean?own:view==="all"?E(LocationPrevisOverview,{location:l})'));
+  assert.ok(face.includes('LSC_E(window.LocationCameraAngleWorkbench,{ l:space.location, onUpdate, readOnly, inline:true, label:"Move a camera" })')&&face.includes("all.length>1 && window.LocationPrevisOverview && LSC_E(LscWhole,{ place }),"));
   assert.ok(ui.includes('!setFace&&React.createElement(CardGroup,{label:"The set in 3D",foldIds:[locationStepFoldId(l,3),locationStepFoldId(l,4)],'),"the earlier layout keeps its own");
   assert.ok(ui.includes('const h=e=>{ if(e&&e.detail===from) window.dispatchEvent(new CustomEvent("nb-open-fold",{detail:to})); };'));
   // the render style: built once, placed in the card's body only without the set card
   assert.ok(ui.includes('const styleRow=React.createElement("div",{className:"char-style-row"},')&&ui.includes("!setFace&&styleRow,"));
   assert.ok(step.includes('styleRow&&E("div",{className:"previs-style","data-testid":"previs-style"},styleRow),'));
   assert.ok(step.indexOf('"data-testid":"previs-style"')<step.indexOf('"data-testid":"previs-engine"'),"above the image engine");
-  assert.ok(step.includes("const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN,styleRow});"));
+  assert.ok(step.includes("const own=E(LocationPrevisStep,{location:l,project,readOnly,onUpdate,hasImage,imageMeta,imageN,styleRow,lean});"));
   // Rooms: the chips are the rooms; extra spaces whose images are kept stay
   assert.ok(ui.includes('!(setFace&&hasRooms)&&showSubspaces&&React.createElement(CardFold,{label:hasRooms?"Rooms":"Extra spaces",foldId:"loc-subspaces-"+l.id,'));
   assert.ok(ui.includes('setFace&&hasRooms&&shownExtras.length>0&&React.createElement(CardFold,{label:"Extra spaces",foldId:"loc-subspaces-"+l.id},'));
@@ -339,7 +360,7 @@ test("10b The set in 3D is Previs alone, with the render style beside the image 
   assert.ok(!step.includes('"Go to Cameras"')&&!step.includes("in Cameras."),"Previs sends nobody to a Cameras section");
   assert.ok(step.includes('"The set in 3D, drawn in your browser from the floor plan and its four cameras. It is free and redraws at once. Check where everything stands, then make the location image from it."'));
   // the set card's own empty view offers the floor plan, and The set in 3D once the plan is confirmed
-  assert.ok(face.includes('ready && LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Open The set in 3D")')&&!face.includes('"Open Cameras"'));
+  assert.ok(face.includes('ready && LSC_E("button",{ type:"button", className:"char-draft-btn ghost", onClick:go(4) },"Check the cameras")')&&!face.includes('"Open Cameras"'));
 });
 
 test("11 the look is the app's own (its tokens and type), and the files are on the page in order", ()=>{
@@ -357,30 +378,30 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("11b Frame, the fourth word of the switch: the place's location image, shown where the drawings are shown", ()=>{
   const ui=read("app/location-set-card-ui.jsx");
   for(const t of ["const isFrame = !!look.frame, frameId = space.location.id;",'let u = typeof nbGetImage==="function" ? (nbGetImage(frameId)||"") : "";',"u = (await nbLoadImage(frameId))||\"\";",
     'window.addEventListener("nb-gen-done", again);','},[isFrame, frameId, hasImage]);','"data-testid":"set-card-frame"','"data-testid":"set-card-no-frame"','LSC_E("b",null,"No location image yet")',
-    '"The location image is made from this set, in The set in 3D."','disabled:cannot && !x.frame,','onUpdate=null, hasImage=false }){']) assert.ok(ui.includes(t),t);
+    '"The location image is made from this set, in Location image."','disabled:cannot && !x.frame,','onUpdate=null, hasImage=false }){']) assert.ok(ui.includes(t),t);
   assert.ok(!/nbCommit|proxyGenerate|claude\.complete/.test(ui.slice(ui.indexOf("const isFrame = !!look.frame"),ui.indexOf("const frameNow ="))),"it only shows the image: nothing is made and nothing is saved");
 });
 
-test("11d with Frame on, the camera chosen in Location sheet is the part of the location image that is shown", ()=>{
+test("11d with Frame on, the camera chosen in The set in 3D is the part of the location image that is shown", ()=>{
   const ui=read("app/location-set-card-ui.jsx");
   // the image's own record says it is a sheet of four, two by two, named by the cameras' keys
   for(const t of ["if(live) setFrame({ of:frameId, url:u, panels:(m && m.platePanels) || null });",'const framePanels = (frameNow && frame.panels && frame.panels.layout==="2x2" && frame.panels.panels) || null;',
     'const quadOf = key=> (framePanels && key && framePanels[key]) ? key : "";','const quad = isFrame && view ? quadOf(view.key) : "";','className:quad ? "lsc-quad" : undefined, "data-quad":quad || undefined',
     'view && !cannot && (!isFrame || quad) && LSC_E("span",{ className:"lsc-camtag"','(isFrame && quadOf(v.key)) ? LSC_E("img",{ src:frameNow, alt:"", draggable:false, className:"lsc-quad", "data-quad":v.key })']) assert.ok(ui.includes(t),t);
   assert.deepEqual(K.KEYS,["TL","TR","BL","BR"],"the cameras' keys are the sheet's four parts");
-  for(const f of ["app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this change's key");
+  for(const f of ["app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this change's key");
   assert.ok(ui.includes(': frame.of!==frameId ? LSC_E("span",{ className:"lsc-wait" },"Opening the location image\u2026")'),"while the image is being read, the card does not say there is none");
   // the part asked for fills the frame: the whole picture at twice the size, moved
   for(const c of [".lsc-stage img.lsc-quad,.lsc-thumb img.lsc-quad{position:absolute;top:0;left:0;width:200%;height:200%;max-width:none;object-fit:fill}",'img.lsc-quad[data-quad="TR"]{left:-100%}','img.lsc-quad[data-quad="BL"]{top:-100%}','img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}']) assert.ok(css.includes(c),c);
   const fact=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"')); const f=fact.slice(0,fact.indexOf("\n"));
-  for(const t of ["with Frame on the picture on top is the view of the camera chosen in Location sheet","the four small views there are its four parts","an image that is not such a sheet is shown whole"]) assert.ok(f.includes(t),t);
+  for(const t of ["with Frame on the picture on top is the view of the camera chosen in The set in 3D","the four small views there are its four parts","an image that is not such a sheet is shown whole"]) assert.ok(f.includes(t),t);
 });
 
 test("11c Scenes sits in the set card, just above The place (owner 2026-11-25)", ()=>{
@@ -388,16 +409,15 @@ test("11c Scenes sits in the set card, just above The place (owner 2026-11-25)",
   assert.ok(ui.indexOf("S.scenes || null,")>0&&ui.indexOf("S.scenes || null,")<ui.indexOf("S.place || null,")&&ui.indexOf("S.scenes || null,")>ui.indexOf('label:"Location sheet"'));
   assert.ok(loc.includes('slot("scenes",React.createElement("div",{className:"prop-scenes location-scenes"},'),"the same row, moved: a card without the set card on top keeps it where it was");
   const fact=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"')); const f=fact.slice(0,fact.indexOf("\n"));
-  for(const t of ["the switch Previs, Clay, Depth, Frame sits on the picture itself, at its top left","(the chosen one is black)","LOCATION SHEET: first THE FACTS","SCENES: between Location sheet and The place"]) assert.ok(f.includes(t),t);
+  for(const t of ["the switch Previs, Clay, Depth, Frame sits on the picture itself, at its top left","(the chosen one is black)","THE SET IN 3D (it was called Location sheet): first THE FACTS","SCENES: the scenes that play here, each a chip with its number and its hour"]) assert.ok(f.includes(t),t);
   assert.ok(!f.includes("tagged Master set"));
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{
   const at=ai.indexOf('name:"Location card: the set card on top (one card per set)"'); assert.ok(at>0);
   const fact=ai.slice(at,ai.indexOf("\n",at));
-  for(const s of ["THE SET CARD is the top of every place's card","PREVIS, CLAY, DEPTH, FRAME","Frame shows the place's finished picture, its location image, in the same spot","'No location image yet'","THEN SECTIONS THAT FOLD","LOCATION SHEET","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","REFERENCE PACK","LOCATION IMAGE",
-    "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","The render style is chosen there too","DRESSING RUNS BY ITSELF","It adds nothing loose and nothing invented",
-    "nothing is saved and nothing is sent anywhere","a space too low to stand in, like the inside of a car, has none","every Previs drawing of a set (the one called 'Colour' until 2026-11-25) is painted the same way, on the set card, on the Previs sheet and on a shot's drawing"]) assert.ok(fact.includes(s),s);
+  for(const s of ["THE SET CARD is the top of every place's card","PREVIS, CLAY, DEPTH, FRAME","Frame shows the place's finished picture, its location image, in the same spot","'No location image yet'","THE CARD FOLLOWS THE ORDER OF THE WORK","THE SET IN 3D (it was called Location sheet)","THE PLACE","FLOOR PLAN","Drag A or B","Connects to","THERE IS NO REFERENCE PACK ANY MORE","LOCATION IMAGE","THE MAKING OF IT",
+    "pressing a chip turns the whole card into that space's","There is no Rooms section and no Cameras section","the render style just above the image engine","DRESSING RUNS BY ITSELF","It adds nothing loose and nothing invented","a space too low to stand in, like the inside of a car, has none","every Previs drawing of a set (the one called 'Colour' until 2026-11-25) is painted the same way, on the set card, on the Previs sheet and on a shot's drawing"]) assert.ok(fact.includes(s),s);
   assert.ok(!/credit|\bTURN\b|MUSE|Claude|Anthropic|three\.js|WebGL/i.test(fact));
 });
 

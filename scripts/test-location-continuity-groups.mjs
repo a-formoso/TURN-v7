@@ -249,7 +249,8 @@ ok("no fold of the card has a number: five sections (and Rooms), two of them gro
   (()=>{ const sheet=ui.slice(ui.indexOf("// THE CARD IN FIVE SECTIONS (owner 2026-11-21"),ui.indexOf("function locationCardSteps("));
     const labels=sheet.match(/Card(?:Fold|Group),\{label:[^,]+/g)||[];
     // (2026-11-23: two more for the card with the set card on top: The set in 3D as one section, and a place with rooms' Extra spaces)
-    return labels.length===13&&labels.filter(x=>x.indexOf("CardGroup")===0).length===2
+    // (2026-11-25: one fewer: with the set card, the making of the image sits in its Location image section, no fold of its own)
+    return labels.length===12&&labels.filter(x=>x.indexOf("CardGroup")===0).length===2
       &&labels.every(x=>!/\d \\u00b7 |\d · |sectionNo/.test(x)); })());
 ok("location style fine-tuning is under Look & exclusions in Advanced (before the quick image and the prompt), the one place for it",
   (ui.match(/className:"loc-render-style-details"/g)||[]).length===1&&(ui.match(/label:"Look & exclusions"/g)||[]).length===1&&

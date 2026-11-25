@@ -49,9 +49,46 @@ test("3 Locations: scenes with their hours, facts without a camera count, a stal
 test("4 a scene's shots can be opened from anywhere in the Art Room; fresh keys; Frances knows", () => {
   assert.ok(app.includes("window.turnOpenSceneShots = (sceneId)=>{") && app.includes('window.turnFocusArtScene("shots", sceneId);'));
   for (const f of ["app/app.jsx", "app/shots-ui.jsx", "app/location-set-card.js", "app/locations-ui.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/SHOTS AND LOCATIONS POINT AT EACH OTHER \(2026-11-25\)/.test(ai) && /marked 'out of date' on the step itself/.test(ai));
   assert.ok(!/Hussain|Liaqat|Pike\b/.test(ai), "no film's own names in what Frances is told");
+});
+
+test("5 the scenes shot here: each planned scene of a place with its marks and its shots' cameras; the plan draws them", () => {
+  const c = vm.createContext({ console }); c.window = c; vm.runInContext(card, c);
+  const K = c.KinolotSetCard, plain = v => JSON.parse(JSON.stringify(v));
+  const scenes = [{ id: "s1", no: 2, title: "one payment left" }, { id: "s2", no: 5, title: "shoes on" }, { id: "s3", no: 8, title: "elsewhere" }];
+  const project = { scenePlans: {
+    s2: { sets: [{ id: "set1", locationId: "flat" }, { id: "set2", locationId: "street" }],
+      marks: [{ id: "m1", set: "set1", xy: [0, 0.1], name: "on the threshold" }, { id: "m2", set: "set1", xy: [0.1, 0.6], name: "by the shelf" }, { id: "m3", set: "set2", xy: [5, -3], name: "at the kerb" }],
+      cameras: { "1.1": { at: [0.4, 1.2], lens: 24 }, "2.1": { at: [1, 1.2], lens: 21 }, "5.3": { at: [1.5, -0.7], lens: 35 }, "9.9": { at: ["x", 1] } } },
+    s1: { sets: [{ id: "set1", locationId: "flat" }], marks: [{ id: "a", set: "set1", xy: [1, 1], name: "at the table" }], cameras: {} },
+    s3: { sets: [{ id: "set1", locationId: "park" }], marks: [{ id: "p", set: "set1", xy: [2, 2] }], cameras: { "1.1": { at: [2, 2] } } } } };
+  const shotsOf = [{ sceneId: "s2", planSet: "set1", k: "2.1" }, { sceneId: "s2", planSet: "set1", k: "1.1" }, { sceneId: "s2", planSet: "set2", k: "5.3" },
+    { sceneId: "s2", planSet: "set1", k: "9.9" }, { sceneId: "s2", planSet: "set1", k: "2.1" }, { sceneId: "s3", planSet: "set1", k: "1.1" }];
+  const here = plain(K.shotScenes(project, ["flat"], scenes, shotsOf, sh => sh.k));
+  assert.deepEqual(here.map(x => [x.sceneId, x.sceneNo, x.title, x.marks]), [["s1", 2, "One payment left", 1], ["s2", 5, "Shoes on", 2]], "in story order; a scene set elsewhere is not listed");
+  assert.deepEqual(here[1].cameras, [{ key: "1.1", at: [0.4, 1.2], lens: 24 }, { key: "2.1", at: [1, 1.2], lens: 21 }], "only the cameras of shots in this set, once each, in order; one with no numbers is left out");
+  assert.deepEqual(plain(K.shotScenes(project, ["street"], scenes, shotsOf, sh => sh.k)).map(x => x.cameras.map(c => c.key)), [["5.3"]]);
+  assert.deepEqual(plain(K.shotScenes(project, ["flat"], scenes, null, null)).map(x => x.cameras.length), [0, 0], "with no shots to read, the scenes are still listed by their marks");
+  // the marks of the chosen scene alone
+  assert.equal(K.marks(project, ["flat"], scenes).sceneId, "s1"); assert.equal(K.marks(project, ["flat"], scenes, "s2").sceneId, "s2");
+  assert.deepEqual(plain(K.marks(project, ["flat"], scenes, "s2").marks.map(m => m.letter + " " + m.name)), ["A On the threshold", "B By the shelf"]);
+  assert.equal(K.marks(project, ["flat"], scenes, "s3"), null);
+  // on the plan: a dot for each camera that is in the picture
+  const plan = { spaces: [{ id: "flat", name: "Flat", footprint: [[-0.5, 0], [3.7, 0], [3.7, 3.6], [-0.5, 3.6]] }], openings: [], cameras: [] };
+  const m = K.planModel(plan, { id: "flat" }, "", null, 440, here[1].cameras.concat([{ key: "7.7", at: [400, 400] }]));
+  assert.deepEqual(plain(m.shots.map(x => x.key)), ["1.1", "2.1"], "a camera far outside the picture is not drawn");
+  assert.ok(m.shots.every(x => x.at[0] >= 0 && x.at[0] <= m.W && x.at[1] >= 0 && x.at[1] <= m.H));
+  // cameras that stand on top of each other: the first has its number, the next only its dot
+  const crowd = K.planModel(plan, { id: "flat" }, "", null, 440, [{ key: "1.1", at: [1, 1] }, { key: "1.2", at: [1.02, 1.01] }, { key: "1.3", at: [3, 3] }]);
+  assert.deepEqual(plain(crowd.shots.map(x => [x.key, x.label])), [["1.1", true], ["1.2", false], ["1.3", true]]);
+  assert.deepEqual(plain(K.planModel(plan, { id: "flat" }, "", null, 440).shots), [], "none chosen: none drawn");
+  // the card: the picker, the dots, the way to the scene's shots
+  const face = read("app/location-set-card-ui.jsx");
+  assert.ok(face.includes("const shotHere = K.shotScenes(project, [space.id], scenes, filmShots, keyOf);") && face.includes('const found = K.marks(project, [space.id], scenes, sceneNow ? sceneNow.sceneId : "");'));
+  assert.ok(face.includes('"data-testid":"set-card-scene"') && face.includes('onClick:()=>window.turnOpenSceneShots(sceneNow.sceneId) },"Open this scene\\u2019s shots")') && face.includes('className:"lsc-shotcam"'));
+  assert.ok(css.includes(".lsc-shotcam circle{") && css.includes(".lsc-scene-row{"));
 });
 
 console.log("\n" + pass + " passed, " + fail + " failed");

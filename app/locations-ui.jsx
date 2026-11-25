@@ -2400,6 +2400,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
   const facePlace=setFace?faceGroup.place:null;
   const faceSlots={};
   const slot=(name,el)=>{ if(!setFace) return el; faceSlots[name]=el; return null; };
+  // (the set card's own two sections answer the links the card already has: step 3 = The set in 3D, step 4 = Location image)
+  if(setFace){ faceSlots.setFoldId=locationStepFoldId(l,3); faceSlots.imageFoldId=locationStepFoldId(l,4);
+    faceSlots.imageOpen=initialSection==="previs"||initialSection==="build"||initialSection==="style"; }
   // THE RENDER STYLE sits where the image is made (owner 2026-11-23: "bring the render style component into this
   // section ... so that the user can not only pick the image model ... but also experiment with the render style")
   const styleRow=React.createElement("div",{className:"char-style-row"},
@@ -2512,7 +2515,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
             "within ",React.createElement("b",null,l.parentLocation.name)," \u00b7 uses its space and look unless filled in here"),
           null))),
       // where this card stands and what to do next (owner 2026-11-01: one numbered path per card)
-      React.createElement(LocationStepGuide,{l,steps:cardSteps}),
+      // (with the set card on top the tracker sits in it, under the name: owner 2026-11-25)
+      slot("steps",React.createElement(LocationStepGuide,{l,steps:cardSteps,face:setFace})),
       // PREPARE THIS PLACE (owner 2026-11-17): one run for what is left of the road, on the place's own card
       // PREPARE THIS PLACE LEFT THE CARD (owner 2026-11-21: "Remove selected element ... We already have a step-by-step
       // process, and it is clear to the user ... what step they are currently. So it's about pressing that button ...
@@ -2618,11 +2622,13 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
          Previs alone. A camera is moved with Move a camera, in Previs; the four cameras are fitted by the app, and
          Previs fixes one that does not show the set. Nothing saved is deleted: the cameras and the written view notes
          stay on the card's data. A link to Cameras opens this section. */
-      setFace&&showPrevis&&React.createElement(CardFold,{label:"The set in 3D",foldId:locationStepFoldId(l,4),
-          defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},
+      /* (owner 2026-11-25) THE MAKING OF THE IMAGE SITS WITH THE IMAGE: with the set card, this part is handed to its
+         Location image section (slot "making"), in a lean form: the camera tool and the whole place from above are
+         in The set in 3D, beside the four views, and what the section is for is said behind its (i). */
+      setFace&&showPrevis&&slot("making",React.createElement(React.Fragment,null,
         React.createElement(LocationPartOfPlace,{l,place:spatialState.owner,step:4,onSelectLocation,inside:asSection}),
         React.createElement(window.LocationPrevisPlace||window.LocationPrevisStep,{location:l,rooms:roomLocations,project,readOnly,onUpdate,hasImage:!!gen.genUrl,
-          imageMeta:gen.genUrl?gen.genMeta:null,onSelectLocation,styleRow})),
+          imageMeta:gen.genUrl?gen.genMeta:null,onSelectLocation,styleRow,lean:true}))),
       !setFace&&React.createElement(CardGroup,{label:"The set in 3D",foldIds:[locationStepFoldId(l,3),locationStepFoldId(l,4)],
           defaultOpen:initialSection==="previs"||initialSection==="build"||initialSection==="style"},
       React.createElement(CardFold,{label:"Cameras",foldId:locationStepFoldId(l,3)},
@@ -3151,8 +3157,9 @@ function locationGuideSteps(steps){
   const next=list.find(x=>!x.done);if(next)next.next=true;
   return list;
 }
-function LocationStepGuide({l,steps:cardSteps}){
-  const steps=locationGuideSteps(cardSteps);
+function LocationStepGuide({l,steps:cardSteps,face=false}){
+  // (with the set card, The set in 3D is a section of its own: its step opens it, and the image's step opens Location image)
+  const steps=locationGuideSteps(cardSteps).map(x=>face&&x.key==="set"?{...x,to:3}:face&&x.key==="image"?{...x,to:4}:x);
   // THE TRACKER ALONE (owner 2026-11-17: "the tracker alone is enough"): the "Next ... Go" row above it said the same
   // thing a second time. Each step opens its section; the one to do next is marked, and its tooltip says what to do.
   const go=n=>{
