@@ -381,6 +381,8 @@
     // (the place's own facts for the drawing ride with its light: where daylight comes in, and the card's own space)
     const facts=placeFacts(location,list),known=facts.windows.length>0||!!facts.span;
     const named=Object.keys(kit).length>0;
+    // (what hangs on a wall is moved out of the wall's thickness onto its face: set-dressing.js seated)
+    if(typeof D.seated==="function")out=D.seated(out);
     return {scene:out,light:light||known||named?{...(light||{}),place:facts,...(named?{kit}:{})}:null,dressed:isos.length>0,parts,iso:isos.join("|")};
   }
   // the light as the dressing saved it (null when the set is not dressed), without the place's facts added for drawing

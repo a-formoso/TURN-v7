@@ -291,6 +291,69 @@
     return {scene:{...scene,notes,objects,materials},kit};
   }
 
+  /* WHAT HANGS ON A WALL HANGS ON ITS FACE (2026-11-25, after shot 5.5 of Scene 5, an insert on a row of key hooks,
+     drew a blank wall). A wall is built 0.15 m thick with its middle on the room's outline, so it reaches 0.075 m into
+     the room, and the floor plan puts what is fixed to a wall at the outline: a row of hooks 0.03 m deep was drawn
+     wholly inside the wall, and a shelf lost that much of its depth. seated(scene) moves each such thing straight out
+     of the wall until its back is on the wall's face. Only a fixed thing of the floor plan (one anchorId: its block
+     and its dressing move as one) that is cut by a wall, hangs clear of the floor (HANGS above it) and has wall behind
+     its middle: a door, a window or a curtain stands in its opening and stays, and so does furniture that stands on
+     the floor against a wall. Never further than a wall is thick. Pure; the scene handed in is not changed.
+     → the scene, with those things moved (the same scene when nothing was) */
+  const HANGS=0.25;
+  function seated(scene){
+    const all=(scene&&Array.isArray(scene.objects))?scene.objects:[];
+    const boxed=o=>!!o&&Array.isArray(o.position)&&Array.isArray(o.size)&&o.position.length>=3&&o.size.length>=3;
+    const walls=all.filter(o=>boxed(o)&&/^wall-\d/.test(String(o.id||"")));
+    if(!walls.length)return scene;
+    const floors=all.filter(o=>boxed(o)&&/^floor-\d/.test(String(o.id||""))), ceilings=all.filter(o=>boxed(o)&&/^ceiling-\d/.test(String(o.id||"")));
+    const rz=o=>Number((o.rotation||[])[2])||0;
+    // a box's four corners on the plan (its tilt is left out: a thing on a wall is not tilted far)
+    const corners=o=>{const t=rz(o),c=Math.cos(t),n=Math.sin(t),w=Math.abs(o.size[0])/2,d=Math.abs(o.size[1])/2;
+      return [[-w,-d],[w,-d],[w,d],[-w,d]].map(q=>[o.position[0]+q[0]*c-q[1]*n,o.position[1]+q[0]*n+q[1]*c]);};
+    const span=o=>[o.position[2]-Math.abs(o.size[2])/2,o.position[2]+Math.abs(o.size[2])/2];
+    // a point in a wall's own frame: [along it, out of it]
+    const inWall=(w,p)=>{const t=rz(w),c=Math.cos(t),n=Math.sin(t),x=p[0]-w.position[0],y=p[1]-w.position[1];return [x*c+y*n,-x*n+y*c];};
+    const under=(list,p)=>list.some(f=>Math.abs(p[0]-f.position[0])<=Math.abs(f.size[0])/2&&Math.abs(p[1]-f.position[1])<=Math.abs(f.size[1])/2);
+    const groups=new Map();
+    all.forEach(o=>{if(boxed(o)&&o.anchorId&&!/^(wall|floor|ceiling|opening)-/.test(String(o.id||""))){const k=String(o.anchorId);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(o);}});
+    const moved=new Map();
+    groups.forEach(parts=>{
+      const low=Math.min(...parts.map(o=>span(o)[0])),high=Math.max(...parts.map(o=>span(o)[1]));
+      const mid=[0,1,2].map(k=>parts.reduce((n,o)=>n+o.position[k],0)/parts.length);
+      const ground=floors.filter(f=>under([f],mid)).map(f=>f.position[2]+Math.abs(f.size[2])/2).filter(z=>z<=low+0.05);
+      if(low-(ground.length?Math.max(...ground):0)<HANGS)return;            // it stands on the floor
+      let shift=[0,0];
+      for(let pass=0;pass<2;pass++){
+        const pts=parts.flatMap(o=>corners(o).map(q=>[q[0]+shift[0],q[1]+shift[1]])),centre=[mid[0]+shift[0],mid[1]+shift[1]];
+        let best=null;
+        walls.forEach(w=>{
+          const half=[Math.abs(w.size[0])/2,Math.abs(w.size[1])/2],z=span(w);
+          if(high<=z[0]||low>=z[1])return;
+          const cut=parts.some(o=>{const q=corners(o).map(c=>inWall(w,[c[0]+shift[0],c[1]+shift[1]])),a=q.map(v=>v[0]),b=q.map(v=>v[1]),oz=span(o);
+            return Math.max(...a)>-half[0]&&Math.min(...a)<half[0]&&Math.max(...b)>-half[1]+1e-4&&Math.min(...b)<half[1]-1e-4&&oz[1]>z[0]&&oz[0]<z[1];});
+          if(!cut)return;
+          // wall behind its middle: else it stands in an opening of this wall (a door, a window, a curtain)
+          const c=inWall(w,centre);
+          const behind=walls.some(v=>{const q=inWall(v,centre),vz=span(v);return Math.abs(Math.sin(rz(v)-rz(w)))<1e-3&&Math.abs(q[1])<=Math.abs(v.size[1])/2+0.3&&Math.abs(q[0])<=Math.abs(v.size[0])/2&&mid[2]>=vz[0]&&mid[2]<=vz[1];});
+          if(!behind)return;
+          const t=rz(w),out=[-Math.sin(t),Math.cos(t)];
+          // which side of the wall it hangs on: where its middle is; on the line itself, the side that has a ceiling
+          let side=Math.abs(c[1])>=0.005?Math.sign(c[1]):0;
+          if(!side){const a=under(ceilings,[centre[0]+out[0]*0.3,centre[1]+out[1]*0.3]),b=under(ceilings,[centre[0]-out[0]*0.3,centre[1]-out[1]*0.3]);side=a&&!b?1:b&&!a?-1:0;}
+          if(!side)return;
+          const back=Math.min(...pts.map(q=>inWall(w,q)[1]*side)),need=half[1]-back+0.002;
+          if(need>0.001&&need<=half[1]*2+0.02&&(!best||need>best.need))best={need,by:[out[0]*side*need,out[1]*side*need]};
+        });
+        if(!best)break;
+        shift=[shift[0]+best.by[0],shift[1]+best.by[1]];
+      }
+      if(shift[0]||shift[1])parts.forEach(o=>moved.set(o,shift));
+    });
+    if(!moved.size)return scene;
+    return {...scene,objects:all.map(o=>{const by=moved.get(o);return by?{...o,position:[round(o.position[0]+by[0]),round(o.position[1]+by[1]),o.position[2]]}:o;})};
+  }
+
   /* ONE PLACE, ONE SET (owner 2026-11-16: a place's rooms are "an integral part of the same location"). The floor plan
      of a place holds all its rooms, and each card dresses ITS OWN space: the place its own ground and what stands
      outside every room, a room what is inside its outline. Every card of the place is then drawn with all of these
@@ -501,5 +564,5 @@
     return {...checked,scene:drawn.scene,kit:drawn.kit,written:parsed,promptLength:text.length,answerLength:String(raw&&raw.text||raw||"").length};
   }
 
-  root.KinolotSetDressing={MODEL,LIMITS,CALL,KIT,SAVED_MAX,RATE,estimate,place,own,pack,saved,colour,part,fit,survey,normalise,count,apply,applied,brief,prompt,draft};
+  root.KinolotSetDressing={MODEL,LIMITS,CALL,KIT,SAVED_MAX,RATE,estimate,place,own,pack,saved,colour,part,fit,survey,normalise,count,apply,applied,seated,brief,prompt,draft};
 })(typeof window!=="undefined"?window:globalThis);

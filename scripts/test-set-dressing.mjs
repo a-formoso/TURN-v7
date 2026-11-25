@@ -677,3 +677,32 @@ test('kit pieces: the engine is told to name them, never to draw them in parts',
   assert.ok(/NOTHING LOOSE AND NOTHING INVENTED/.test(text),'and still nothing invented');
   assert.ok(!/claude|anthropic|openai|gemini|three\.?js|kinolot|\bMUSE\b/i.test(kitText));
 });
+
+test('what hangs on a wall hangs on its face, never inside its thickness (2026-11-25, the key hooks of shot 5.5)',()=>{
+  const s=scene(),box=(id,anchorId,position,size)=>({id,name:anchorId,anchorId,basis:'design',position,size,rotation:[0,0,0],kind:'box',material:'dressing'});
+  // the south wall is 0.15 m thick about y = 0: its face in the room is at y = 0.075
+  s.objects.push(box('dress-1','hooks',[1,.02,1.45],[.35,.02,.08]),box('dress-2','hooks',[1,.04,1.44],[.02,.03,.02]),   // a board and a peg, both wholly inside the wall
+    box('dress-3','shelf',[3,.09,1.2],[.6,.18,.03]),                                                                       // a shelf with its back on the outline
+    box('dress-4','calendar',[.5,0,1.5],[.3,.01,.4]),                                                                      // flat, exactly on the outline
+    box('dress-5','fridge',[2.5,.3,.9],[.6,.6,1.8]),                                                                       // stands on the floor against the wall
+    // a north wall with a window opening (x 1.5 to 2.5, z 0.8 to 2), and the window in it, its frame lapping the wall
+    {id:'wall-0-2-1-1',name:'Hall wall',position:[.75,4,1.2],size:[1.5,.15,2.4],rotation:[0,0,Math.PI],kind:'box',material:'wall'},
+    {id:'wall-0-2-3-1',name:'Hall wall',position:[3.25,4,1.2],size:[1.5,.15,2.4],rotation:[0,0,Math.PI],kind:'box',material:'wall'},
+    {id:'wall-0-2-2-1',name:'Hall wall',position:[2,4,.4],size:[1,.15,.8],rotation:[0,0,Math.PI],kind:'box',material:'wall'},
+    {id:'wall-0-2-2-3',name:'Hall wall',position:[2,4,2.2],size:[1,.15,.4],rotation:[0,0,Math.PI],kind:'box',material:'wall'},
+    box('dress-6','window',[2,4,1.4],[1.06,.06,1.24]),
+    box('dress-7','pegs',[.6,3.97,1.6],[.5,.04,.1]));                                                                      // pegs on the north wall
+  const before=JSON.stringify(s),out=D.seated(s),at=id=>copy(out.objects.find(o=>o.id===id).position);
+  assert.equal(JSON.stringify(s),before,'the scene handed in is not changed');
+  assert.deepEqual(at('dress-1'),[1,.087,1.45],'the board: its back on the face of the wall');
+  assert.deepEqual(at('dress-2'),[1,.107,1.44],'its peg moves with it, by the same amount');
+  assert.deepEqual(at('dress-3'),[3,.167,1.2],'the shelf stands its whole depth out of the wall');
+  assert.deepEqual(at('dress-4'),[.5,.082,1.5],'a thing on the line itself goes to the side that has a ceiling');
+  assert.deepEqual(at('dress-5'),[2.5,.3,.9],'furniture that stands on the floor stays where the floor plan has it');
+  assert.deepEqual(at('dress-6'),[2,4,1.4],'a window stays in its opening');
+  assert.deepEqual(at('dress-7'),[.6,3.903,1.6],'and on a wall drawn the other way round, into the room again');
+  assert.deepEqual(at('anchor-0'),[.2,2,.55],'what no wall cuts is left alone');
+  assert.equal(out.objects.length,s.objects.length);
+  const clear=scene();assert.equal(D.seated(clear),clear,'nothing to move: the same scene');
+  assert.equal(D.seated(out).objects.find(o=>o.id==='dress-1').position[1],.087,'done once, it is not done again');
+});
