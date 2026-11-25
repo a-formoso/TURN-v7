@@ -175,7 +175,7 @@ test("8 loaded in order, with fresh keys; Frances knows; no vendor, codename or 
   const i=s=>html.indexOf(s);
   assert.ok(i("app/scene-plan.js?v=")<i("app/shot-angle.js?v=")&&i("app/shot-angle.js?v=")<i("app/camera-angle-preview-ui.jsx?v="),"the plan, then the picker's list, then the camera tool");
   for(const f of ["app/shot-angle.js","app/scene-plan.js","app/shot-previs.js","app/camera-angle-preview-ui.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/app.jsx","app/styles.css","app/ai.jsx"])
-    assert.ok(["20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-framing2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const g={APP_FEATURES:[]}; vm.runInNewContext(ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Locations: use a camera angle in a shot"')).join("\n"),g);
   assert.equal(g.APP_FEATURES.length,1);
   const fact=g.APP_FEATURES[0].what;

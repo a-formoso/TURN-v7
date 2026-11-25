@@ -736,18 +736,24 @@
         m.quaternion.setFromRotationMatrix(new T.Matrix4().makeRotationZ(z).multiply(new T.Matrix4().makeRotationY(y)).multiply(new T.Matrix4().makeRotationX(x)));
         m.updateMatrixWorld(true); m.userData.name=String(item.name||""); meshes.push(m); });
       const cam=A.cameraFor(T,pose); cam.updateMatrixWorld(true);
-      const ray=new T.Raycaster(), hits=new Map(), COLS=16, ROWS=9, reach=[];
+      const ray=new T.Raycaster(), hits=new Map(), COLS=16, ROWS=9, reach=[], bands=[new Map(),new Map(),new Map(),new Map(),new Map()];
       for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++){
         ray.setFromCamera(new T.Vector2((c+0.5)/COLS*2-1,1-(r+0.5)/ROWS*2),cam);
         const hit=ray.intersectObjects(meshes,false)[0]; if(!hit) continue;
         reach.push(hit.distance);
         const name=String(hit.object.userData.name||"").split(/ \u00b7 | - part /)[0].replace(/ \((?:prop |door )?stand-in\)$/,"").replace(/\s+/g," ").trim().slice(0,70); if(!name) continue;
-        const e=hits.get(name)||{name,n:0,x:0,d:Infinity}; e.n++; e.x+=(c+0.5)/COLS; e.d=Math.min(e.d,hit.distance); hits.set(name,e); }
+        const e=hits.get(name)||{name,n:0,x:0,d:Infinity}; e.n++; e.x+=(c+0.5)/COLS; e.d=Math.min(e.d,hit.distance); hits.set(name,e);
+        const band=bands[Math.min(4,Math.floor(c*5/COLS))]; band.set(name,(band.get(name)||0)+1); }
       bin.forEach(g=>g.dispose());
       const list=Array.from(hits.values()).sort((a,b)=>b.n-a.n).slice(0,10).map(e=>({name:e.name,share:Math.round(e.n/(COLS*ROWS)*100),
         side:SIDES[Math.min(4,Math.floor(e.x/e.n*5))],depth:e.d<1.2?"very close":e.d<2.5?"close":e.d<8?"middle distance":"far"}));
       // how deep the picture is: the furthest thing any part of the frame reaches (list.far, metres; 0 when it could not be read)
       reach.sort((a,b)=>a-b); list.far=reach.length>=COLS*ROWS*0.6?Math.round(reach[Math.floor(reach.length*0.97)]*10)/10:0;
+      /* what each fifth of the frame holds, left to right (list.bands): the names a fair share of that fifth's rays hit,
+         most first. A fifth that holds only a wall is then SAID to hold only a wall: the first frame that matched its
+         drawing (2026-11-24) had a second door frame and a coat on a hook added where the drawing has plain wall. */
+      list.bands=bands.map(b=>{ const all=Array.from(b.entries()), total=all.reduce((n,x)=>n+x[1],0);
+        return all.filter(x=>x[1]>=Math.max(2,total*0.08)).sort((x,y)=>y[1]-x[1]).slice(0,4).map(x=>x[0]); });
       return list;
     }catch(_){ return []; }
   }
@@ -787,7 +793,8 @@
        project(pose, [x, y, z])  → {across, down (parts of the frame, from its left and top edges), depth (m)} | null
        measure(pose, people, things, surfaces) → {size, pitch, people[], things[], fixed[], order[], nearest[]}
                                  (a thing a person stands in front of from this camera is marked hidden, and said so)
-       frameMap(m, far)          → the same, in sentences for the image engine and for the check */
+       frameMap(m, far, bands)   → the same, in sentences for the image engine and for the check (bands = what each
+                                 fifth of the frame holds, from seenIn: a fifth of plain wall is said to stay plain) */
   function project(pose,point){
     const q=obj(pose), c=arr(q.position), a=(Number(q.yaw)||0)*Math.PI/180, t=(Number(q.pitch)||0)*Math.PI/180, lens=Number(q.lensMm)||35;
     if(c.length!==3||arr(point).length!==3) return null;
@@ -842,7 +849,8 @@
     out.people.forEach(p=>{ delete p.shows; });
     return out;
   }
-  function frameMap(m,far){
+  const PLAIN_SURFACE=/\b(walls?|floor|ceiling|skirting|sky|ground)$/i;   // a name that ENDS so: "hall wall shelf" is a shelf
+  function frameMap(m,far,bands){
     const f=obj(m); if(!arr(f.people).length&&!arr(f.things).length) return "";
     const s=["THE FRAME, MEASURED ON IMAGE 1 (the finished picture measures the same; \"across\" is from the left edge, \"down\" from the top edge, as parts of the frame)."];
     if(f.size) s.push("It is "+SIZE_NAME[f.size]+(Math.abs(f.pitch)>=6?", and the camera looks "+(f.pitch<0?"DOWN":"UP")+" about "+Math.abs(f.pitch)+" degrees: it is not a level view":", from a level camera")+".");
@@ -850,10 +858,19 @@
     arr(f.people).forEach(p=>s.push(p.name+": the head is "+p.across+"% across and "+p.down+"% down and is "+p.head+"% of the frame’s height"
       +(p.room<0?"; the top edge of the frame cuts through the head":"; "+(p.room<=3?"the head almost touches the top edge":p.room+"% of the frame is above the head"))
       +(p.cut==="whole"?"; the whole figure is in frame, the feet "+p.feet+"% down":p.cut?"; the lower edge of the frame cuts them at "+p.cut:"")+"."));
+    if(arr(f.people).length) s.push("Each head is as large in the finished picture as measured here and stands where measured, with no more room above it than measured: never pull back, and never add room above the heads.");
     arr(f.fixed).forEach(x=>s.push(x.hidden?"The "+lowName(x.name)+" is behind "+x.hidden+" from this camera: it is not seen.":"The "+lowName(x.name)+" is "+x.across+"% across and "+x.down+"% down."));
     arr(f.things).forEach(t=>s.push(t.hidden?"The "+String(t.name).replace(/^the /i,"")+" is behind "+t.hidden+" from this camera: it is not seen."
       :"The "+String(t.name).replace(/^the /i,"")+" is "+t.across+"% across and "+t.down+"% down, about "+t.wide+"% of the frame’s width."));
     if(arr(f.nearest).length>1) s.push("Nearest the camera is "+f.nearest[0].name+" ("+f.nearest[0].depth+" m), then "+f.nearest.slice(1).map(x=>x.name+" ("+x.depth+" m)").join(", then ")+".");
+    // the frame in fifths, left to right: what each holds; one that holds only a wall is said to, so nothing is put there
+    const fifths=arr(bands).length===5?bands.map(b=>arr(b).map(n=>String(n||"").replace(/^the /i,"").trim()).filter(Boolean)):null;
+    if(fifths&&fifths.some(b=>b.length)){
+      const NAMES=["far left","left","centre","right","far right"], who=new Set(arr(f.people).map(p=>p.name)), a=n=>who.has(n)?n:"the "+n;
+      s.push("The frame in fifths, from left to right: "+fifths.map((b,i)=>NAMES[i]+": "+(b.length?(b.every(n=>PLAIN_SURFACE.test(n))?"only ":"")+b.map(a).join(", "):"nothing built")).join("; ")+".");
+      const bare=fifths.map((b,i)=>b.length&&b.every(n=>PLAIN_SURFACE.test(n))?NAMES[i]:"").filter(Boolean);
+      if(bare.length) s.push("The "+bare.join(" and the ")+" of the frame "+(bare.length>1?"hold":"holds")+" plain wall and nothing else: no door frame, no doorway, no furniture, no shelf, no hook, no coat and nothing hanging is added there. Every other fifth holds what is listed for it and nothing more.");
+    }
     const deep=Number(far)||0;
     if(deep>0&&deep<4.5) s.push("Nothing in this picture is further than about "+deep+" m from the camera: it is a close view against what stands behind the people, with NO view along a corridor and no far room.");
     else if(deep>=4.5) s.push("The furthest thing in this picture is about "+Math.round(deep)+" m from the camera.");
@@ -907,14 +924,14 @@
       return canvas.toDataURL("image/jpeg",0.9); };
     out.start={dataUrl:await draw(first.scene)};
     if(o.words){ const seen=await seenIn(first.scene,found.pose); out.start.words=frameWords(found.pose,seen); out.start.dressing=dressingWords(await inView(first.surfaces,found.pose,first.base));
-      out.start.frame=measure(found.pose,first.people,first.things,first.surfaces); out.start.map=frameMap(out.start.frame,seen.far); }
+      out.start.frame=measure(found.pose,first.people,first.things,first.surfaces); out.start.map=frameMap(out.start.frame,seen.far,seen.bands); }
     out.mid=o.midState?{dataUrl:await draw(stateScene(built.scene,plan,o.midState,ctx).scene)}:null;
     if(endState&&!sameState(startState,endState)){
       const last=stateScene(built.scene,plan,endState,ctx);
       unseen(last.people);
       out.end={dataUrl:await draw(last.scene),people:last.people,things:last.things};
       if(o.words){ const seen=await seenIn(last.scene,found.pose); out.end.words=frameWords(found.pose,seen); out.end.dressing=dressingWords(await inView(last.surfaces,found.pose,last.base));
-        out.end.frame=measure(found.pose,last.people,last.things,last.surfaces); out.end.map=frameMap(out.end.frame,seen.far); }
+        out.end.frame=measure(found.pose,last.people,last.things,last.surfaces); out.end.map=frameMap(out.end.frame,seen.far,seen.bands); }
       last.missing.forEach(m=>{ if(out.missing.indexOf(m)<0) out.missing.push(m); });
       last.things.filter(t=>!t.measured).forEach(t=>{ if(out.rough.indexOf(t.name)<0) out.rough.push(t.name); });
     }

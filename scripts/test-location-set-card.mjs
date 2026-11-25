@@ -347,7 +347,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-framing2"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("12 Frances knows the set card, in plain words", ()=>{
