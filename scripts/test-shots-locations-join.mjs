@@ -30,6 +30,7 @@ test("2 Shots: the header's place is a link with its hour; Uses names the hour; 
   assert.ok(shots.includes('r.kind==="location" ? nm+" image"+(hour ? " · "+hour : "")'));
   assert.ok(shots.includes('"data-testid":"shot-face-open-set"') && shots.includes('onClick:()=>window.turnOpenLocationCard(drawColour.loc.id)},"Open this place’s set")'));
   assert.ok(css.includes(".ssx-loc-link{") && css.includes(".loc-step-stale{"));
+  assert.ok(css.includes(".location-scenes .prop-scene-chip{white-space:nowrap}"), "a chip with its hour stays on one line");
 });
 
 test("3 Locations: scenes with their hours, facts without a camera count, a stale image said on its step", () => {
@@ -48,7 +49,7 @@ test("3 Locations: scenes with their hours, facts without a camera count, a stal
 test("4 a scene's shots can be opened from anywhere in the Art Room; fresh keys; Frances knows", () => {
   assert.ok(app.includes("window.turnOpenSceneShots = (sceneId)=>{") && app.includes('window.turnFocusArtScene("shots", sceneId);'));
   for (const f of ["app/app.jsx", "app/shots-ui.jsx", "app/location-set-card.js", "app/locations-ui.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-join1", "20261125-join2"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/SHOTS AND LOCATIONS POINT AT EACH OTHER \(2026-11-25\)/.test(ai) && /marked 'out of date' on the step itself/.test(ai));
   assert.ok(!/Hussain|Liaqat|Pike\b/.test(ai), "no film's own names in what Frances is told");
 });
