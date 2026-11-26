@@ -76,6 +76,8 @@ await test("5 the page: the film is drawn in clay through the shot's own camera,
   assert.ok(ui.includes('"data-testid":"beat-frame-board-film"') && ui.includes("window.shotBlockoutFilm("));
   // the Stage: one film a shot, a video reference on Seedance 2.5, on by default only when something travels; and what the engine is told it is
   assert.ok(stage.includes('out.push({ key:"previs-blockout:"+sh.id, kind:"video", group:"Layouts",') && stage.includes("...(B.send ? {} : { sceneOnly:true })") && stage.includes('assetSourceQuality:"previs_clay_blockout"'));
+  // (the list is made again when a film arrives: the first one made on the Stage never showed, 2026-11-26)
+  assert.ok(stage.includes("const blockoutSig = Object.keys(blockouts).map(") && stage.includes("veTick, layoutSig, blockoutSig, identityCast.map"));
   assert.ok(stage.includes('if(k.indexOf("previs-blockout:")===0){') && stage.includes("never show the white set, the figures, the red shapes or the film itself"));
   assert.ok(html.indexOf("app/beat-frames.js?v=") < html.indexOf("app/blockout-film.js?v=") && html.indexOf("app/blockout-film.js?v=") < html.indexOf("app/shot-previs-ui.jsx?v="));
 });

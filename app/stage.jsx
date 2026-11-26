@@ -4021,6 +4021,8 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     return ()=>{ live = false; };
   },[blockoutKey]);
   const layoutSig = Object.keys(layouts).map(id=>id+":"+((layouts[id]||{}).sig||"").length+":"+((layouts[id]||{}).url||"").length).join("|");
+  // (the list of references is made again when a shot's blockout film arrives: 2026-11-26, the first film made on the Stage never showed)
+  const blockoutSig = Object.keys(blockouts).map(id=>id+":"+((blockouts[id]||{}).url||"").length+":"+((blockouts[id]||{}).send?1:0)).join("|");
   const assets = React.useMemo(()=>{
     // model shape decides WHAT can ride: a Sora-class engine takes one start image
     // only, so identity/prop/location/video refs never appear as inputs, and audio
@@ -4271,7 +4273,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
       assetRoleLabel:"Screenplay screenshot",assetSourceQuality:"canonical_screenplay_page",
       ready:!!p.url,locked:false}));
     return out;
-  }, [clip.id, activeShot.id, veTick, layoutSig, identityCast.map(c=>c.id+":"+(c.videoElementOff?0:1)).join(","), sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
+  }, [clip.id, activeShot.id, veTick, layoutSig, blockoutSig, identityCast.map(c=>c.id+":"+(c.videoElementOff?0:1)).join(","), sourceMode, dialogueAudio, modelId, referencePackage.signature, screenplayImageReference, shotStartFrame, JSON.stringify((storyAssets.halves||[]).map(h=>h.id+":"+!!h.url)), storyAssets.top, storyAssets.bottom, storyAssets.sheet, prevVideo, prevVideoSafe, JSON.stringify(prevVideoMeta||{}), JSON.stringify(d.cast), JSON.stringify(d.props), d.loc&&d.loc.id, d.locSheet&&d.locSheet.id, JSON.stringify((sceneClips||[]).map(sc=>{ const dd=(sc&&sc.data)||{}; return (sc&&sc.id||"")+"|"+(dd.cast||[]).map(x=>x.id).join(",")+"|"+(dd.props||[]).map(x=>x.id+":"+(x.sheetId||"")).join(",")+"|"+(dd.shots||[]).map(x=>x.id+":"+(x.dialogue||"")).join(",")+"|"+((dd.locSheet&&dd.locSheet.id)||""); })), imgs, auds]);
 
   // assets default ON when ready; user can toggle (off set). @tags number the INCLUDED
   // assets only — attachment order is what fal sees, so excluding @Image2 must renumber
