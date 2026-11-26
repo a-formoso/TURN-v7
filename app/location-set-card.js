@@ -256,9 +256,10 @@
      the set with its surfaces, was called "Colour"; its id stays. "Frame" is no drawing: it is the place's finished
      picture, its location image.) */
   const LOOKS=[
-    {id:"colour",look:"",name:"Previs",title:"The set with its surfaces: brick, floor, glass, furniture"},
-    {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light. The stand-ins keep their colours."},
-    {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark"},
-    {id:"frame",look:"",name:"Frame",title:"The location image: the finished picture of this place",frame:true}];
+    // (owner 2026-11-26: each hover text also says what the view is used for)
+    {id:"colour",look:"",name:"Previs",title:"The set with its surfaces: brick, floor, glass, furniture. Used to check the layout and the colours of the place; the location image is made from this view."},
+    {id:"clay",look:"clay",name:"Clay",title:"The set in one matt white: only shape and light. The stand-ins keep their colours. Used to judge shapes, sizes and where the light falls, with no colour in the way."},
+    {id:"depth",look:"depth",name:"Depth",title:"How far each thing is from the camera: near is light, far is dark. Used to check distances and what stands in front of what."},
+    {id:"frame",look:"",name:"Frame",title:"The location image: the finished picture of this place. Used to compare the finished picture with the set it was made from.",frame:true}];
   root.KinolotSetCard={KEYS,LOOKS,PEOPLE,spaces,views,camTag,sizeText,facts,connections,marks,shotScenes,marksLine,standIns,keepInside,peopleLine,planModel,planMetres,planPx};
 })(typeof window!=="undefined"?window:globalThis);

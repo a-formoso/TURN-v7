@@ -2537,7 +2537,8 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
 
       // THE CARD IN FIVE SECTIONS (owner 2026-11-21, "build the 5 sections, no numbers"): The place, Floor plan, The set in 3D,
       // Variants, Advanced. Like a character or a prop card: what it is, the working sections, then Advanced, closed.
-      slot("place",React.createElement(CardFold,{label:"The place",foldId:locationStepFoldId(l,1),defaultOpen:(!drafted && !!l.manual)},
+      // (owner 2026-11-26: under the set card the only section open by default is The set in 3D; The place is shut too)
+      slot("place",React.createElement(CardFold,{label:"The place",foldId:locationStepFoldId(l,1),defaultOpen:(!setFace && !drafted && !!l.manual)},
         React.createElement("div",{className:"loc-step-actions"},
           React.createElement("button",{className:"char-draft-btn"+(drafting?" busy":""),disabled:drafting,onClick:()=>onDraft(l),
             title:"Draft the written description of this place. Where its objects stand comes next, in Floor plan."},

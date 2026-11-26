@@ -334,7 +334,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
         // the description of the place, to read and to edit: the card's own section
         S.place || null,
 
-        LSC_E(LscFold,{ label:planFold.label || "Floor plan", foldId:planFold.foldId, count:planFold.count, defaultOpen:true, testid:"set-card-fold-plan" },
+        // (owner 2026-11-26: "keep the Floor Plan section closed by default. the only section that should be open by default
+        //  is The set in 3D"; a link that asks for the floor plan still opens it)
+        LSC_E(LscFold,{ label:planFold.label || "Floor plan", foldId:planFold.foldId, count:planFold.count, defaultOpen:!!planFold.defaultOpen, testid:"set-card-fold-plan" },
           model ? LSC_E(React.Fragment,null,
               LSC_E(LocationSetPlan,{ model, label:"Plan of "+(place.name||"this place")+(editing ? ". Drag a wall, a piece of furniture, a door or a window." : people ? ". Drag A and B to try where people stand; nothing is saved." : ""),
                 onMove:people && !readOnly && !editing ? movePerson : null, edit:editing ? planEdit : null }),

@@ -48,9 +48,10 @@ const shotPrevisNum = (n,d)=>{ const v = Number(n); return Number.isFinite(v) ? 
    props in their colours; Depth is how far each thing is from the camera. Each look is drawn when it is first asked
    for and kept apart from the others for the session; a shot remembers the look it was left on. */
 const SHOT_PREVIS_LOOKS = [
-  { id:"", name:"Previs", title:"The set as built. A frame is made from this drawing." },
-  { id:"clay", name:"Clay", title:"The set in one matt white: only shape and light. People and props keep their colours." },
-  { id:"depth", name:"Depth", title:"How far each thing is from the camera: near is light, far is dark." }];
+  // (owner 2026-11-26: each hover text also says what the view is used for)
+  { id:"", name:"Previs", title:"The set as built, with its surfaces. Used to check who and what is in the shot and where; the shot\u2019s frame is made from this drawing." },
+  { id:"clay", name:"Clay", title:"The set in one matt white: only shape and light. People and props keep their colours. Used to judge the staging with no colour in the way; the Stage gives this drawing to the video engine as the shot\u2019s layout." },
+  { id:"depth", name:"Depth", title:"How far each thing is from the camera: near is light, far is dark. Used to check distances and what stands in front of what." }];
 const SHOT_PREVIS_LOOK = new Map();          // shot id → the look it was left on (this session)
 function ShotPrevisBody({ sh, plan, cam, loc, ctx, sig:colourSig, onView, beatLabel, onMake, makeDisabled, staged }){
   const [look, setLookNow] = React.useState(()=> SHOT_PREVIS_LOOK.get(sh.id) || "");
