@@ -123,18 +123,79 @@ test("9 the page: the Frame board button on a beat's card opens the board across
   assert.ok(face.includes('"data-testid":"beat-card-board"') && face.includes('board ? "Hide the frame board" : "Frame board"'));
   assert.ok(shots.includes("board:!!boardByBeat[L.n], onBoard:window.BeatFrameBoard ? (on)=>setBoardByBeat(o=>({...o,[L.n]:!!on})) : null,") && shots.includes('"data-testid":"beat-row-board"'));
   // the frames are the drawings the beat already has, in any of the three looks, each kept apart
-  assert.ok(strip.includes("function beatStripRows(info, ctx, look){") && strip.includes('if(look) info = { ...info, sig:info.sig+"|look:"+look };') && strip.includes("...(look ? { look } : {}),"));
-  assert.ok(ui.includes("window.beatStripRows(info, ctx, look)") && ui.includes('if(r.start) steps.push("start"); if(r.mid) steps.push("mid"); if(r.end) steps.push("end");'));
+  assert.ok(strip.includes("function beatStripRows(info, ctx, look, written){") && strip.includes('if(look) info = { ...info, sig:info.sig+"|look:"+look };') && strip.includes("...(look ? { look } : {}),"));
+  assert.ok(ui.includes("window.beatStripRows(info, ctx, look, written)") && ui.includes('if(r.start) steps.push("start"); if(r.mid) steps.push("mid"); if(r.end) steps.push("end");'));
   // what the owner's own board shows: moment, name and frame; Previous, Play frames, Next; the time; a square a frame
   for (const t of ['"Moment "+f.moment+" · "+f.momentName+" · frame "+f.id', '"Previous"', 'playing ? "Stop" : "Play frames"', '"Next"', 'secs(f.t0)+" / "+secs(board.seconds)+" s"', '"data-testid":"beat-frame-board-squares"']) assert.ok(ui.includes(t), t);
   // a moment is a shot, and its first frame is the shot's starting frame: said under the picture and marked on its square
   assert.ok(ui.includes('"This is the starting frame of shot "+f.beat+"."+f.moment+": its frame is made from this picture."') && ui.includes('className:"bfb-square"+(x.first?" key":"")') && css.includes(".bfb-square.key{"));
   // Play frames gives each frame its own time
   assert.ok(ui.includes("const t = setTimeout(()=>setAt(i+1), Math.max(300,(f.t2-f.t0)*1000));"));
-  assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made, nothing is charged, nothing is saved");
-  const at = n => html.indexOf(n); const keys = ["20261126-board1"];
+  assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made; the only thing it can start is the writing pass, which asks first");
+  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1"];
   assert.ok(at("app/beat-frames.js?v=") > 0 && at("app/beat-frames.js?v=") < at("app/beat-frames-ui.jsx?v=") && at("app/shot-previs-ui.jsx?v=") > 0, "the rules are on the page before the board that reads them");
   assert.ok(keys.some(k => html.includes('app/beat-frames.js?v=' + k + '"')) && keys.some(k => html.includes('app/beat-frames-ui.jsx?v=' + k + '"')));
+});
+
+/* ---- STAGE 2: a beat's frames written out by the writing engine, made safe (owner 2026-11-26) ---- */
+const START = { people: { ann: { where: "m-door", pose: "standing", holding: ["box"] } }, things: { box: { heldBy: "ann", state: "shut" }, keys: { at: "hooks" } }, doors: [{ id: "front", open: false }] };
+const END = { people: { ann: { where: "m-table", pose: "standing", holding: [] } }, things: { box: { on: "table", state: "shut" }, keys: { at: "hooks" } }, doors: [{ id: "front", open: false }] };
+const CTX = { shots: [{ key: "1.1", beat: 1, moment: 1, seconds: 6, start: START, end: END }], marks: { "m-door": [0, 0], "m-table": [2, 1] }, cast: ["ann"], things: ["box", "keys"], doors: ["front"], inside: xy => xy[0] >= -1 && xy[0] <= 4 };
+const REST = [0, 0, 0, 0, 0.05, 0.05, 0.2, 0.05, 0.05, 0.2], HOLD = [0.05, 0, 0.3, 0, 0.45, 0, 1.3, 0.45, 0, 1.3];
+test("10 written frames made safe: the first is how the shot starts, the last how it ends, the ones between are the steps", () => {
+  const raw = { moments: [{ beat: 1, moment: 1, name: "The box", frames: [
+    { says: "She comes in with the box.", into: 0, hold: 1, people: { ann: { face: 90, joints: HOLD, pose: "holding the box", at: [9, 9], holding: [] } } },
+    { says: "Crosses to the table.", into: 2, hold: 0, people: { ann: { at: [1, 0.5], face: 60 } } },
+    { says: "Reaches it.", into: 1.5, hold: 0.5, people: { ann: { where: "m-table", joints: [0.2, 0, 0.3, 0, 0.9, 0, 0.6, 0.9, 0, 0.6] } } },
+    { says: "Sets it down.", into: 0.5, hold: 0.5, people: { ann: { joints: REST, holding: ["box"], at: [3, 3] } }, things: { box: { heldBy: "ann" } } }] }] };
+  const got = F.written(raw, CTX), m = got.frames["1.1"];
+  assert.equal(m.name, "The box"); assert.equal(m.frames.length, 4); assert.deepEqual(plain(got.report), { moments: 1, frames: 4, dropped: [] });
+  // the first frame: the plan's own start (still on her mark, still holding the box), with the written pose and the way she faces
+  assert.deepEqual(plain(m.frames[0].state.people.ann), { where: "m-door", pose: "holding the box", holding: ["box"], face: 90, joints: HOLD }); assert.equal(m.frames[0].into, 0);
+  // between: where she is on the floor, then on the mark she arrives at; what was not named stays
+  assert.deepEqual(plain(m.frames[1].state.people.ann.xy), [1, 0.5]); assert.equal(m.frames[1].state.people.ann.face, 60); assert.deepEqual(plain(m.frames[1].state.people.ann.joints), HOLD, "her pose goes on until a frame changes it");
+  assert.equal(m.frames[2].state.people.ann.where, "m-table"); assert.equal(m.frames[2].state.people.ann.xy, undefined); assert.deepEqual(plain(m.frames[2].state.things.box), { state: "shut", heldBy: "ann" });
+  // the last frame: the plan's own end (the box on the table, her hands empty), whatever was written; only the pose is taken
+  assert.deepEqual(plain(m.frames[3].state.people.ann), { where: "m-table", pose: "standing", holding: [], joints: REST }); assert.deepEqual(plain(m.frames[3].state.things.box), { on: "table", state: "shut" });
+  // the times add up to the shot's own seconds
+  near(m.frames.reduce((n, f) => n + f.into + f.hold, 0), 6, 0.02);
+  assert.equal(m.sig, F.stateSig(START, END)); assert.equal(F.writtenFor(got.frames, "1.1", START, END), m); assert.equal(F.writtenFor(got.frames, "1.1", START, { ...END, doors: [{ id: "front", open: true }] }), null, "a shot that was changed since no longer has its written frames");
+});
+test("11 what the answer got wrong is dropped and said; things and hands agree; a pose is kept within what a body can do", () => {
+  const raw = { moments: [{ beat: 1, moment: 1, name: "x", frames: [{ says: "a", into: 0, hold: 1, people: { bob: { face: 0 } } },
+    { says: "b", into: 1, hold: 1, people: { ann: { at: [40, 0], where: "m-moon", joints: [1, 2, 3], holding: ["keys", "sword"] }, zed: { at: [0, 0] } }, things: { sword: { heldBy: "ann" }, box: { on: "table" } }, doors: [{ id: "back", open: true }, { id: "front", open: true }] },
+    { says: "c", into: 1, hold: 1, people: { ann: { joints: [9, 9, 9, 9, 9, 9, 9, -9, -9, -9] } } },
+    { says: "d", into: 0, hold: 1 }] }, { beat: 1, moment: 2, name: "one frame only", frames: [{ says: "a" }] }, { beat: 7, moment: 1, frames: [{}, {}] }] };
+  const got = F.written(raw, { ...CTX, shots: CTX.shots.concat([{ key: "1.2", beat: 1, moment: 2, seconds: 3, start: END, end: END }]) }), fr = got.frames["1.1"].frames;
+  assert.deepEqual(Object.keys(got.frames), ["1.1"], "a shot with fewer than two frames keeps the drawings it had; a moment that is not in this beat is ignored");
+  assert.deepEqual(plain(got.report.dropped), ["1.1.1: bob is not in this shot as it starts", "1.1.2: there is no mark called m-moon", "1.1.2: ann would stand off the floor", "1.1.2: a pose is ten numbers", "1.1.2: nobody is called zed",
+    "1.1.2: there is no thing called sword", "1.1.2: there is no door called back", "1.2: a shot needs at least two frames"]);
+  // she took the keys and set the box down: her hands and the things say the same; the door she opened is open
+  assert.deepEqual(plain(fr[1].state.people.ann.holding), ["keys"]); assert.deepEqual(plain(fr[1].state.things.keys), { heldBy: "ann" }); assert.deepEqual(plain(fr[1].state.things.box), { on: "table" });
+  assert.deepEqual(plain(fr[1].state.doors), [{ id: "front", open: true }]);
+  assert.deepEqual(plain(fr[2].state.people.ann.joints), [1.1, 1, 0.9, 1.3, 3.1, 1.8, 2.6, -1.2, -0.3, 0], "each number is kept inside its range");
+  const many = F.written({ moments: [{ beat: 1, moment: 1, frames: Array.from({ length: 9 }, (_, i) => ({ says: "f" + i, into: 1, hold: 0 })) }] }, CTX);
+  assert.equal(many.frames["1.1"].frames.length, 6); assert.deepEqual(plain(many.report.dropped), ["1.1: only the first 6 frames are kept"]);
+  // times that make no sense are shared out evenly over the shot's seconds
+  const flat = F.written({ moments: [{ beat: 1, moment: 1, frames: [{ says: "a" }, { says: "b" }, { says: "c" }] }] }, CTX).frames["1.1"].frames;
+  near(flat.reduce((n, f) => n + f.into + f.hold, 0), 6, 0.02); assert.equal(flat[0].into, 0);
+});
+test("12 the board takes a shot's written frames, with their own times and lines; and the page draws, writes and saves them as designed", () => {
+  const bd = F.board(1, "", [{ n: 1, name: "The box", seconds: 6, says: "fallback", cam: "Medium", shotId: "a", steps: ["start", "end"], written: [{ says: "In.", into: 0, hold: 1 }, { says: "", into: 2, hold: 1 }, { says: "Down.", into: 1, hold: 1 }] },
+    { n: 2, name: "Wide", seconds: 4, shotId: "b", steps: ["start", "end"] }]);
+  assert.deepEqual(plain(bd.frames.map(f => [f.id, f.step, f.stepWord, !!f.written, f.says, f.t0, f.t2])), [["1.1.1", 0, "Starts", true, "In.", 0, 1], ["1.1.2", 1, "", true, "fallback", 1, 4], ["1.1.3", 2, "Ends", true, "Down.", 4, 6],
+    ["1.2.1", "start", "Starts", false, "", 6, 7.2], ["1.2.2", "end", "Ends", false, "", 7.2, 10]]);
+  const sp = read("app/shot-previs.js"), ui = read("app/beat-frames-ui.jsx"), app = read("app/app.jsx"), ai = read("app/ai.jsx");
+  // a pose in ten numbers on the figure, and a frame's own facing; a thing held is in the posed hand
+  assert.ok(sp.includes("const J=(!lying&&arr(obj(o).joints).length===10&&obj(o).joints.every(v=>Number.isFinite(Number(v))))?obj(o).joints.map(Number):null;") && sp.includes("const turn=me.face!=null?-me.face*Math.PI/180:(to?turnTo(me.xy,to):null);"));
+  assert.ok(sp.includes("if(p.hands&&p.hands.r&&p.hands.l){") && sp.includes("if(Array.isArray(o.steps)&&o.steps.length){ out.steps=[]; for(const st of o.steps) out.steps.push({dataUrl:await draw(stateScene(built.scene,plan,st,ctx).scene)}); }"));
+  // the board reads the frames saved with the plan while they still fit the shot, and draws each through its shot's camera
+  assert.ok(ui.includes("return F.writtenFor(saved, SP.shotCameraKey(sh), st.start||sh.startState, st.end||sh.endState||sh.startState); };") && ui.includes('"data-testid":"beat-frame-board-write"'));
+  // the writing pass asks first, saves with the plan it was written for, and changes no shot and no image
+  assert.ok(app.includes('title:"Write the frames of beat "+beatN+" (writing credits)?"') && app.includes("if(!cur || cur.at!==plan.at) return p;") && app.includes("frames:{ ...kept, ...res.frames }, framesAt:new Date().toISOString(),"));
+  const fn = app.slice(app.indexOf("const writeBeatFrames = async"), app.indexOf("window.turnWriteBeatFrames ="));
+  assert.ok(!/setShots|onUpdateShot|nbGenerate/.test(fn), "never on the shots");
+  assert.ok(ai.includes("async function aiBeatFrames(scene, ctx){") && ai.includes("const out = F.written(scrubbed, {") && ai.includes("THE TEN NUMBERS, in radians, always in this order: [lean, twist, head down, head turn, right arm forward, right arm out, right elbow, left arm forward, left arm out, left elbow]."));
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

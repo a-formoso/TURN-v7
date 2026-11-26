@@ -168,11 +168,80 @@
     const bn=Math.max(1,Math.round(num(beatN,1)));
     const beat={n:bn,name:text(beatName,80),moments:arr(moments).map((m,mi)=>{ const o=obj(m), steps=arr(o.steps).filter(s=>STEP_WORD[s]), list=steps.length?steps:["start"];
       const D=clamp(num(o.seconds,4),0.5,MAX_SECONDS), k=list.length, n=Math.max(1,Math.round(num(o.n,mi+1)));
+      // (a moment whose frames were written out one by one: its own frames, times and lines; o.written = [{says, into, hold}])
+      const own=arr(o.written).filter(f=>f&&typeof f==="object");
+      if(own.length>=2) return {n,name:text(o.name,80),frames:own.map((f,i)=>({id:bn+"."+n+"."+(i+1),cam:text(o.cam,120),into:r2(clamp(num(f.into,0),0,MAX_SECONDS)),hold:r2(clamp(num(f.hold,0),0,MAX_SECONDS)),
+        says:text(f.says,400)||text(o.says,400),set:{},step:i,stepWord:i===0?"Starts":i===own.length-1?"Ends":"",shotId:String(o.shotId||""),written:true}))};
       const time=i=>k===1?[0,D]:i===0?[0,D*(k===2?0.3:0.25)]:i===k-1?[D*(k===2?0.5:0.6/(k-1)),D*(k===2?0.2:0.15)]:[D*0.6/(k-1),0];
       return {n,name:text(o.name,80),frames:list.map((s,i)=>({id:bn+"."+n+"."+(i+1),cam:text(o.cam,120),into:r2(time(i)[0]),hold:r2(time(i)[1]),says:text(o.says,400),set:{},step:s,stepWord:STEP_WORD[s],shotId:String(o.shotId||"")}))}; })};
     const b={beats:[beat]}, tl=timeline(b);
     return {frames:frames(b).map((f,i)=>({...f,...tl.frames[i]})),moments:tl.moments,seconds:tl.seconds};
   }
 
-  root.KinolotBeatFrames={CLIP,POSE_N,STEP_WORD,lensOf,fromPack,normalize,frames,states,timeline,at,shots,board};
+  /* A BEAT'S FRAMES, WRITTEN OUT BY THE WRITING ENGINE AND MADE SAFE (stage 2, owner 2026-11-26). Each shot of the
+     beat (a moment is a shot) gets two to six frames. A frame is a STATE IN THE SCENE PLAN'S OWN FORM (people on a
+     mark or at a place of the floor plan, what they hold, the things, the doors), so the app draws it as it draws how
+     a shot starts; plus, for a person, the way they face (degrees clockwise from north) and their pose in ten numbers.
+     raw = {moments:[{beat, moment, name, frames:[{says, into, hold, people:{id:{at, where, face, joints, pose,
+            holding}}, things:{key:{...}}, doors:[{id, open}]}]}]}; each frame says only what CHANGED.
+     ctx = {shots:[{key "beat.moment", beat, moment, seconds, start, end}], marks:{id:[x, y]}, cast:[ids],
+            things:[keys], doors:[ids], inside(xy) → is this place on the floor (optional)}
+     THE RULES KEPT HERE, WHATEVER WAS WRITTEN: the first frame is how the shot starts and the last how it ends
+     (the plan's own states: only a pose and the way someone faces are taken from the written frame); what someone
+     holds and where the things are agree; an unknown person, thing, mark or door is dropped and said; a place off
+     the floor is dropped; the times are fitted to the shot's own seconds.
+     → {frames:{key:{name, sig, frames:[{says, into, hold, state}]}}, report:{moments, frames, dropped:[...]}} */
+  const MAX_FRAMES=6, JOINT_RANGE=[[-0.4,1.1],[-1,1],[-0.6,0.9],[-1.3,1.3],[-1.2,3.1],[-0.3,1.8],[0,2.6],[-1.2,3.1],[-0.3,1.8],[0,2.6]];
+  const stateSig=(start,end)=>{ const str=JSON.stringify([obj(start).people||{},obj(start).things||{},obj(start).doors||[],obj(end).people||{},obj(end).things||{},obj(end).doors||[]]); let h=5381; for(let i=0;i<str.length;i++) h=((h<<5)+h+str.charCodeAt(i))|0; return (h>>>0).toString(36)+":"+str.length; };
+  function written(raw,ctx){
+    const c=obj(ctx), marks=obj(c.marks), cast=arr(c.cast).map(String), things=arr(c.things).map(String), doors=arr(c.doors).map(String), rows=arr(obj(raw).moments), out={}, report={moments:0,frames:0,dropped:[]};
+    const drop=why=>{ if(report.dropped.length<40) report.dropped.push(why); };
+    const base=s=>({people:copy(obj(obj(s).people)),things:copy(obj(obj(s).things)),doors:copy(arr(obj(s).doors))});
+    const joints=v=>{ const a=arr(v).map(Number); return a.length===POSE_N&&a.every(Number.isFinite)?a.map((n,i)=>r2(clamp(n,JOINT_RANGE[i][0],JOINT_RANGE[i][1]))):null; };
+    // what someone holds and where the things are say the same
+    const tidy=st=>{ Object.keys(st.people).forEach(id=>{ const p=st.people[id]; p.holding=arr(p.holding).map(String).filter(k=>things.indexOf(k)>=0);
+        p.holding.forEach(k=>{ const t={...obj(st.things[k])}; delete t.at; delete t.on; delete t.worn; t.heldBy=id; st.things[k]=t; }); });
+      Object.keys(st.things).forEach(k=>{ const t=st.things[k], who=t&&t.heldBy; if(who&&(!st.people[who]||arr(st.people[who].holding).indexOf(k)<0)){ if(st.people[who]) st.people[who].holding=arr(st.people[who].holding).concat([k]); else delete t.heldBy; } });
+      return st; };
+    const pose=(p,cur,where)=>{ const q=obj(p); if(q.face!=null&&Number.isFinite(Number(q.face))) cur.face=deg(Number(q.face));
+      if(q.joints!=null){ const j=joints(q.joints); if(j) cur.joints=j; else drop(where+": a pose is ten numbers"); }
+      if(q.pose!=null&&text(q.pose,80)) cur.pose=text(q.pose,80); return cur; };
+    arr(c.shots).forEach(sh=>{ const key=String(sh.key), row=rows.find(r=>r&&Number(r.beat)===Number(sh.beat)&&Number(r.moment)===Number(sh.moment)); if(!row) return;
+      const list=arr(row.frames).filter(f=>f&&typeof f==="object"); if(list.length<2){ drop(key+": a shot needs at least two frames"); return; }
+      if(list.length>MAX_FRAMES) drop(key+": only the first "+MAX_FRAMES+" frames are kept");
+      const use=list.slice(0,MAX_FRAMES), last=use.length-1; let state=base(sh.start);
+      const frames=use.map((f,i)=>{ const where=key+"."+(i+1);
+        if(i===0||i===last){ // how the shot starts, how it ends: the plan's own state, with the written pose
+          const st=base(i===0?sh.start:(sh.end||sh.start));
+          Object.keys(obj(f.people)).forEach(id=>{ if(st.people[id]) pose(f.people[id],st.people[id],where); else drop(where+": "+id+" is not in this shot as it "+(i===0?"starts":"ends")); });
+          if(i===0) state=copy(st);
+          return {says:text(f.says,300),into:i===0?0:Math.max(0,num(f.into,0)),hold:Math.max(0,num(f.hold,0)),state:tidy(st)}; }
+        Object.keys(obj(f.people)).forEach(id=>{ if(cast.indexOf(id)<0){ drop(where+": nobody is called "+id); return; }
+          const q=obj(f.people[id]), cur={...obj(state.people[id])};
+          if(q.where!=null){ if(marks[q.where]){ cur.where=String(q.where); delete cur.xy; } else drop(where+": there is no mark called "+q.where); }
+          if(q.at!=null){ const a=arr(q.at).map(Number); if(a.length===2&&a.every(Number.isFinite)&&(typeof c.inside!=="function"||c.inside(a))) cur.xy=[r2(a[0]),r2(a[1])]; else drop(where+": "+id+" would stand off the floor"); }
+          if(Array.isArray(q.holding)) cur.holding=q.holding.map(String);
+          state.people[id]=pose(q,cur,where); });
+        Object.keys(obj(f.things)).forEach(k=>{ if(things.indexOf(k)<0){ drop(where+": there is no thing called "+k); return; }
+          const t=obj(f.things[k]), next={}; ["at","on","heldBy","worn","state"].forEach(n=>{ if(t[n]!=null&&text(t[n],80)) next[n]=text(t[n],80); });
+          if(next.heldBy&&cast.indexOf(next.heldBy)<0) delete next.heldBy;
+          // (set down or handed over: whoever held it lets go)
+          if(!next.heldBy||next.heldBy!==obj(state.things[k]).heldBy) Object.keys(state.people).forEach(id=>{ const p=state.people[id]; if(arr(p.holding).indexOf(k)>=0&&next.heldBy!==id) p.holding=p.holding.filter(x=>x!==k); });
+          if(next.heldBy&&state.people[next.heldBy]) state.people[next.heldBy].holding=arr(state.people[next.heldBy].holding).filter(x=>x!==k).concat([k]);
+          state.things[k]=next; });
+        arr(f.doors).forEach(d=>{ const id=String(obj(d).id||""); if(doors.indexOf(id)<0){ if(id) drop(where+": there is no door called "+id); return; }
+          const at=state.doors.findIndex(x=>x&&String(x.id)===id); if(at>=0) state.doors[at]={...state.doors[at],open:!!d.open}; else state.doors.push({id,open:!!d.open}); });
+        state=tidy(state);
+        return {says:text(f.says,300),into:Math.max(0,num(f.into,0)),hold:Math.max(0,num(f.hold,0)),state:copy(state)}; });
+      // the times, fitted to the shot's own seconds
+      const D=clamp(num(sh.seconds,4),0.5,MAX_SECONDS), total=frames.reduce((n,f)=>n+f.into+f.hold,0), k=total>0?D/total:0;
+      if(k>=0.4&&k<=2.5) frames.forEach(f=>{ f.into=r2(f.into*k); f.hold=r2(f.hold*k); });
+      else frames.forEach((f,i)=>{ const part=D/frames.length; f.into=i===0?0:r2(part*0.6); f.hold=i===0?r2(part):r2(part*0.4); });
+      out[key]={name:text(row.name,60),sig:stateSig(sh.start,sh.end||sh.start),frames}; report.moments++; report.frames+=frames.length; });
+    return {frames:out,report};
+  }
+  // the written frames of a shot that still fit it (the shot's start and end are the ones they were written for)
+  const writtenFor=(saved,key,start,end)=>{ const m=obj(obj(saved)[key]); return arr(m.frames).length>=2&&m.sig===stateSig(start,end||start)?m:null; };
+
+  root.KinolotBeatFrames={CLIP,POSE_N,STEP_WORD,MAX_FRAMES,JOINT_RANGE,lensOf,fromPack,normalize,frames,states,timeline,at,shots,board,written,writtenFor,stateSig};
 })(typeof window!=="undefined"?window:globalThis);

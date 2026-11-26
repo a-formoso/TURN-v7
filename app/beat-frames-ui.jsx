@@ -10,7 +10,7 @@
    (shot-previs-ui.jsx beatStripRows; KinolotBeatFrames.board shares each shot's seconds out among them).
    Nothing here makes an image or a charge, and nothing is saved: the pictures are drawn in the page. */
 const BFB_E = React.createElement;
-function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen }){
+function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, readOnly=false }){
   const F = window.KinolotBeatFrames, K = window.KinolotBeatCard;
   const [look, setLook] = React.useState("");
   const [rows, setRows] = React.useState({});          // look → the beat's drawings
@@ -19,14 +19,23 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen }
   const [playing, setPlaying] = React.useState(false);
   const info = typeof window.beatStripInfo==="function" ? window.beatStripInfo(scene, shots, sceneShots, ctx) : null;
   const sig = info ? info.sig : "";
+  /* THE FRAMES WRITTEN OUT FOR THIS BEAT (stage 2: scenePlans[scene].frames, one entry a shot). A shot's written frames
+     are used while they still fit it (its start and its end are the ones they were written for: KinolotBeatFrames
+     writtenFor); a shot without them keeps how it starts, midway and how it ends. */
+  const SP = window.ScenePlan, saved = (info && info.plan && info.plan.frames) || null;
+  const writtenOf = sh=>{ if(!saved || !F || !SP) return null; const st = (info.staged||{})[sh.id] || {};
+    return F.writtenFor(saved, SP.shotCameraKey(sh), st.start||sh.startState, st.end||sh.endState||sh.startState); };
+  const wkey = (saved && info) ? (info.list.some(writtenOf) ? String(info.plan.framesAt||"")+"|"+info.list.map(sh=>writtenOf(sh)?"1":"0").join("") : "") : "";
+  const written = wkey ? { key:wkey, of:sh=>{ const m = writtenOf(sh); return m ? m.frames.map(f=>f.state) : null; } } : null;
+  const rowKey = lk=>sig+"|"+lk+"|"+wkey;
   React.useEffect(()=>{
     if(!sig || typeof window.beatStripRows!=="function") return undefined;
     let live = true; setErr("");
-    window.beatStripRows(info, ctx, look).then(r=>{ if(live) setRows(o=>({ ...o, [sig+"|"+look]:r||[] })); },
+    window.beatStripRows(info, ctx, look, written).then(r=>{ if(live) setRows(o=>({ ...o, [rowKey(look)]:r||[] })); },
       e=>{ if(live) setErr((e && e.message) || "This beat could not be drawn."); });
     return ()=>{ live = false; };
-  },[sig, look]);
-  const colour = rows[sig+"|"] || null, mine = rows[sig+"|"+look] || null;
+  },[sig, look, wkey]);
+  const colour = rows[rowKey("")] || null, mine = rows[rowKey(look)] || null;
   // the beat's shots as moments, each with the drawings it has (read from the colour drawings: every look has the same)
   const board = React.useMemo(()=>{
     if(!F || !K || !info || !colour) return null;
@@ -34,9 +43,10 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen }
       if(r.start) steps.push("start"); if(r.mid) steps.push("mid"); if(r.end) steps.push("end");
       const n = Number(String(K.number(sh)).split(".")[1]) || (i+1);
       const line = String(sh.dialogue||"").trim() || String(sh.action||"").trim() || String(sh.purpose||"").trim();
-      return { n, name:K.name(sh), seconds:typeof window.shotDur==="function" ? window.shotDur(sh) : (Number(sh.dur)||4), says:line,
-        cam:K.chips ? (K.chips(sh)||[]).slice(0,3).join(" · ") : "", shotId:sh.id, steps }; }));
-  },[sig, !!colour]);
+      const m = writtenOf(sh);
+      return { n, name:(m && m.name) || K.name(sh), seconds:typeof window.shotDur==="function" ? window.shotDur(sh) : (Number(sh.dur)||4), says:line,
+        cam:K.chips ? (K.chips(sh)||[]).slice(0,3).join(" · ") : "", shotId:sh.id, steps, ...(m && r.steps && r.steps.length===m.frames.length ? { written:m.frames } : {}) }; }));
+  },[sig, !!colour, wkey]);
   const frames = board ? board.frames : [];
   const i = Math.min(at, Math.max(0, frames.length-1)), f = frames[i] || null;
   // Play frames: each frame stays up for its own time (the time it takes to reach it and the time it rests)
@@ -48,7 +58,13 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen }
   },[playing, i, frames.length]);
   if(!F || !K) return null;
   const idx = f && info ? info.list.findIndex(sh=>sh.id===f.shotId) : -1;
-  const pick = (set)=>{ const r = set && idx>=0 ? set[idx] : null; return (r && f && r[f.step] && r[f.step].dataUrl) || ""; };
+  const pick = (set)=>{ const r = set && idx>=0 ? set[idx] : null; if(!r || !f) return "";
+    return f.written ? ((r.steps && r.steps[f.step] && r.steps[f.step].dataUrl) || "") : ((r[f.step] && r[f.step].dataUrl) || ""); };
+  const hasWritten = frames.some(x=>x.written);
+  const [writing, setWriting] = React.useState(false);
+  const canWrite = !readOnly && !!info && typeof window.turnWriteBeatFrames==="function";
+  const write = async ()=>{ if(writing || !canWrite) return; setWriting(true); setPlaying(false);
+    try{ await window.turnWriteBeatFrames(scene.id, L.n); setAt(0); }finally{ setWriting(false); } };
   const pic = pick(mine) || "", waiting = !!look && !pic && !!pick(colour);
   const shown = pic || pick(colour);
   const go = n=>{ setPlaying(false); setAt(Math.max(0, Math.min(frames.length-1, n))); };
@@ -82,13 +98,21 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen }
         moments.map(m=>BFB_E("span",{ key:m.n, className:"bfb-moment" },
           BFB_E("span",{ className:"bfb-moment-n", title:"Moment "+m.n+": "+m.name+", "+secs(m.seconds)+" s" }, m.n),
           frames.map((x,k)=>x.moment===m.n ? BFB_E("button",{ key:x.id, type:"button", className:"bfb-square"+(x.first?" key":""), "aria-pressed":k===i?"true":"false",
-            "aria-label":"Frame "+x.id+(x.first ? ", the starting frame of its shot" : ""), title:"Frame "+x.id+": "+x.stepWord.toLowerCase()+(x.first ? " (the shot’s starting frame)" : ""), onClick:()=>go(k) }) : null)))),
+            "aria-label":"Frame "+x.id+(x.first ? ", the starting frame of its shot" : ""), title:"Frame "+x.id+(x.stepWord ? ": "+x.stepWord.toLowerCase() : "")+(x.first ? " (the shot’s starting frame)" : ""), onClick:()=>go(k) }) : null)))),
       BFB_E("div",{ className:"bfb-acts" },
         BFB_E("button",{ type:"button", className:"sbc-btn", disabled:!frames.length || i<=0, "data-testid":"beat-frame-board-prev", onClick:()=>go(i-1) },"Previous"),
         BFB_E("button",{ type:"button", className:"sbc-btn primary", disabled:frames.length<2, "data-testid":"beat-frame-board-play", "aria-pressed":playing?"true":"false",
           title:"Show the frames one after another, each for its own time.", onClick:play }, playing ? "Stop" : "Play frames"),
         BFB_E("button",{ type:"button", className:"sbc-btn", disabled:!frames.length || i>=frames.length-1, "data-testid":"beat-frame-board-next", onClick:()=>go(i+1) },"Next"),
         f && onOpen && BFB_E("button",{ type:"button", className:"sbc-btn", "data-testid":"beat-frame-board-open", title:"Open this frame’s shot beside the beat.", onClick:()=>onOpen(f.shotId) },"Open shot "+f.beat+"."+f.moment),
-        board && f && BFB_E("span",{ className:"bfb-time", "data-testid":"beat-frame-board-time" }, secs(f.t0)+" / "+secs(board.seconds)+" s"))));
+        board && f && BFB_E("span",{ className:"bfb-time", "data-testid":"beat-frame-board-time" }, secs(f.t0)+" / "+secs(board.seconds)+" s")),
+      // stage 2: the beat's frames written out one by one (a writing pass; it asks first)
+      canWrite && BFB_E("div",{ className:"bfb-write" },
+        BFB_E("button",{ type:"button", className:"sbc-btn", disabled:writing, "data-testid":"beat-frame-board-write", onClick:write,
+          title:"One writing pass breaks each shot of this beat into its frames: the steps of the action, with each person’s place, pose and what is in their hands. It asks first. Writing credits." },
+          writing ? "Writing the frames…" : hasWritten ? "Write the frames again" : "Write this beat’s frames"),
+        BFB_E("span",{ className:"lsc-mono dim", "data-testid":"beat-frame-board-source" }, hasWritten
+          ? "These frames were written for this beat"+(info && info.plan && info.plan.framesBy && info.plan.framesBy.label ? " by "+info.plan.framesBy.label : "")+"."
+          : "For now each shot shows how it starts and how it ends. Write the frames to see the steps between."))));
 }
 Object.assign(window, { BeatFrameBoard });

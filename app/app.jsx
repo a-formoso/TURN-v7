@@ -7004,6 +7004,57 @@ function App(){
       if(alone) setPlanningScene(null);
     }
   };
+  /* A BEAT'S FRAMES, WRITTEN OUT (owner 2026-11-26, stage 2 of a beat broken down in code). One writing pass for one
+     beat (it asks first): each of its shots gets its frames, saved WITH THE PLAN at
+     scenePlans[sceneId].frames["beat.moment"] = {name, sig, frames:[{says, into, hold, state}]}. Never on the shots:
+     no specification, frame or approval changes, and no image is made. A plan written again in the meantime keeps
+     its own. → how many shots got their frames */
+  const writeBeatFrames = async (scene, beatN)=>{
+    const SP = window.ScenePlan;
+    const say = (m,t)=>{ if(typeof window.appToast==="function") window.appToast(m,t||"info"); };
+    if(!scene || !SP || typeof window.aiBeatFrames!=="function" || !canDesignShots()) return 0;
+    if(planningScene || scenePlanAskingRef.current || draftingSceneShots || sceneShotsAskingRef.current) return 0;
+    const plan = ((project && project.scenePlans)||{})[scene.id];
+    const no = String(scene.no||"").padStart(2,"0");
+    if(!plan){ say("Plan Scene "+no+" first: a beat\u2019s frames start from its plan."); return 0; }
+    const engine = (typeof window.writingModelInfo==="function" && window.writingModelInfo("scenePlan").label) || "";
+    const projectId = projIdRef.current;
+    const mine = shotsLiveRef.current.filter(sh=>sh && sh.sceneId===scene.id);
+    const has = Object.keys(plan.frames||{}).some(k=>String(k).split(".")[0]===String(beatN));
+    try{
+      scenePlanAskingRef.current = true;
+      let ok = false;
+      try{ ok = typeof window.appConfirm==="function" ? await window.appConfirm({ title:"Write the frames of beat "+beatN+" (writing credits)?",
+        body:"One writing pass"+(engine?" on "+engine:"")+" breaks each shot of this beat into its frames: the steps of the action inside the shot, each with where people are, the way they face, their pose, what is in their hands, and how long it lasts. The first frame of a shot is how it starts and the last how it ends, as the scene plan has them. No shot is changed and no image is made."
+          +(has ? " It replaces the frames this beat has now." : ""), confirmLabel:"Write the frames", cancelLabel:"Cancel" }) : false; }
+      finally{ scenePlanAskingRef.current = false; }
+      if(!ok) return 0;
+      setScenePlanFailed(null);
+      setPlanningScene({ id:scene.id, since:Date.now(), est:90, engine, text:"Writing the frames of Scene "+no+", beat "+beatN+"\u2026" });
+      const L = keyframeInputsRef.current || {};
+      const staged = typeof window.shotPrevisStaged==="function" ? window.shotPrevisStaged(mine) : {};
+      const res = await window.aiBeatFrames(scene, { project:lbProject("shots"), plan, beatN, shots:mine, staged,
+        characters:charactersRef.current||characters, locations:L.locations||locations });
+      if(projIdRef.current!==projectId || !canDesignShots()) throw new Error("The film changed while the frames were being written. Nothing was changed.");
+      const keys = Object.keys(res.frames||{});
+      setProject(p=>{ const cur = ((p && p.scenePlans)||{})[scene.id];
+        if(!cur || cur.at!==plan.at) return p;
+        // (the frames of this beat are replaced; the other beats keep theirs)
+        const kept = {}; Object.keys(cur.frames||{}).forEach(k=>{ if(String(k).split(".")[0]!==String(beatN)) kept[k] = cur.frames[k]; });
+        return { ...p, scenePlans:{ ...p.scenePlans, [scene.id]:{ ...cur, frames:{ ...kept, ...res.frames }, framesAt:new Date().toISOString(),
+          framesBy:{ id:(res.by&&res.by.modelId)||"", label:(res.by&&res.by.model)||"" } } } }; });
+      const n = keys.reduce((t,k)=>t+((res.frames[k].frames||[]).length),0), dropped = ((res.report||{}).dropped||[]).length;
+      say("Scene "+no+", beat "+beatN+": "+n+" frame"+(n!==1?"s":"")+" written for "+keys.length+" shot"+(keys.length!==1?"s":"")
+        +(dropped ? "; "+dropped+" thing"+(dropped!==1?"s":"")+" the answer got wrong "+(dropped!==1?"were":"was")+" left out" : "")+". Open the frame board to see them. No image was made.","success");
+      return keys.length;
+    }catch(e){
+      const msg = String((e && e.message) || "Writing the frames failed.");
+      setScenePlanFailed({ id:scene.id, text:/Nothing was (?:changed|replaced)/.test(msg) ? msg : msg.replace(/\s*$/,"")+" Nothing was changed." });
+      say(msg,"info");
+      return 0;
+    }finally{ setPlanningScene(null); }
+  };
+  window.turnWriteBeatFrames = (sceneId, beatN)=>{ const sc = (scenes||[]).find(x=>x && x.id===sceneId); return sc ? writeBeatFrames(sc, beatN) : Promise.resolve(0); };
   /* AN ANGLE FROM A LOCATION'S CAMERA TOOL, INTO A SHOT (owner 2026-11-24, the Previs look brief, step 5: "I press
      Use this angle in a shot. I pick where it goes ... That shot now holds my angle. Previs draws it from that
      camera"). The angle is written into the scene plan's camera list under the shot's own key, marked as set by

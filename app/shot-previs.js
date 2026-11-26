@@ -90,28 +90,49 @@
        facing, on the floor, and the chest faces up. */
     const F2=[f[0],f[1],0], UP=[0,0,1], lying=posture==="lying";
     const U=lying?F2:UP, F=lying?UP:F2, R=V.unit(V.cross(F,U));
+    /* A POSE IN TEN NUMBERS (owner 2026-11-26, a beat broken down in code: each frame poses its people). o.joints, in
+       radians, always in this order: lean (forward from the hips), twist (the shoulders, to their right), head down,
+       head turn (to their right), then for the right arm and for the left arm: forward (0 hangs down, 1.57 points
+       straight ahead, less than 0 goes behind), out (0 at the side, 1.57 straight out sideways), elbow (0 straight,
+       1.57 a right angle). The spine, the shoulders, the head and the arms follow them; the legs keep the posture.
+       Not for someone lying down. The numbers the camera's checks read (head, chest, height) stay the posture's. */
+    const cl=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+    const J=(!lying&&arr(obj(o).joints).length===10&&obj(o).joints.every(v=>Number.isFinite(Number(v))))?obj(o).joints.map(Number):null;
+    const lean=J?cl(J[0],-0.4,1.1):0, twist=J?cl(J[1],-1,1):0;
+    const S=J?V.unit(V.mix(U,Math.cos(lean),F,Math.sin(lean))):U, Fb=J?V.unit(V.mix(F,Math.cos(lean),U,-Math.sin(lean))):F;
+    const Ft=J?V.unit(V.mix(Fb,Math.cos(twist),R,Math.sin(twist))):F, Rt=J?V.unit(V.mix(R,Math.cos(twist),Fb,-Math.sin(twist))):R;
+    const dotv=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2], handsAt={};
     // where the hips are: so that the head is where the camera's checks have it
     const skull=0.715*s;   // from the hips up the spine to the middle of the head
     // (standing: feet on the floor; lying: the head over the mark, the body behind it)
     const hips=lying?[x-f[0]*skull,y-f[1]*skull,z+0.13*s]:posture==="standing"?[x,y,z+0.95*s]:[x,y,Math.max(z+0.2*s,head[2]-skull)];
-    const up=d=>V.add(hips,V.mul(U,d*s));
+    const up=d=>V.add(hips,V.mul(S,d*s));
     ball("pelvis",up(0.02),lying?[0.24*s,0.3*s,0.26*s]:[0.345*s,0.255*s,0.24*s]);
     rod("torso",up(0.06),up(0.5),0.15*s); objects[n()-1].size=r3(lying?[0.24*s,0.36*s,0.56*s]:[0.36*s,0.24*s,0.56*s]);
-    if(!lying) objects[n()-1].rotation=[0,0,rz];
+    if(!lying&&!(J&&Math.abs(lean)>0.03)) objects[n()-1].rotation=[0,0,rz-twist];
     rod("neck",up(0.5),up(0.6),0.052*s);
     const mid=up(0.715);
     ball("head",mid,[0.21*s,0.24*s,0.255*s]);
-    ball("nose",V.add(up(0.7),V.mul(F,0.125*s)),[0.056*s,0.056*s,0.056*s],dark);
+    // (the way the head looks: the chest's way, turned and tipped by the pose)
+    const hturn=J?cl(J[3],-1.3,1.3):0, hdown=J?cl(J[2],-0.6,0.9):0, Fh0=J?V.unit(V.mix(Ft,Math.cos(hturn),Rt,Math.sin(hturn))):F, Fh=J?V.unit(V.mix(Fh0,Math.cos(hdown),S,-Math.sin(hdown))):F;
+    ball("nose",V.add(up(0.7),V.mul(Fh,0.125*s)),[0.056*s,0.056*s,0.056*s],dark);
     // what they hold sits 22 cm in front of them at this height (stateScene, hands): the hands go to it
     const holds=Math.max(0,Math.min(2,Number(obj(o).holding)||0)), holdAt=i=>[x+f[0]*0.22+(holds>1?(i?0.09:-0.09):0)*f[1],y+f[1]*0.22-(holds>1?(i?0.09:-0.09):0)*f[0],chest[2]-h*0.16];
     [-1,1].forEach(side=>{
-      const tag=side<0?"l":"r", shoulder=V.add(up(0.47),V.mul(R,side*0.21*s));
+      const tag=side<0?"l":"r", shoulder=V.add(up(0.47),V.mul(Rt,side*0.21*s));
       // arms: down by the sides; on the lap when sitting; to what is held
       const bend=posture==="sitting"?0.3:0.05, elbow=V.add(shoulder,V.mul(V.unit(V.mix(U,-Math.cos(bend),F,Math.sin(bend),R,side*0.06)),0.3*s));
       let toHand=V.unit(V.mix(U,-Math.cos(posture==="sitting"?1.15:0.25),F,Math.sin(posture==="sitting"?1.15:0.25)));
       if(holds&&!lying){ const at=holdAt(holds>1?(side<0?0:1):0), d=V.add(at,V.mul(elbow,-1)); toHand=V.unit(d); }
-      const wrist=V.add(elbow,V.mul(toHand,0.27*s));
-      rod("arm-"+tag,shoulder,elbow,0.05*s); rod("forearm-"+tag,elbow,wrist,0.042*s);
+      let elbowAt=elbow;
+      if(J){ // the pose's own arm: the upper arm from its two angles, the forearm bent at the elbow toward the front
+        const a=cl(J[side>0?4:7],-1.2,3.1), b=cl(J[side>0?5:8],-0.3,1.8), e=cl(J[side>0?6:9],0,2.6);
+        const d=V.unit(V.mix(S,-Math.cos(a)*Math.cos(b),Ft,Math.sin(a)*Math.cos(b),Rt,side*Math.sin(b)));
+        let g=V.add(Ft,V.mul(d,-dotv(Ft,d))); if(Math.hypot(g[0],g[1],g[2])<0.05) g=V.add(S,V.mul(d,-dotv(S,d)));
+        elbowAt=V.add(shoulder,V.mul(d,0.3*s)); toHand=V.unit(V.mix(d,Math.cos(e),V.unit(g),Math.sin(e))); }
+      const wrist=V.add(elbowAt,V.mul(toHand,0.27*s));
+      rod("arm-"+tag,shoulder,elbowAt,0.05*s); rod("forearm-"+tag,elbowAt,wrist,0.042*s);
+      handsAt[tag]=r3(V.add(wrist,V.mul(toHand,0.05*s)));
       ball("hand-"+tag,V.add(wrist,V.mul(toHand,0.05*s)),[0.1*s,0.1*s,0.1*s]);
       // legs: straight when standing or lying; thighs forward and shins down when sitting; knees on the floor when kneeling
       const hip=V.add(hips,V.mul(R,side*0.1*s));
@@ -127,7 +148,7 @@
       add("shoe-"+tag,"box",shoe,lying?[0.1*s,0.08*s,0.26*s]:[0.1*s,0.26*s,0.08*s],[0,0,rz],dark);
     });
     const col=arr(rgb).length===3?rgb:colourOf(id);
-    return {height:h,turn:rz,front:f,head,chest,posture,objects,
+    return {height:h,turn:rz,front:f,head,chest,posture,objects,hands:handsAt,jointed:!!J,
       material:[mat,{baseColor:col,metallic:0,roughness:0.85,emissionStrength:0}],
       // the nose and the shoes: the same colour, darker (0.55), so the face reads which way it looks
       shade:[dark,{baseColor:col.map(v=>Math.round(v*0.55*1000)/1000),metallic:0,roughness:0.8,emissionStrength:0}]};
@@ -371,7 +392,9 @@
       // (a state may put someone between two marks: the middle picture of a walk across the room)
       const off=arr(p.xy).map(Number), xy=(off.length===2&&off.every(Number.isFinite))?off:markXY(plan,p.where);
       if(!xy){ missing.push((c.name||id)+" has no place on the floor plan"+(p.where?" ("+p.where+")":"")); return; }
-      here.push({id,name:c.name||id,xy,pose:p.pose,card:c,holding:arr(p.holding).slice()});
+      here.push({id,name:c.name||id,xy,pose:p.pose,card:c,holding:arr(p.holding).slice(),
+        // (a frame written out for a beat says which way they face, in degrees from north, and their pose in ten numbers)
+        face:(p.face!=null&&Number.isFinite(Number(p.face)))?Number(p.face):null,joints:arr(p.joints).length===10?arr(p.joints).map(Number):null});
     });
     /* A PERSON AT A DOOR THAT IS SHUT (2026-11-23, after moment 2 of Scene 5: the plan put Pike "on the threshold",
        "standing outside the shut door", and the floor plan has that mark 10 cm inside the door; he was drawn in the
@@ -408,11 +431,11 @@
       let to=null; said.forEach(v=>{ if(!to) to=faceTarget(v,me,here,set,plan,{block,cast:ctx.cast,lookAt:ctx.lookAt}); });
       if(!to){ const rest=here.filter(p=>p.id!==me.id); if(rest.length) to=[rest.reduce((s,p)=>s+p.xy[0],0)/rest.length,rest.reduce((s,p)=>s+p.xy[1],0)/rest.length]; }
       if(!to&&arr(ctx.lookAt).length===2) to=ctx.lookAt;
-      const turn=to?turnTo(me.xy,to):null;
+      const turn=me.face!=null?-me.face*Math.PI/180:(to?turnTo(me.xy,to):null);
       const col=colours[me.id]||null;
-      const sp=spaceAt(spaces,me.xy[0],me.xy[1]), fig=figure(me.id,me.name,me.xy,sp?sp.floorZ:0,heightOf(me.card),me.pose,turn==null?0:turn,col&&col.rgb,{holding:arr(me.holding).length});
+      const sp=spaceAt(spaces,me.xy[0],me.xy[1]), fig=figure(me.id,me.name,me.xy,sp?sp.floorZ:0,heightOf(me.card),me.pose,turn==null?0:turn,col&&col.rgb,{holding:arr(me.holding).length,joints:me.joints});
       fig.objects.forEach(o=>scene.objects.push(o)); scene.materials[fig.material[0]]=fig.material[1]; scene.materials[fig.shade[0]]=fig.shade[1];
-      people.push({id:me.id,name:me.name,xy:me.xy,head:fig.head,chest:fig.chest,height:fig.height,turn:fig.turn,front:fig.front,holding:me.holding,
+      people.push({id:me.id,name:me.name,xy:me.xy,head:fig.head,chest:fig.chest,height:fig.height,turn:fig.turn,front:fig.front,holding:me.holding,...(fig.jointed?{hands:fig.hands}:{}),
         pose:String(me.pose||""),colour:col?col.name:"",door:me.door||null});
     });
     const thingOf=key=>arr(obj(plan).things).find(t=>t&&String(t.key)===String(key))||{key};
@@ -435,7 +458,10 @@
       things.push({key,name,at:[pos[0],pos[1],pos[2]-size[2]/2],size,held:held||"",on:(on&&on.name)||"",onId:(on&&on.id)||"",hung:!!hang,
         measured:model?model.basis!=="guess":!!known,...(model?{form:model.form,shape:model.label,basis:model.basis}:{})}); };
     // what a person holds sits at their hands, in front of them; two things sit side by side
-    const hands=(p,i,n)=>{ const r=[p.front[1],-p.front[0]], s=n>1?(i?0.09:-0.09):0; return [p.xy[0]+p.front[0]*0.22+r[0]*s,p.xy[1]+p.front[1]*0.22+r[1]*s,p.chest[2]-p.height*0.16]; };
+    const hands=(p,i,n)=>{
+      // (posed in ten numbers: a thing is in the hand itself, the first in the right; one thing between two hands held close is in both)
+      if(p.hands&&p.hands.r&&p.hands.l){ const a=p.hands.r, b=p.hands.l, both=n===1&&Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2])<0.32, c=both?[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2]:(i?b:a); return [c[0],c[1],c[2]-0.03]; }
+      const r=[p.front[1],-p.front[0]], s=n>1?(i?0.09:-0.09):0; return [p.xy[0]+p.front[0]*0.22+r[0]*s,p.xy[1]+p.front[1]*0.22+r[1]*s,p.chest[2]-p.height*0.16]; };
     people.forEach(p=>p.holding.forEach((key,i)=>put(key,hands(p,i,p.holding.length),p.id,p.turn)));
     Object.keys(obj(st.things)).forEach(key=>{
       const v=st.things[key]; if(!v||typeof v!=="object") return;
@@ -909,6 +935,8 @@
     if(o.words){ const seen=await seenIn(first.scene,found.pose); out.start.words=frameWords(found.pose,seen); out.start.dressing=dressingWords(await inView(first.surfaces,found.pose,first.base));
       out.start.frame=measure(found.pose,first.people,first.things,first.surfaces); out.start.map=frameMap(out.start.frame,seen.far); }
     out.mid=o.midState?{dataUrl:await draw(stateScene(built.scene,plan,o.midState,ctx).scene)}:null;
+    // (a beat written out frame by frame, owner 2026-11-26: every frame's state through this same camera; o.steps = [state])
+    if(Array.isArray(o.steps)&&o.steps.length){ out.steps=[]; for(const st of o.steps) out.steps.push({dataUrl:await draw(stateScene(built.scene,plan,st,ctx).scene)}); }
     if(endState&&!sameState(startState,endState)){
       const last=stateScene(built.scene,plan,endState,ctx);
       unseen(last.people);
@@ -998,7 +1026,7 @@
         if(!loc) throw new Error("This shot has no location card yet.");
         const mid=midState(st.start,st.end,plan);
         const got=await pair(loc,o.list||[],plan,sh,{cam:typeof o.cameraOf==="function"?o.cameraOf(sh):null,cast:o.cast,props:o.props,width:o.width||640,
-          startState:st.start,endState:st.end,midState:mid,look:o.look});
+          startState:st.start,endState:st.end,midState:mid,look:o.look,steps:typeof o.stepsOf==="function"?o.stepsOf(sh,st):null});
         Object.assign(row,got);
         row.differs=st.differs.map(id=>((arr(o.cast).find(c=>c&&String(c.id)===String(id))||{}).name)||id);
       }catch(e){ row.error=String((e&&e.message)||"This shot could not be drawn."); }

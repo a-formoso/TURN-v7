@@ -367,14 +367,16 @@ function beatStripInfo(scene, shots, sceneShots, ctx){
   return { plan, list, staged, sig, endOwnerId };
 }
 const BEAT_STRIP_DRAWING = new Map();
-function beatStripRows(info, ctx, look){
+function beatStripRows(info, ctx, look, written){
   if(!info || !info.sig) return Promise.resolve(null);
   // (look = "clay" or "depth": the same beat drawn in that look, for the frame board; kept apart from the colour drawings)
   if(look) info = { ...info, sig:info.sig+"|look:"+look };
+  // (written = {key, of(shot, staged) → [states]}: the beat's frames written out one by one, each drawn through its shot's camera)
+  if(written && written.key) info = { ...info, sig:info.sig+"|frames:"+written.key };
   if(BEAT_STRIP_KEPT.has(info.sig)) return Promise.resolve(BEAT_STRIP_KEPT.get(info.sig));
   if(BEAT_STRIP_DRAWING.has(info.sig)) return BEAT_STRIP_DRAWING.get(info.sig);
   const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
-  const draw = ()=> window.ShotPrevis.beat(info.plan, info.list, { list:ctx.locations||[], cast, props, width:640, states:info.staged, ...(look ? { look } : {}),
+  const draw = ()=> window.ShotPrevis.beat(info.plan, info.list, { list:ctx.locations||[], cast, props, width:640, states:info.staged, ...(look ? { look } : {}), ...(written && written.key ? { stepsOf:written.of } : {}),
     locationOf:(sh)=>shotPrevisPlace(sh, info.plan, ctx), cameraOf:(sh)=>shotPrevisCamera(sh, info.plan) });
   const turn = shotPrevisLine.then(draw, draw);
   shotPrevisLine = turn.then(()=>{}, ()=>{});

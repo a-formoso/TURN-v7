@@ -2979,7 +2979,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
                         face:true, faceOpen:sh.id===openNow})))),
                   // "Frame board" (owner 2026-11-26): the beat frame by frame, one picture at a time, across the row
                   (boardByBeat[L.n] && window.BeatFrameBoard) && _el("div",{className:"sheet-card sbc-strip bfb-row","data-testid":"beat-row-board"},
-                    _el(window.BeatFrameBoard,{scene,L,bm,shots:L.shots,sceneShots:ordered,ctx,onView,
+                    _el(window.BeatFrameBoard,{scene,L,bm,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly,
                       onOpen:(id)=>setOpenByBeat(o=>({...o,[L.n]:id}))})),
                   // "Draw the beat": the whole beat staged once, every shot from start to end, across the row
                   (stripByBeat[L.n] && window.BeatStrip) && _el("div",{className:"sheet-card sbc-strip","data-testid":"beat-row-strip"},
