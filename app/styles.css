@@ -13041,6 +13041,7 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .bfb-stage{position:relative;aspect-ratio:16/9;border:1px solid var(--line-2);border-radius:var(--r-l);overflow:hidden;background:var(--bg-2)}
 .bfb-stage img{display:block;width:100%;height:100%;object-fit:cover;cursor:zoom-in;transition:opacity .2s}
 .bfb-stage img.wait{opacity:.6}
+.bfb-film{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 .bfb-none{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center;color:var(--txt-2);font-size:12px}
 .bfb-none b{font-size:13px;color:var(--txt-0)}
 .bfb-wait{left:auto;right:10px}
@@ -13064,3 +13065,9 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .bfb-time{margin-left:auto;font:400 11px/1 var(--f-mono);color:var(--txt-2);white-space:nowrap}
 @media (max-width:860px){ .bfb{grid-template-columns:minmax(0,1fr)} }
 @media (max-width:640px){ .bfb-acts .sbc-btn{min-height:44px} .bfb-square{width:30px;height:30px} }
+
+/* (owner 2026-11-26) the scene pager answers the press at once: the arrow gives under the finger, and the scene's
+   beats show a short "Opening the scene…" line while they are built */
+.scene-pager-arrow:active:not(:disabled){transform:scale(.92)}
+.scene-switching [data-testid="beat-row"],.scene-switching .beat-card-grid{opacity:.4;transition:opacity .08s}
+.shot-scene-opening{display:flex;align-items:center;gap:8px;padding:18px 4px;color:var(--txt-2);font:12.5px/1.4 var(--f-ui)}

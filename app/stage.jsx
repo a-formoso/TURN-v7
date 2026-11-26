@@ -3346,6 +3346,13 @@ function stageAssetRole(a, refs){
       +" Match its camera position, height and lens framing, the screen direction, where each person stands and which way they face, and the relative size of people and things."
       +" Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 from the other references and this text; never show the white set, the figures, the red shapes or the layout itself.";
   }
+  /* A SHOT'S BLOCKOUT FILM (2026-11-26): the shot played in clay from its first frame to its last. It marks movement. */
+  if(k.indexOf("previs-blockout:")===0){
+    return T+" is the blockout of "+(a.blockoutShot?"shot "+a.blockoutShot:"this shot")+": the whole shot played from start to end, drawn in code from the set\u2019s own 3D model through that shot\u2019s camera."
+      +" The set is plain white, each person is a jointed figure in one colour and each prop is a red shape of its true size: they only mark position and movement."
+      +" Match its timing, the camera\u2019s position and framing, where each person stands, turns and walks, what their arms and hands do, and when and where each thing is picked up, carried or set down."
+      +" Take every look \u2014 faces, wardrobe, the set\u2019s surfaces, the light \u2014 and every expression and lip movement from the other references and this text; never show the white set, the figures, the red shapes or the film itself.";
+  }
   if(k.indexOf("c:")===0) return T+" is "+(label.replace(/\s+reference$/i,"")||"the character")+"'s identity reference — keep their appearance exactly consistent; use it for identity only and do not copy its background, pose or lighting.";
   if(k==="loc") return T+" is the "+(label||"location plate")+" — keep its geography and lighting.";
   if(k.indexOf("scene-loc:")===0) return T+" is a scene location reference chosen by the director — preserve its geography, set dressing and lighting.";
@@ -3992,6 +3999,27 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
     })();
     return ()=>{ live = false; };
   },[layoutKey]);
+  /* BLOCKOUT FILMS (stage 4 of a beat broken down in code, owner 2026-11-26: "decide whether or not we should have the
+     previs/blockout video sent to the stage for precise control in video generation using Seedance 2.5"; decided
+     yes, in clay, for a shot in which something travels). A shot whose frames were written out brings its film:
+     every picture between its frames, drawn in clay through its own camera (shot-previs-ui.jsx shotBlockoutFilm),
+     made in the page when the clip opens. Seedance 2.5 only (it is the engine that takes video references this way). */
+  const [blockouts, setBlockouts] = React.useState({});
+  const blockoutKey = layoutKey+"#"+String((layoutPlan&&layoutPlan.framesAt)||"")+"#"+modelId;
+  React.useEffect(()=>{
+    let live = true;
+    if(typeof window.shotBlockoutFilm!=="function" || modelId!=="seedance-2.5" || !layoutPlan || !layoutPlan.frames || !layoutShots.length){ setBlockouts({}); return; }
+    const sceneAll = (((window.turnContinuity||{}).shots)||ctx.shots||[]).filter(x=>x && x.sceneId===scene.id);
+    (async()=>{
+      const got = {};
+      for(const sh of layoutShots){
+        try{ const B = await window.shotBlockoutFilm(sh, ctx, sceneAll); if(B && B.url) got[sh.id] = B; }catch(e){}
+        if(!live) return;
+      }
+      if(live) setBlockouts(got);
+    })();
+    return ()=>{ live = false; };
+  },[blockoutKey]);
   const layoutSig = Object.keys(layouts).map(id=>id+":"+((layouts[id]||{}).sig||"").length+":"+((layouts[id]||{}).url||"").length).join("|");
   const assets = React.useMemo(()=>{
     // model shape decides WHAT can ride: a Sora-class engine takes one start image
@@ -4054,6 +4082,15 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         layoutShot:(d.shots||[]).length>1?i+1:0, layoutLegend:L.legend||[], layoutCamera:L.camera||"", layoutLensMm:L.lensMm||0, layoutSource:L.source||"",
         requiredByShots:[sh.id], assetRole:"derived_reference", assetSourceQuality:"previs_clay_layout",
         ...(modelId!=="seedance-2.5"?{ sceneOnly:true }:{}) });
+    });
+    // BLOCKOUT FILMS (2026-11-26): one a shot whose frames were written out; on by default only when something travels in it
+    if(_mRefs && modelId==="seedance-2.5") (d.shots||[]).forEach((sh,i)=>{
+      const B=sh&&blockouts[sh.id]; if(!B||!B.url) return;
+      out.push({ key:"previs-blockout:"+sh.id, kind:"video", group:"Layouts",
+        label:"Blockout film"+((d.shots||[]).length>1?" \u00b7 shot "+(i+1):""), url:B.url, ready:true, seconds:B.seconds,
+        blockoutShot:(d.shots||[]).length>1?i+1:0, blockoutWhy:B.why||"",
+        requiredByShots:[sh.id], assetRole:"derived_reference", assetSourceQuality:"previs_clay_blockout",
+        ...(B.send ? {} : { sceneOnly:true }) });
     });
     // VIDEO ELEMENTS (2026-10-27): each on-screen character's video element (face motion and voice) — on by default on
     // Seedance 2.5; offered off on 2.0, whose video references are capped at 3 files and 15 s together
@@ -4852,7 +4889,7 @@ function ClipConsole({ clip, selectedShot, sceneClips, ctx, imgs, imageLoadState
         : a.key==="loc" || String(a.key).indexOf("scene-loc:")===0 ? "Locations"
         : String(a.key).indexOf("scene-shotframe:")===0 ? "Shot frames"
         : String(a.key).indexOf("blender-board:")===0 ? "Blender boards"
-        : String(a.key).indexOf("previs-layout:")===0 ? "Layouts"
+        : (String(a.key).indexOf("previs-layout:")===0 || String(a.key).indexOf("previs-blockout:")===0) ? "Layouts"
         : String(a.key).indexOf("crowd:")===0 ? "Crowds"
         : a.kind==="audio" ? "Voices" : "References");
       if(on(a)){

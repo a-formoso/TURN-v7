@@ -2647,6 +2647,31 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   const [openByBeat, setOpenByBeat] = React.useState({});
   const [stripByBeat, setStripByBeat] = React.useState({});   // the beats whose drawings are showing ("Draw the beat")
   const [boardByBeat, setBoardByBeat] = React.useState({});   // the beats whose frame board is showing ("Frame board")
+  /* THE PAGER ANSWERS IN THE NEXT PICTURE (owner 2026-11-26). Going to another scene rebuilds the whole tab, which
+     takes a moment during which nothing used to change. So the press itself writes the new scene's number and name
+     into the head and dims the beats that are about to go, the browser shows that, and only then is the scene
+     changed (the same words are what the new scene's own head then says). */
+  const pagerGo = (to, go)=>(e)=>{
+    const total = pager ? pager.total : 0;
+    if(!pager || !(to>=0 && to<total) || to===pager.idx){ return; }
+    try{ const card = e && e.currentTarget && e.currentTarget.closest(".shot-scene-card");
+      const lab = card && card.querySelector(".scene-pager-btn"), name = card && card.querySelector(".shot-scene-title");
+      if(lab && lab.firstChild && lab.firstChild.nodeType===3) lab.firstChild.nodeValue = "Scene "+(to+1)+" of "+total;
+      if(name && name.firstChild && name.firstChild.nodeType===3) name.firstChild.nodeValue = (pager.scenes[to] && pager.scenes[to].title) || "Untitled scene";
+      if(card && card.parentElement) card.parentElement.classList.add("scene-switching"); }catch(_){}
+    const run = ()=>go();
+    if(typeof requestAnimationFrame==="function") requestAnimationFrame(()=>setTimeout(run, 0)); else run();
+  };
+  // (the beats are built one picture after the scene's head: see "THE SCENE'S NAME COMES FIRST" below)
+  const [bodyOn, setBodyOn] = React.useState(typeof requestAnimationFrame!=="function");
+  React.useEffect(()=>{
+    try{ document.querySelectorAll(".scene-switching").forEach(x=>x.classList.remove("scene-switching")); }catch(_){}
+    if(bodyOn) return undefined;
+    let a = 0, b = 0; const on = ()=>setBodyOn(true);
+    a = requestAnimationFrame(()=>{ b = requestAnimationFrame(on); });
+    const t = setTimeout(on, 150);   // (a tab that is not in front draws no pictures: the beats still come)
+    return ()=>{ cancelAnimationFrame(a); cancelAnimationFrame(b); clearTimeout(t); };
+  },[]);
   const [addBeat, setAddBeat] = React.useState(null);
   React.useEffect(()=>{
     const h = ()=> setNeedsTick(t=>t+1);
@@ -2814,7 +2839,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
     // retired (every beat lane header has its own "Add shot").
     _el("div",{className:"shot-scene-card"},
     _el("div",{className:"shot-scene-head merged"},
-      pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx<=0,onClick:pager.onPrev,
+      pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx<=0,onClick:pagerGo(pager.idx-1, pager.onPrev),
         title:"Previous scene","aria-label":"Previous scene"},_el(Icon.chevL,{s:18})),
       _el("div",{className:"shot-scene-meta"},
         // a real button with its menu beside it; Escape closes it (2026-10-09 — a span that only a mouse could open)
@@ -2826,7 +2851,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
             onKeyDown:(e)=>{ if(e.key==="Escape"){ e.preventDefault(); setJumpOpen(false);
               try{ const b = e.currentTarget.parentNode.querySelector(".scene-pager-btn"); b && b.focus(); }catch(x){} } }},
             pager.scenes.map((sx,i)=>_el("button",{key:sx.id||i,type:"button",className:"scene-pager-menu-item"+(i===pager.idx?" on":""),"aria-current":i===pager.idx?"true":undefined,
-              onClick:()=>{ pager.onJump(i); setJumpOpen(false); }},
+              onClick:(e)=>{ setJumpOpen(false); pagerGo(i, ()=>pager.onJump(i))(e); }},
               _el("span",{className:"scene-pager-menu-no"},String(sx.no||(i+1)).padStart(2,"0")),
               _el("span",{className:"scene-pager-menu-t"},sx.title||"Untitled scene"),
               i===pager.idx && _el(Icon.check,{s:14}))))),
@@ -2840,7 +2865,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         !readOnly && _el("button",{className:"char-draft-btn ghost"+(draftingScene?" busy":""),disabled:!!draftingScene||!!renderBusy||!!planningScene,onClick:()=>onDraftScene(scene),
           title:"Re-draft this scene's opening keyframes from its screenplay (writing credits) \u2014 asks first, says what it replaces, and moves extra shots to Recently deleted; no images are deleted."},
           _el(Icon.layers,{s:12}), draftingScene?"Drafting\u2026":"Re-draft")),
-      pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx>=pager.total-1,onClick:pager.onNext,
+      pager && _el("button",{className:"scene-pager-arrow",disabled:pager.idx>=pager.total-1,onClick:pagerGo(pager.idx+1, pager.onNext),
         title:"Next scene","aria-label":"Next scene"},_el(Icon.chevR,{s:18}))),
     /* THE SLATE (owner 2026-10-23, option A — as the other Art Room tabs): Look · Location · Shots · To do. The
        scene chain's health (review finding #5) in one "To do" cell, each count's reason on hover. */
@@ -2932,7 +2957,12 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
     // to the legacy full-card lanes). The chain runner still needs the ACTIVE shot's
     // ShotCard MOUNTED — it fires and confirms each generation — so during a queue
     // that one card mounts off-screen (display:none) alongside the grid.
-    open && (()=>{
+    /* THE SCENE'S NAME COMES FIRST, ITS BEATS A MOMENT LATER (owner 2026-11-26: "the next scene button ... is not very
+       responsive ... a little delay. It makes the user feel like the button's not working"). A scene's beats and shot
+       cards are heavy to build, and they were built before anything on the page changed. Now the scene's own head (its
+       number, its name, its slate) is on the page in the very next picture, and the beats follow right after it. */
+    open && !bodyOn && _el("div",{className:"shot-scene-opening",role:"status","data-testid":"shot-scene-opening"},_el("span",{className:"ns-spin"}),"Opening the scene\u2026"),
+    open && bodyOn && (()=>{
       const _kf=(id)=> (typeof nbGetImage==="function") ? !!nbGetImage(id) : false;
       const _sceneRendered = ordered.some(sh=>_kf(sh.id));
       const _nextShotId = (ordered.find(sh=>!_kf(sh.id))||{}).id || null;

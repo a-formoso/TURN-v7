@@ -52,7 +52,7 @@ test("3 one layout a shot, in shot order, beside the frames and the other refere
   // after the shot frames and the boards, before characters, props and locations: beside the frames
   assert.ok(stage.indexOf('out.push({ key:i===0?"frame":("shotframe:"+sh.id), kind:"image",')<at&&at<stage.indexOf("// Active character/location/prop rows come exclusively from the authoritative"));
   assert.ok(stage.includes("}, [clip.id, activeShot.id, veTick, layoutSig,"),"the references are rebuilt when the layouts arrive");
-  assert.ok(stage.includes(': String(a.key).indexOf("previs-layout:")===0 ? "Layouts"'),"their own group in the references");
+  assert.ok(stage.includes(': (String(a.key).indexOf("previs-layout:")===0 || String(a.key).indexOf("previs-blockout:")===0) ? "Layouts"'),"their own group in the references (with the blockout films since 2026-11-26)");
   // the limits that were there are the limits that are there: a layout counts as one image like any other
   assert.ok(stage.includes('const imageLimit = modelId==="seedance-2.5" ? 30 : 9;')&&stage.includes("No references were omitted."));
 });
@@ -73,7 +73,7 @@ test("4 what the video engine is told a layout is", ()=>{
 
 test("5 nothing about prices: no pricing or server file is part of this step; keys and Frances", ()=>{
   for(const f of ["app/stage.jsx","app/stage-director-brief.js","app/shot-previs-ui.jsx","app/ai.jsx"])
-    assert.ok(["20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const at=stage.indexOf("/* PREVIS LAYOUTS (owner 2026-11-24"), near=stage.slice(stage.indexOf("const [layouts, setLayouts]"),stage.indexOf("// VIDEO ELEMENTS (2026-10-27)",at));
   assert.ok(!/creditsPerSecond|usdPerSecond|turnCreditCost|stageHold|holdCredits/.test(near.slice(0,1800)),"the layouts touch no price");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Stage: each shot\'s layout on a clip"')).join("\n"))(g.APP_FEATURES);

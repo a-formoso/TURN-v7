@@ -578,4 +578,52 @@ function shotLookSwatches(url, width){
 // (the mark lasts ten minutes: a run the person then cancels must not turn a later, ordinary Generate into this one)
 function shotPrevisAskNext(id){ window.__shotPrevisNext = window.__shotPrevisNext || {}; window.__shotPrevisNext[id] = Date.now(); }
 function shotPrevisTakeNext(id){ const m = window.__shotPrevisNext, at = m && m[id]; if(!at) return false; delete m[id]; return Date.now()-at < 600000; }
-Object.assign(window, { useShotDrawing, beatStripInfo, beatStripRows, shotPrevisBusy, SHOT_PREVIS_LOOKS, ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisLayout, shotPrevisAskNext, shotPrevisTakeNext });
+/* A SHOT'S BLOCKOUT FILM (stage 4 of a beat broken down in code, owner 2026-11-26). A shot whose frames were written
+   out is played from its first frame to its last: every picture between them is drawn IN CLAY through the shot's own
+   camera (640 x 360, twelve a second) and written into one video file the Stage can give the video engine as a
+   reference for the movement. Clay, not Colour: a video engine copies what it is shown.
+   → {url (a data URL of a plain MP4), seconds, fps, pictures, drawn (how many different pictures), send, why, sig}
+     or null when the shot has no written frames. Throws a plain sentence when this browser cannot make a film.
+   Nothing is saved and nothing is charged: the film lives in the page. */
+const SHOT_BLOCKOUT_KEPT = new Map(), SHOT_BLOCKOUT_MAKING = new Map();
+async function shotBlockoutFilm(sh, ctx, sceneShots, o){
+  const SP = window.ScenePlan, SPv = window.ShotPrevis, F = window.KinolotBeatFrames, B = window.KinolotBlockoutFilm;
+  if(!sh || !sh.planned || !sh.startState || !SP || !SPv || !F || !B || !window.KinolotPrevis) return null;
+  const plan = ((((ctx||{}).project||{}).scenePlans)||{})[sh.sceneId] || null;
+  if(!plan || !SP.exact(plan) || !plan.frames) return null;
+  const loc = shotPrevisPlace(sh, plan, ctx);
+  if(!loc) return null;
+  const cam = shotPrevisCamera(sh, plan);
+  const st = shotPrevisStaged(sceneShots||[sh], plan)[sh.id] || null, own = (st && st.plain) || st || {};
+  const m = F.writtenFor(plan.frames, SP.shotCameraKey(sh), own.start||sh.startState, own.end||sh.endState||sh.startState);
+  if(!m) return null;
+  const fps = 12, width = 640, height = 360;
+  const markXY = id=>{ try{ return SPv.markXY(plan, id); }catch(e){ return null; } };
+  const send = F.travels(m.frames, markXY);
+  let sig = "";
+  try{ sig = shotPrevisSig(sh, plan, cam, loc, ctx)+"|film|"+String(plan.framesAt||"")+"|"+m.sig+"|"+JSON.stringify(m.frames.map(f=>[f.into,f.hold])); }catch(e){ sig = ""; }
+  if(sig && SHOT_BLOCKOUT_KEPT.has(sig)) return SHOT_BLOCKOUT_KEPT.get(sig);
+  if(sig && SHOT_BLOCKOUT_MAKING.has(sig)) return SHOT_BLOCKOUT_MAKING.get(sig);
+  const film = F.filmStates(m.frames, fps, markXY);
+  if(!film.states.length) return null;
+  const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
+  const run = async ()=>{
+    const res = await SPv.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width, look:"clay", startState:m.frames[0].state, endState:null, steps:film.states });
+    if(!res || !Array.isArray(res.steps) || res.steps.length!==film.states.length) throw new Error("The film\u2019s pictures could not be drawn.");
+    // each drawing as a picture the encoder takes, at the film's own size
+    const pics = [];
+    for(const s of res.steps){ const img = new Image(); img.src = s.dataUrl; await img.decode();
+      const c = document.createElement("canvas"); c.width = width; c.height = height; c.getContext("2d").drawImage(img, 0, 0, width, height); pics.push(c); }
+    if(typeof o==="object" && o && typeof o.onStep==="function"){ try{ o.onStep("Writing the film\u2026"); }catch(e){} }
+    const bytes = await window.KinolotBlockoutFilm.encode(film.index.map(i=>pics[i]), { width, height, fps });
+    return { url:B.dataUrl(bytes), seconds:film.seconds, fps, pictures:film.index.length, drawn:film.states.length, send:send.send, why:send.why, bytes:bytes.length, sig };
+  };
+  const turn = shotPrevisLine.then(run, run);
+  shotPrevisLine = turn.then(()=>{}, ()=>{});
+  const kept = turn.then(out=>{ SHOT_BLOCKOUT_MAKING.delete(sig);
+    if(sig && out){ SHOT_BLOCKOUT_KEPT.set(sig, out); if(SHOT_BLOCKOUT_KEPT.size>12) SHOT_BLOCKOUT_KEPT.delete(SHOT_BLOCKOUT_KEPT.keys().next().value); }
+    return out; }, e=>{ SHOT_BLOCKOUT_MAKING.delete(sig); throw e; });
+  if(sig) SHOT_BLOCKOUT_MAKING.set(sig, kept);
+  return kept;
+}
+Object.assign(window, { shotBlockoutFilm, useShotDrawing, beatStripInfo, beatStripRows, shotPrevisBusy, SHOT_PREVIS_LOOKS, ShotPrevisFold, BeatStrip, shotLookSwatches, SHOT_SWATCH_ORDER, beatStripShots, shotPrevisStaged, shotPrevisMaker, shotPrevisMakeBeat, shotPrevisPlace, shotPrevisCamera, shotPrevisSig, shotPrevisForFrame, shotPrevisLayout, shotPrevisAskNext, shotPrevisTakeNext });

@@ -246,5 +246,49 @@
   // the written frames of a shot that still fit it (the shot's start and end are the ones they were written for)
   const writtenFor=(saved,key,start,end)=>{ const m=obj(obj(saved)[key]); return arr(m.frames).length>=2&&m.sig===stateSig(start,end||start)?m:null; };
 
-  root.KinolotBeatFrames={CLIP,POSE_N,STEP_WORD,MAX_FRAMES,JOINT_RANGE,lensOf,fromPack,normalize,frames,states,timeline,at,shots,board,written,writtenFor,stateSig};
+  /* THE BLOCKOUT FILM OF A SHOT (stage 4, owner 2026-11-26): every picture between its written frames.
+     between(a, b, k, markXY)   the state k of the way (0 to 1) from frame a to frame b: a person's place (a mark is
+                                read with markXY(id) → [x, y]), the way they face and each of the ten numbers of
+                                their pose move smoothly; what they hold, the things and the doors are frame b's from
+                                the first instant of the move (a hand that set a thing down leaves it there; a hand
+                                that took one carries it)
+     filmStates(frames, fps, markXY)   the film at fps pictures a second → {states:[the different states, in order of
+                                first use], index:[for each picture of the film, which state], seconds, fps}: a frame
+                                that rests is drawn once however long it rests
+     travels(frames, markXY)    is the film worth giving to the video engine: {send, why}. Yes when someone walks half
+                                a metre or more, or a thing or a door changes; a shot of talk in place starts from
+                                its frame and its words (the film's seconds are charged with the clip's). */
+  function between(a,b,k,markXY){
+    const A=obj(a), B=obj(b), t=clamp(num(k,1),0,1);
+    const at=p=>{ const q=obj(p), v=arr(q.xy).map(Number); if(v.length===2&&v.every(Number.isFinite)) return v;
+      const m=typeof markXY==="function"&&q.where?arr(markXY(q.where)).map(Number):[]; return m.length===2&&m.every(Number.isFinite)?m:null; };
+    const people={}; Object.keys(obj(B.people)).forEach(id=>{ const p1=obj(B.people[id]), p0=obj(obj(A.people)[id]), x0=at(p0), x1=at(p1), out=copy(p1);
+      if(x0&&x1&&Math.hypot(x1[0]-x0[0],x1[1]-x0[1])>0.01&&t<1) out.xy=[r3(x0[0]+(x1[0]-x0[0])*t),r3(x0[1]+(x1[1]-x0[1])*t)];
+      if(p0.face!=null&&p1.face!=null&&Number.isFinite(Number(p0.face))&&Number.isFinite(Number(p1.face))) out.face=deg(Number(p0.face)+turn(Number(p1.face)-Number(p0.face))*t);
+      const j0=arr(p0.joints), j1=arr(p1.joints); if(j0.length===POSE_N&&j1.length===POSE_N) out.joints=j1.map((v,i)=>r3(Number(j0[i])+(Number(v)-Number(j0[i]))*t));
+      people[id]=out; });
+    return {people,things:copy(obj(B.things)),doors:copy(arr(B.doors))};
+  }
+  function filmStates(frames,fps,markXY){
+    const list=arr(frames).filter(f=>f&&f.state), rate=clamp(Math.round(num(fps,12)),6,30); if(!list.length) return {states:[],index:[],seconds:0,fps:rate};
+    const tl=[]; let t=0; list.forEach((f,i)=>{ const into=i===0?0:Math.max(0,num(f.into,0)), hold=Math.max(0,num(f.hold,0)); tl.push({t0:t,into,t2:t+into+hold}); t+=into+hold; });
+    const n=Math.max(1,Math.round(t*rate)), states=[], index=[], seen=new Map();
+    for(let s=0;s<n;s++){ const time=(s+0.5)/rate; let j=tl.findIndex(x=>time<x.t2); if(j<0) j=tl.length-1;
+      const raw=tl[j].into>0?clamp((time-tl[j].t0)/tl[j].into,0,1):1, k=r3(raw*raw*(3-2*raw)), rest=j===0||k>=1, key=rest?"f"+j:"m"+j+":"+k;
+      if(!seen.has(key)){ seen.set(key,states.length); states.push(rest?list[j].state:between(list[j-1].state,list[j].state,k,markXY)); }
+      index.push(seen.get(key)); }
+    return {states,index,seconds:r2(n/rate),fps:rate};
+  }
+  function travels(frames,markXY){
+    const list=arr(frames).filter(f=>f&&f.state); if(list.length<2) return {send:false,why:"This shot has no written frames yet."};
+    const at=p=>{ const q=obj(p), v=arr(q.xy).map(Number); if(v.length===2&&v.every(Number.isFinite)) return v; const m=typeof markXY==="function"&&q.where?arr(markXY(q.where)).map(Number):[]; return m.length===2&&m.every(Number.isFinite)?m:null; };
+    let walk=0; Object.keys(obj(list[0].state.people)).forEach(id=>{ let d=0, p=at(list[0].state.people[id]); list.slice(1).forEach(f=>{ const q=at(obj(f.state.people)[id]); if(p&&q) d+=Math.hypot(q[0]-p[0],q[1]-p[1]); if(q) p=q; }); walk=Math.max(walk,d); });
+    const place=t=>{ const o=obj(t); return [o.heldBy||"",o.at||"",o.on||"",o.worn||""].join("|"); };
+    const moved=Object.keys(obj(list[0].state.things)).filter(k=>list.slice(1).some(f=>place(obj(f.state.things)[k])!==place(list[0].state.things[k])));
+    const doorOf=st=>arr(st.doors).map(d=>String(obj(d).id)+":"+(obj(d).open?1:0)).sort().join(","), doors=list.slice(1).some(f=>doorOf(f.state)!==doorOf(list[0].state));
+    const why=[]; if(walk>=0.5) why.push("someone walks "+r1(walk)+" m"); if(moved.length) why.push(moved.length===1?"one thing changes place":moved.length+" things change place"); if(doors) why.push("a door opens or shuts");
+    return {send:why.length>0,why:why.length?"In this shot "+why.join(", ")+".":"Nobody leaves their place and nothing changes hands: the starting frame and the words are enough.",walk:r2(walk),moved};
+  }
+
+  root.KinolotBeatFrames={CLIP,POSE_N,STEP_WORD,MAX_FRAMES,JOINT_RANGE,lensOf,fromPack,normalize,frames,states,timeline,at,shots,board,written,writtenFor,stateSig,between,filmStates,travels};
 })(typeof window!=="undefined"?window:globalThis);

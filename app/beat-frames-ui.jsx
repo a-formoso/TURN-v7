@@ -63,6 +63,17 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
     return f.written ? ((r.steps && r.steps[f.step] && r.steps[f.step].dataUrl) || "") : ((r[f.step] && r[f.step].dataUrl) || ""); };
   const hasWritten = frames.some(x=>x.written);
   const [writing, setWriting] = React.useState(false);
+  /* THE BLOCKOUT FILM of the shot the shown frame belongs to (stage 4): every picture between its frames, in clay,
+     twelve a second. Made in the page when asked for; it is also what the Stage is given for that shot. */
+  const [film, setFilm] = React.useState(null);        // {shotId, busy, url, seconds, send, why, err}
+  const makeFilm = async ()=>{ if(!f || !f.written || typeof window.shotBlockoutFilm!=="function" || (film && film.busy)) return;
+    const sh = info.list.find(x=>x.id===f.shotId); if(!sh) return;
+    setPlaying(false); setFilm({ shotId:sh.id, busy:true });
+    try{ const got = await window.shotBlockoutFilm(sh, ctx, sceneShots);
+      setFilm(got ? { shotId:sh.id, url:got.url, seconds:got.seconds, send:got.send, why:got.why } : { shotId:sh.id, err:"This shot has no written frames." }); }
+    catch(e){ setFilm({ shotId:sh.id, err:(e && e.message) || "The film could not be made." }); }
+  };
+  const filmNow = film && f && film.shotId===f.shotId ? film : null;
   const canWrite = !readOnly && !!info && typeof window.turnWriteBeatFrames==="function";
   const write = async ()=>{ if(writing || !canWrite) return; setWriting(true); setPlaying(false);
     try{ await window.turnWriteBeatFrames(scene.id, L.n); setAt(0); }finally{ setWriting(false); } };
@@ -75,7 +86,9 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
   const secs = v=>(Math.round(v*10)/10).toFixed(1);
   return BFB_E("div",{ className:"bfb", "data-testid":"beat-frame-board", "data-beat":L.n },
     BFB_E("div",{ className:"bfb-stage" },
-      shown ? BFB_E("img",{ src:shown, alt:f ? "Frame "+f.id+", drawn in code" : "", role:"button", tabIndex:0, title:"View larger", className:waiting ? "wait" : undefined,
+      (filmNow && filmNow.url) ? BFB_E("video",{ src:filmNow.url, controls:true, loop:true, autoPlay:true, muted:true, playsInline:true, className:"bfb-film", "data-testid":"beat-frame-board-video",
+          "aria-label":"The blockout film of shot "+(f ? f.beat+"."+f.moment : "") })
+      : shown ? BFB_E("img",{ src:shown, alt:f ? "Frame "+f.id+", drawn in code" : "", role:"button", tabIndex:0, title:"View larger", className:waiting ? "wait" : undefined,
           onClick:()=>onView && onView(shown,{ name:"Frame "+(f ? f.id : "") }),
           onKeyDown:e=>{ if(e.key==="Enter" || e.key===" "){ e.preventDefault(); onView && onView(shown,{ name:"Frame "+(f ? f.id : "") }); } } })
         : BFB_E("div",{ className:"bfb-none", "data-testid":"beat-frame-board-none" },
@@ -107,6 +120,16 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
         BFB_E("button",{ type:"button", className:"sbc-btn", disabled:!frames.length || i>=frames.length-1, "data-testid":"beat-frame-board-next", onClick:()=>go(i+1) },"Next"),
         f && onOpen && BFB_E("button",{ type:"button", className:"sbc-btn", "data-testid":"beat-frame-board-open", title:"Open this frame’s shot beside the beat.", onClick:()=>onOpen(f.shotId) },"Open shot "+f.beat+"."+f.moment),
         board && f && BFB_E("span",{ className:"bfb-time", "data-testid":"beat-frame-board-time" }, secs(f.t0)+" / "+secs(board.seconds)+" s")),
+      // stage 4: the shot's blockout film, made from its written frames
+      f && f.written && typeof window.shotBlockoutFilm==="function" && BFB_E("div",{ className:"bfb-write" },
+        BFB_E("button",{ type:"button", className:"sbc-btn", disabled:!!(filmNow && filmNow.busy), "data-testid":"beat-frame-board-film",
+          title:"Play shot "+f.beat+"."+f.moment+" from its first frame to its last: every picture between its frames, drawn in clay, twelve a second. Made in this page; nothing is saved.",
+          onClick:()=>{ if(filmNow && filmNow.url) setFilm(null); else makeFilm(); } },
+          filmNow && filmNow.busy ? "Making the film\u2026" : filmNow && filmNow.url ? "Back to the frames" : "Blockout film of shot "+f.beat+"."+f.moment),
+        filmNow && filmNow.err && BFB_E("span",{ className:"loc-spatial-error", role:"alert" }, filmNow.err),
+        filmNow && filmNow.url && BFB_E("span",{ className:"lsc-mono dim", "data-testid":"beat-frame-board-film-note" },
+          (Math.round(filmNow.seconds*10)/10)+" s. "+(filmNow.send ? "The Stage gives this film to the video engine for this shot: "+filmNow.why.charAt(0).toLowerCase()+filmNow.why.slice(1)
+            : "The Stage offers this film for this shot but leaves it out: "+filmNow.why.charAt(0).toLowerCase()+filmNow.why.slice(1)))),
       // stage 2: the beat's frames written out one by one (a writing pass; it asks first)
       canWrite && BFB_E("div",{ className:"bfb-write" },
         BFB_E("button",{ type:"button", className:"sbc-btn", disabled:writing, "data-testid":"beat-frame-board-write", onClick:write,
