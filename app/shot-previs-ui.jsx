@@ -151,7 +151,7 @@ function ShotPrevisFold({ sh, ctx, onView, beatLabel, onMake, makeDisabled, scen
   return SPV_E(CardFold,{label:"Previs",count:!ready ? "needs a floor plan" : (cam && cam.hand) ? "your angle" : cam ? "camera placed" : "camera by the app",defaultOpen:false,foldId:"shot-previs-"+sh.id},
     SPV_E("div",{className:"shot-previs-head"},SPV_E("span",{className:"shot-end-lab"},"This shot, drawn in code"),tip),
     ready
-      ? (()=>{ const st = shotPrevisStaged(sceneShots||[sh])[sh.id] || null;
+      ? (()=>{ const st = shotPrevisStaged(sceneShots||[sh], plan)[sh.id] || null;
           return SPV_E(ShotPrevisBody,{sh,plan,cam,loc,ctx,sig:shotPrevisSig(sh,plan,cam,loc,ctx)+JSON.stringify(st),onView,beatLabel,onMake,makeDisabled,staged:st}); })()
       : SPV_E("p",{className:"shot-previs-note","data-testid":"shot-previs-none"},
           (loc ? (loc.name||"This place")+" has no floor plan yet." : "This shot has no location card yet.")+" Draw its floor plan in Locations, and this shot can be drawn from its set."));
@@ -168,12 +168,22 @@ const BEAT_STRIP_KEPT = new Map();
    over the whole scene, so a beat's first shot also starts where the beat before it ended, unless time has passed).
    The strip, a card's Previs, the frame made from it, its check and its end frame all read THIS, so they are one
    picture. → {shot id: {start, end, joins, cut, differs}} */
-function shotPrevisStaged(sceneShots){
-  const SP = window.ScenePlan, SPv = window.ShotPrevis;
+/* A SHOT STARTS AS ITS MOMENT'S FIRST FRAME (stage 3 of a beat broken down in code, owner 2026-11-26: "let's use the
+   first frame of each moment as our shot keyframe or starting frame"). With the plan given, a shot whose frames were
+   written out (plan.frames, while they still fit it) starts as its first written frame and ends as its last: the
+   same people on the same marks holding the same things, now in the pose and facing the way the frame gives. So the
+   shot's Previs, the frame made from it, its check, its end frame and the layout the Stage gives the video engine
+   all show the posed figures. `plain` keeps the plan's own start and end (what the frames were written for). */
+function shotPrevisStaged(sceneShots, plan){
+  const SP = window.ScenePlan, SPv = window.ShotPrevis, F = window.KinolotBeatFrames;
   if(!SP || !SPv || typeof SPv.beatStates!=="function") return {};
   const list = (sceneShots||[]).filter(sh=>sh && sh.planned && sh.startState && SP.isKeyShot(sh))
     .slice().sort((a,b)=>(Number(a.beatN)-Number(b.beatN)) || (SP.momentOf(a)-SP.momentOf(b)));
   const out = {}; SPv.beatStates(list).forEach(st=>{ out[st.id] = st; });
+  const saved = plan && plan.frames;
+  if(saved && F && typeof F.writtenFor==="function") list.forEach(sh=>{ const st = out[sh.id]; if(!st) return;
+    const m = F.writtenFor(saved, SP.shotCameraKey(sh), st.start||sh.startState, st.end||sh.endState||sh.startState); if(!m) return;
+    out[sh.id] = { ...st, start:m.frames[0].state, end:m.frames[m.frames.length-1].state, plain:{ start:st.start, end:st.end }, written:m.frames.length }; });
   return out;
 }
 // a frame is made by its own card: each card leaves its "make from the previs" here, and the strip presses it
@@ -359,7 +369,7 @@ function beatStripInfo(scene, shots, sceneShots, ctx){
   if(!plan || !SP.exact(plan)) return null;
   const list = beatStripShots(shots);
   if(!list.length) return null;
-  const staged = shotPrevisStaged(sceneShots||shots);
+  const staged = shotPrevisStaged(sceneShots||shots, plan);
   let sig = "";
   try{ sig = JSON.stringify(list.map(sh=>{ const loc = shotPrevisPlace(sh, plan, ctx); return [loc ? shotPrevisSig(sh, plan, shotPrevisCamera(sh, plan), loc, ctx) : sh.id, staged[sh.id]||null]; })); }catch(e){ sig = ""; }
   const last = list[list.length-1];
@@ -399,7 +409,7 @@ function useShotDrawing(sh, ctx, sceneShots, look, on){
   let ready = false;
   if(able){ try{ ready = !!(loc && typeof window.locationSpatialContract==="function"
     && ((((window.locationSpatialContract(loc, ctx.locations)||{}).coordinates||{}).spaces)||[]).some(s=>s && Array.isArray(s.footprint) && s.footprint.length>=3)); }catch(e){ ready = false; } }
-  const staged = (able && ready) ? (shotPrevisStaged(sceneShots||[sh])[sh.id] || null) : null;
+  const staged = (able && ready) ? (shotPrevisStaged(sceneShots||[sh], plan)[sh.id] || null) : null;
   let sig = "";
   if(able && ready && on!==false){ try{ sig = shotPrevisSig(sh, plan, cam, loc, ctx)+JSON.stringify(staged)+(look ? "|look:"+look : ""); }catch(e){ sig = ""; } }
   const [state, setState] = React.useState(()=> (sig && SHOT_PREVIS_KEPT.has(sig)) ? { res:SHOT_PREVIS_KEPT.get(sig) } : { busy:!!sig });
@@ -434,7 +444,7 @@ function BeatStrip({ scene, beatN, shots, sceneShots, ctx, onView, readOnly, bar
   if(!plan || !SP.exact(plan)) return null;
   const list = beatStripShots(shots);
   if(!list.length) return null;
-  const staged = open ? shotPrevisStaged(sceneShots||shots) : {};
+  const staged = open ? shotPrevisStaged(sceneShots||shots, plan) : {};
   const sig = open ? JSON.stringify(list.map(sh=>{ const loc = shotPrevisPlace(sh, plan, ctx); return [loc ? shotPrevisSig(sh, plan, shotPrevisCamera(sh, plan), loc, ctx) : sh.id, staged[sh.id]||null]; })) : "";
   // the beat's end frame sits on its last planned shot (shots.jsx shotEndFrameWanted)
   const last = list[list.length-1];
@@ -469,7 +479,7 @@ async function shotPrevisForFrame(sh, ctx, which, pose, width, sceneShots){
   const cam = shotPrevisCamera(sh, plan);
   const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
   // the room as the WHOLE SCENE staged once has it for this shot: the strip's own panel
-  const st = shotPrevisStaged(sceneShots||[sh])[sh.id] || null;
+  const st = shotPrevisStaged(sceneShots||[sh], plan)[sh.id] || null;
   const run = ()=> SPv.pair(loc, ctx.locations||[], plan, sh, { cam, cast, props, width:width||1536, words:true, ...(pose ? { pose } : {}),
     ...(st ? { startState:st.start, endState:st.end } : {}) });
   const turn = shotPrevisLine.then(run, run);
@@ -509,7 +519,7 @@ async function shotPrevisLayout(sh, ctx, sceneShots, width){
   const loc = shotPrevisPlace(sh, plan, ctx);
   if(!loc) return null;
   const cam = shotPrevisCamera(sh, plan);
-  const st = shotPrevisStaged(sceneShots||[sh])[sh.id] || null;
+  const st = shotPrevisStaged(sceneShots||[sh], plan)[sh.id] || null;
   let sig = "";
   try{ sig = shotPrevisSig(sh, plan, cam, loc, ctx)+"|layout|"+JSON.stringify(st||null)+"|"+(width||960); }catch(e){ sig = ""; }
   if(sig && SHOT_LAYOUT_KEPT.has(sig)) return SHOT_LAYOUT_KEPT.get(sig);

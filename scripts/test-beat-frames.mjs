@@ -132,7 +132,7 @@ test("9 the page: the Frame board button on a beat's card opens the board across
   // Play frames gives each frame its own time
   assert.ok(ui.includes("const t = setTimeout(()=>setAt(i+1), Math.max(300,(f.t2-f.t0)*1000));"));
   assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made; the only thing it can start is the writing pass, which asks first");
-  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2"];
+  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1"];
   assert.ok(at("app/beat-frames.js?v=") > 0 && at("app/beat-frames.js?v=") < at("app/beat-frames-ui.jsx?v=") && at("app/shot-previs-ui.jsx?v=") > 0, "the rules are on the page before the board that reads them");
   assert.ok(keys.some(k => html.includes('app/beat-frames.js?v=' + k + '"')) && keys.some(k => html.includes('app/beat-frames-ui.jsx?v=' + k + '"')));
 });
@@ -199,6 +199,21 @@ test("12 the board takes a shot's written frames, with their own times and lines
   // (it runs on the scene plan's own engine, the one its question names: the first real pass did not, 2026-11-26)
   assert.ok(ai.includes('["aiPlanScene","aiPlanCameras","aiBeatFrames"].forEach(n=>{ const fn = window[n];') && ai.indexOf("window.aiBeatFrames = aiBeatFrames;") < ai.indexOf('["aiPlanScene","aiPlanCameras","aiBeatFrames"]'));
   assert.ok(ai.includes("async function aiBeatFrames(scene, ctx){") && ai.includes("const out = F.written(scrubbed, {") && ai.includes("THE TEN NUMBERS, in radians, always in this order: [lean, twist, head down, head turn, right arm forward, right arm out, right elbow, left arm forward, left arm out, left elbow]."));
+});
+
+test("13 stage 3: a shot starts as its moment's first written frame, wherever the app stages it", () => {
+  const strip = read("app/shot-previs-ui.jsx"), ui = read("app/beat-frames-ui.jsx"), app = read("app/app.jsx");
+  // the one staging takes the plan: a shot whose written frames still fit starts as the first and ends as the last
+  assert.ok(strip.includes("function shotPrevisStaged(sceneShots, plan){") && strip.includes("const m = F.writtenFor(saved, SP.shotCameraKey(sh), st.start||sh.startState, st.end||sh.endState||sh.startState); if(!m) return;"));
+  assert.ok(strip.includes("out[sh.id] = { ...st, start:m.frames[0].state, end:m.frames[m.frames.length-1].state, plain:{ start:st.start, end:st.end }, written:m.frames.length }; });"));
+  // every reader of the staging hands the plan in: the strip, a card's drawing, the frame made from it, the Stage's layout
+  assert.equal((strip.match(/shotPrevisStaged\(sceneShots\|\|\[sh\], plan\)/g) || []).length, 4); assert.equal((strip.match(/shotPrevisStaged\(sceneShots\|\|shots, plan\)/g) || []).length, 2);
+  assert.ok(!/shotPrevisStaged\(sceneShots\|\|(?:\[sh\]|shots)\)/.test(strip), "no reader is left on the plan's bare start");
+  // what the frames were written for is the plan's own start and end: the board and the writing pass read those
+  assert.ok(ui.includes("const st0 = (info.staged||{})[sh.id] || {}, st = st0.plain || st0;") && app.includes("window.shotPrevisStaged(mine) : {};"), "the writing pass starts from the plan's own states, never from frames written before");
+  // the first frame keeps the plan's place, hands and things, so nothing a camera or a check reads has moved
+  const got = F.written({ moments: [{ beat: 1, moment: 1, frames: [{ says: "a", into: 0, hold: 1, people: { ann: { face: 45, joints: HOLD, at: [3, 3], holding: [] } } }, { says: "b", into: 1, hold: 1 }] }] }, CTX).frames["1.1"];
+  assert.equal(got.frames[0].state.people.ann.where, "m-door"); assert.equal(got.frames[0].state.people.ann.xy, undefined); assert.deepEqual(plain(got.frames[0].state.people.ann.holding), ["box"]); assert.deepEqual(plain(got.frames[0].state.things), plain(START.things));
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

@@ -23,7 +23,8 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
      are used while they still fit it (its start and its end are the ones they were written for: KinolotBeatFrames
      writtenFor); a shot without them keeps how it starts, midway and how it ends. */
   const SP = window.ScenePlan, saved = (info && info.plan && info.plan.frames) || null;
-  const writtenOf = sh=>{ if(!saved || !F || !SP) return null; const st = (info.staged||{})[sh.id] || {};
+  // (a shot staged from its written frames keeps the plan's own start and end in `plain`: what the frames were written for)
+  const writtenOf = sh=>{ if(!saved || !F || !SP) return null; const st0 = (info.staged||{})[sh.id] || {}, st = st0.plain || st0;
     return F.writtenFor(saved, SP.shotCameraKey(sh), st.start||sh.startState, st.end||sh.endState||sh.startState); };
   const wkey = (saved && info) ? (info.list.some(writtenOf) ? String(info.plan.framesAt||"")+"|"+info.list.map(sh=>writtenOf(sh)?"1":"0").join("") : "") : "";
   const written = wkey ? { key:wkey, of:sh=>{ const m = writtenOf(sh); return m ? m.frames.map(f=>f.state) : null; } } : null;
