@@ -438,7 +438,7 @@ test("6 the page: an Edit switch on a confirmed plan, Undo, Cancel, Save; The pl
   // loaded before the card that uses them, under this change's key
   assert.ok(html.indexOf("app/floor-plan-drag.js?v=") > 0 && html.indexOf("app/floor-plan-drag.js?v=") < html.indexOf("app/floor-plan-drag-ui.jsx?v=") && html.indexOf("app/floor-plan-drag-ui.jsx?v=") < html.indexOf("app/location-set-card-ui.jsx?v="));
   for (const f of ["app/floor-plan-drag.js", "app/floor-plan-drag-ui.jsx", "app/location-set-card.js", "app/location-set-card-ui.jsx", "app/locations-ui.jsx", "app/app.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/MOVE THINGS AND WALLS ON THE PLAN \(2026-11-25\)/.test(ai) && /Where things stand/.test(ai));
   assert.ok(!/Hussain|Pike|Liaqat/.test(ai.slice(ai.indexOf("MOVE THINGS AND WALLS ON THE PLAN"), ai.indexOf("MOVE THINGS AND WALLS ON THE PLAN") + 3000)), "no name of a film in what the assistant is told");
 });

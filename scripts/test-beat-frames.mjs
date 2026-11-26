@@ -132,7 +132,7 @@ test("9 the page: the Frame board button on a beat's card opens the board across
   // Play frames gives each frame its own time
   assert.ok(ui.includes("const t = setTimeout(()=>setAt(i+1), Math.max(300,(f.t2-f.t0)*1000));"));
   assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made; the only thing it can start is the writing pass, which asks first");
-  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1"];
+  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2"];
   assert.ok(at("app/beat-frames.js?v=") > 0 && at("app/beat-frames.js?v=") < at("app/beat-frames-ui.jsx?v=") && at("app/shot-previs-ui.jsx?v=") > 0, "the rules are on the page before the board that reads them");
   assert.ok(keys.some(k => html.includes('app/beat-frames.js?v=' + k + '"')) && keys.some(k => html.includes('app/beat-frames-ui.jsx?v=' + k + '"')));
 });
@@ -156,7 +156,8 @@ test("10 written frames made safe: the first is how the shot starts, the last ho
   assert.deepEqual(plain(m.frames[1].state.people.ann.xy), [1, 0.5]); assert.equal(m.frames[1].state.people.ann.face, 60); assert.deepEqual(plain(m.frames[1].state.people.ann.joints), HOLD, "her pose goes on until a frame changes it");
   assert.equal(m.frames[2].state.people.ann.where, "m-table"); assert.equal(m.frames[2].state.people.ann.xy, undefined); assert.deepEqual(plain(m.frames[2].state.things.box), { state: "shut", heldBy: "ann" });
   // the last frame: the plan's own end (the box on the table, her hands empty), whatever was written; only the pose is taken
-  assert.deepEqual(plain(m.frames[3].state.people.ann), { where: "m-table", pose: "standing", holding: [], joints: REST }); assert.deepEqual(plain(m.frames[3].state.things.box), { on: "table", state: "shut" });
+  // (she keeps the way she faced in the frame before, since the last frame did not say; her pose is the last frame's own)
+  assert.deepEqual(plain(m.frames[3].state.people.ann), { where: "m-table", pose: "standing", holding: [], face: 60, joints: REST }); assert.deepEqual(plain(m.frames[3].state.things.box), { on: "table", state: "shut" });
   // the times add up to the shot's own seconds
   near(m.frames.reduce((n, f) => n + f.into + f.hold, 0), 6, 0.02);
   assert.equal(m.sig, F.stateSig(START, END)); assert.equal(F.writtenFor(got.frames, "1.1", START, END), m); assert.equal(F.writtenFor(got.frames, "1.1", START, { ...END, doors: [{ id: "front", open: true }] }), null, "a shot that was changed since no longer has its written frames");
@@ -195,6 +196,8 @@ test("12 the board takes a shot's written frames, with their own times and lines
   assert.ok(app.includes('title:"Write the frames of beat "+beatN+" (writing credits)?"') && app.includes("if(!cur || cur.at!==plan.at) return p;") && app.includes("frames:{ ...kept, ...res.frames }, framesAt:new Date().toISOString(),"));
   const fn = app.slice(app.indexOf("const writeBeatFrames = async"), app.indexOf("window.turnWriteBeatFrames ="));
   assert.ok(!/setShots|onUpdateShot|nbGenerate/.test(fn), "never on the shots");
+  // (it runs on the scene plan's own engine, the one its question names: the first real pass did not, 2026-11-26)
+  assert.ok(ai.includes('["aiPlanScene","aiPlanCameras","aiBeatFrames"].forEach(n=>{ const fn = window[n];') && ai.indexOf("window.aiBeatFrames = aiBeatFrames;") < ai.indexOf('["aiPlanScene","aiPlanCameras","aiBeatFrames"]'));
   assert.ok(ai.includes("async function aiBeatFrames(scene, ctx){") && ai.includes("const out = F.written(scrubbed, {") && ai.includes("THE TEN NUMBERS, in radians, always in this order: [lean, twist, head down, head turn, right arm forward, right arm out, right elbow, left arm forward, left arm out, left elbow]."));
 });
 

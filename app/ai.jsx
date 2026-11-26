@@ -9304,5 +9304,6 @@ LOCATION_WRITING_FNS.forEach(n=>{
 });
 window.LOCATION_WRITING_FNS = LOCATION_WRITING_FNS;
 // THE SCENE PLAN runs on its own default (Fable 5.2, owner 2026-11-22) unless the user has picked an engine
-["aiPlanScene","aiPlanCameras"].forEach(n=>{ const fn = window[n];
+// (a beat's frames too, 2026-11-26: the first real pass ran on the top bar's engine while its question named the scene plan's)
+["aiPlanScene","aiPlanCameras","aiBeatFrames"].forEach(n=>{ const fn = window[n];
   if(typeof fn === "function") window[n] = (...a)=> window.turnWithWritingTask("scenePlan", ()=> fn(...a)); });

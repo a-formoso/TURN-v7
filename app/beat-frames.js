@@ -213,6 +213,9 @@
       const frames=use.map((f,i)=>{ const where=key+"."+(i+1);
         if(i===0||i===last){ // how the shot starts, how it ends: the plan's own state, with the written pose
           const st=base(i===0?sh.start:(sh.end||sh.start));
+          // (how it ends: someone keeps the way they faced and the pose they had in the frame before, unless this frame gives another.
+          //  The first real pass, 2026-11-26, left the last frame's facing out, and the figure turned back to the plan's own guess.)
+          if(i===last) Object.keys(st.people).forEach(id=>{ const was=obj(state.people[id]); if(was.face!=null) st.people[id].face=was.face; if(arr(was.joints).length===POSE_N) st.people[id].joints=was.joints.slice(); });
           Object.keys(obj(f.people)).forEach(id=>{ if(st.people[id]) pose(f.people[id],st.people[id],where); else drop(where+": "+id+" is not in this shot as it "+(i===0?"starts":"ends")); });
           if(i===0) state=copy(st);
           return {says:text(f.says,300),into:i===0?0:Math.max(0,num(f.into,0)),hold:Math.max(0,num(f.hold,0)),state:tidy(st)}; }
