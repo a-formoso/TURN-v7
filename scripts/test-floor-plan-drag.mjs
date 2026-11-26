@@ -226,7 +226,7 @@ test("4e what a save writes beside the plan when a wall moved: cameras set by ha
   assert.deepEqual(plain(f.patches.flat.previs.extras.map(x => x.at)), [[4.9, 2, 0.4], [2, 1.5, 0]], "the radiator on the wall goes with it, the rug stays");
   assert.deepEqual(plain(f.patches.flat.previs.light.lamps.map(x => x.at)), [[4.8, 1, 2], [2, 1.5, 2.3]]);
   assert.equal(f.patches.flat.previs.iso, "i"); assert.equal(f.patches.flat.previs.light.time, "day");
-  assert.deepEqual(plain(D.follow(null, [flat], ["flat"], "flat")), { patches: {}, cameras: 0, pieces: 0 }, "no wall moved: nothing beside the plan");
+  assert.deepEqual(plain(D.follow(null, [flat], ["flat"], "flat")), { patches: {}, cameras: 0, pieces: 0, turned: 0, hand: 0 }, "no wall moved: nothing beside the plan");
   assert.deepEqual(plain(D.follow(D.carry(p, p), [flat], ["flat"], "flat").patches), {});
   // the dressing that stands ON a thing that moved goes with that thing, wall or no wall: the clutter on a table, not the rug under it or the lamp over it
   const tabled = D.moveObject(p, "table", [3, 1.5]), room = { id: "flat", coverageViews: [cam("TL", [2.4, 1.4, 1.6])],
@@ -278,6 +278,46 @@ const film = () => {
   return l;
 };
 
+test("4f the cameras keep their view: one aimed at a thing follows it, a wide one turns with its room, one set by hand is never turned (owner 2026-11-26)", () => {
+  const p = plan(), near = (a, b, e) => assert.ok(Math.abs(a - b) <= e, a + " is about " + b);
+  const cam = (panel, position, yaw, more) => ({ id: "v-" + panel, panel, purpose: "x", pose: { position, yaw, pitch: -15, lensMm: 28, basis: "design", ...(more || {}) } });
+  // 1 THE SUBJECT MOVES AND THE CAMERA CAN GO WITH IT: the same step, so the same picture of the thing (no turn)
+  const up = D.moveObject(p, "table", [2.5, 2]), flat1 = { id: "flat", coverageViews: [cam("BL", [3.6, 0.5, 1.5], 312.3, { target: "table" }), cam("TL", [0.4, 2.6, 1.6], 135)] };
+  const f1 = D.follow(null, [flat1], ["flat", "street"], "flat", p, D.moves(p, up), up);
+  assert.equal(f1.cameras, 1); assert.equal(f1.turned, 0); assert.equal(f1.hand, 0);
+  assert.deepEqual(plain(f1.patches.flat.coverageViews[0].pose), { position: [3.6, 1, 1.5], yaw: 312.3, pitch: -15, lensMm: 28, basis: "design", target: "table" });
+  assert.equal(f1.patches.flat.coverageViews[1], flat1.coverageViews[1], "the wide camera of a room whose walls did not move is the very same row");
+  // 2 IT CANNOT STAND THERE (it would be 20 cm from the east wall): it stays, and turns and tilts to keep the thing where it sat in its picture
+  const east = D.moveObject(p, "table", [2.7, 1.5]), f2 = D.follow(null, [flat1], ["flat"], "flat", p, D.moves(p, east), east), pose2 = f2.patches.flat.coverageViews[0].pose;
+  assert.deepEqual(plain(pose2.position), [3.6, 0.5, 1.5]); near(pose2.yaw, 318, 0.11); near(pose2.pitch, -16.49, 0.05); assert.equal(f2.turned, 1);
+  // (and never into a piece of furniture: a step that would put it inside the shelf's outline is not taken)
+  const blocked = { ...p, anchors: p.anchors.concat([{ id: "cupboard", space: "Flat", name: "Cupboard", placement: "x", xy: [3.5, 1.1], z: 1, facing: 0, posBasis: "design", size: [0.6, 0.6, 2] }]) };
+  const up2 = D.moveObject(blocked, "table", [2.5, 2]), f2b = D.follow(null, [flat1], ["flat"], "flat", blocked, D.moves(blocked, up2), up2);
+  assert.deepEqual(plain(f2b.patches.flat.coverageViews[0].pose.position), [3.6, 0.5, 1.5], "it stays out of the cupboard"); assert.equal(f2b.turned, 1);
+  // 3 SET BY HAND: never moved by its subject and never turned; it is counted, so the page can say "look at its view"
+  const mine = { id: "flat", coverageViews: [cam("BL", [3.6, 0.5, 1.5], 312.3, { target: "table", basis: "user" })] };
+  const f3 = D.follow(null, [mine], ["flat"], "flat", p, D.moves(p, up), up);
+  assert.deepEqual(plain(f3), { patches: {}, cameras: 0, pieces: 0, turned: 0, hand: 1 });
+  // 4 A WALL MOVES: the camera beside it goes with it and turns back to its subject; the wide one turns with the room
+  //   (the middle of the room stays where it was in its picture); a hand-set wide one keeps its angle and is counted
+  const out = D.moveWall(p, "flat", 1, [5, 1]), C = D.carry(p, out);
+  const flat4 = { id: "flat", coverageViews: [cam("BL", [3.6, 0.4, 1.6], 315, { target: "table" }), cam("TL", [0.4, 2.6, 1.6], 135), cam("TR", [0.4, 0.4, 1.6], 45, { basis: "user" })] };
+  const f4 = D.follow(C, [flat4], ["flat", "street"], "flat", p, D.moves(p, out), out), v4 = f4.patches.flat.coverageViews;
+  assert.deepEqual(plain(v4[0].pose.position), [4.6, 0.4, 1.6]); near(v4[0].pose.yaw, 297.6, 0.11); assert.ok(v4[0].pose.pitch > -15 && v4[0].pose.pitch < -9, "further away: it looks less steeply down");
+  assert.deepEqual(plain(v4[1].pose.position), [0.4, 2.6, 1.6]); near(v4[1].pose.yaw, 128.1, 0.11); assert.equal(v4[1].pose.pitch, -15);
+  assert.equal(v4[2], flat4.coverageViews[2], "the camera set by hand is the very same row"); assert.equal(f4.cameras, 2); assert.equal(f4.turned, 2); assert.equal(f4.hand, 1);
+  // (a camera that names a thing it does not look at, 90 degrees off, is a wide view for this: it turns with the room, never to the thing)
+  const off = { id: "flat", coverageViews: [cam("BR", [0.4, 2.6, 1.6], 135, { target: "shelf" })] }, f4b = D.follow(C, [off], ["flat"], "flat", p, D.moves(p, out), out);
+  near(f4b.patches.flat.coverageViews[0].pose.yaw, 128.1, 0.11); assert.equal(f4b.patches.flat.coverageViews[0].pose.pitch, -15);
+  // without the plan as it is saved (the call of step 2), cameras are only moved by the walls, as before
+  const f5 = D.follow(C, [flat4], ["flat"], "flat", p, D.moves(p, out));
+  assert.equal(f5.patches.flat.coverageViews[0].pose.yaw, 315); assert.equal(f5.turned, 0);
+  // out and back: every camera is where it was, looking where it looked
+  const back = D.moveWall(out, "flat", 1, [4, 1]), after4 = { id: "flat", coverageViews: v4 };
+  const f6 = D.follow(D.carry(out, back), [after4], ["flat"], "flat", out, D.moves(out, back), back), v6 = f6.patches.flat.coverageViews;
+  assert.deepEqual(plain(v6[0].pose.position), [3.6, 0.4, 1.6]); near(v6[0].pose.yaw, 315, 0.11); near(v6[0].pose.pitch, -15, 0.02); near(v6[1].pose.yaw, 135, 0.11);
+});
+
 test("5 Save: the moved plan is confirmed as Floor plan's own Confirm confirms it, or it is not saved and says why", () => {
   const l = film(), st = box.locationSpatialPlanState(l);
   assert.equal(st.ready, true, "the fixture is a confirmed plan");
@@ -296,6 +336,14 @@ test("5 Save: the moved plan is confirmed as Floor plan's own Confirm confirms i
   assert.deepEqual(plain(table.xy), [1.6, 2.2]); assert.equal(table.posBasis, "user"); assert.match(table.placement, /Placed by hand on the floor plan\.$/);
   assert.deepEqual(plain(c.plan.anchors.find(a => a.id === "kitchen-fridge")), plain(base.anchors.find(a => a.id === "kitchen-fridge")), "what was not moved is saved as it was");
   assert.equal(JSON.stringify(l.spatialPlan.anchors[0].xy), "[2.1,1.2]", "the film's own plan is not touched by the check");
+  /* THE EDIT AS THE FILM WOULD BE IF IT WERE SAVED NOW (owner 2026-11-26: the 3D set follows the plan while it is
+     changed): the film's list with the edited plan on its place and what Save would write beside it. Nothing is saved. */
+  assert.equal(B.preview(l, base, base, [l]), null, "nothing moved: no preview, the saved set is shown");
+  const apart = { id: "elsewhere", name: "Elsewhere" }, pv = B.preview(l, base, edited, [l, apart]);
+  assert.equal(pv.ownerId, "flat"); assert.equal(pv.list.length, 2); assert.equal(pv.list[1], apart, "a card of another place is the very same row");
+  assert.deepEqual(plain(pv.list[0].spatialPlan), plain(c.plan), "the plan Save would write"); assert.equal(box.locationSpatialPlanState(pv.list[0], pv.list).ready, true);
+  assert.ok(pv.key && pv.key !== B.preview(l, base, B.moveObject(base, "kitchen-table", [1.6, 2.1]), [l]).key, "the key changes with the plan");
+  assert.equal(JSON.stringify(l.spatialPlan.anchors[0].xy), "[2.1,1.2]", "and the film's own plan is still untouched");
   /* A PLACE THAT HAS ITS LOCATION IMAGE, MADE FROM THIS PLAN (most places): the plan is current because the image
      records its signature. Once a thing has moved the signature no longer matches, so the saved plan must carry the
      image's own date, as Floor plan's Confirm stamps it, or Save refuses with "the parent image changed"
@@ -332,6 +380,16 @@ test("5 Save: the moved plan is confirmed as Floor plan's own Confirm confirms i
   // the hall's east wall, moved toward the doorway's own wall inside the room, stops before the doorway loses its wall
   const squeeze = B.slideWall(base, "flat", 3, [-0.4, 5]);
   assert.match(squeeze.why, /needs its wall|stands in a wall of its own|shorter than/); assert.equal(B.commit(l, base, squeeze.plan, [l]).ok, true);
+  /* AND IT CANNOT BE MOVED OUT, away from the kitchen (2026-11-26, found by a dry run on the film's flat): the wall that
+     holds the kitchen doorway ends at the corner where this wall starts; with the hall widened it would lose that
+     corner and run on down the middle of the hall. The wall does not move at all that way, and says why. */
+  const widen = B.slideWall(base, "flat", 3, [1, 5]);
+  assert.equal(widen.plan, base, "nothing moved"); assert.match(widen.why, /that holds Hall to kitchen open doorway ends at this corner\. Moved this way, that wall would run on across the room\./);
+  const inner0 = box.locationInnerWall(base.coordinates.spaces[0], base.coordinates.spaces[0].openings.find(o => o.id === "kitchen-doorway"));
+  assert.deepEqual(plain([inner0.a, inner0.b]), [[0.5, 0], [0.5, 3.6]], "the doorway's wall, from the front wall to the corner");
+  // (the kitchen's own north wall, which that corner also belongs to, still moves: the doorway's wall grows with it to the corner's new place)
+  const north = B.slideWall(base, "flat", 2, [2, 4.1]), inner1 = box.locationInnerWall(north.plan.coordinates.spaces[0], north.plan.coordinates.spaces[0].openings.find(o => o.id === "kitchen-doorway"));
+  assert.notEqual(north.plan, base); assert.deepEqual(plain([inner1.a, inner1.b]), [[0.5, 0], [0.5, 4.1]]);
   // the plan was changed elsewhere meanwhile: nothing is overwritten
   const other = { ...l, spatialPlan: { ...l.spatialPlan, frame: "Changed in another tab" } };
   const late = B.commit(l, base, edited, [other]);
@@ -349,7 +407,15 @@ test("6 the page: an Edit switch on a confirmed plan, Undo, Cancel, Save; The pl
   assert.ok(ui.includes("moveWall:(spaceId, edge, xy)=>setEdit(e=>{ if(!e) return e; const r = D.slideWall(e.plan, spaceId, edge, xy);") && ui.includes('"data-testid":"plan-edit-stop"') && ui.includes('"It stops here. "+edit.stop'));
   assert.ok(ui.indexOf("sides.map(w=>{") < ui.indexOf("doors.map(o=>{ const L"), "the walls are drawn under the doors and the things, which take a press first");
   // a wall that moved takes the cameras set by hand and the set's dressing with it, each saved on its own card
-  assert.ok(ui.includes("const f = D.follow(C, ((window.turnContinuity||{}).locations)||[], c.spaces, c.ownerId, edit.base, c.moved), more = f.patches, cams = f.cameras, pieces = f.pieces;"));
+  assert.ok(ui.includes("const f = D.follow(C, before, c.spaces, c.ownerId, edit.base, c.moved, c.plan), more = f.patches, cams = f.cameras, pieces = f.pieces;"), "Save gives the plan as it is saved, so the cameras keep their view");
+  // (owner 2026-11-26) the 3D set follows the edit before it is saved: the set card draws from the preview, and says so on the picture
+  assert.ok(ui.includes("try{ return D.preview(place, basePlan, livePlan, ((window.turnContinuity||{}).locations)||[]); }catch(_){ return null; }") && ui.includes("preview:shown.current,"));
+  assert.ok(face.includes("const trial = editing && planEdit.preview ? planEdit.preview : null;") && face.includes('const sig = trial ? "edit|"+space.id+"|"+trial.key : lscSig(space.location);'));
+  assert.ok(face.includes("lscDraw(drawn3d, jobs, cast, ()=>!live || latest.current!==heroKey, trial ? { list:trial.list, key:sig } : null)") && face.includes("const built = P.scene(space, from ? from.list : undefined);"));
+  assert.ok(face.includes('"data-testid":"set-card-trial"') && face.includes('"Not saved yet"') && face.includes("locationFloorPlanScene(owner, shown, trial ? trial.list : undefined)"));
+  // after a save each camera's view is looked at again: one that lost its clear view is named, with a free button that places it again
+  assert.ok(ui.includes("const keys = PANELS.filter(k=>now && now[k] && !(was && was[k]));") && ui.includes('"data-testid":"plan-edit-cameras"') && ui.includes('"data-testid":"plan-edit-fix-cameras"'));
+  assert.ok(ui.includes("const proposal = await R.proposeCamerasAuto(now, list, { keep:PANELS.filter(k=>b.keys.indexOf(k)<0) });") && ui.includes('onUpdate(b.id, { coverageViews:R.cameraProposalViews(still, proposal, latest) }, { kind:"suggested-cameras" });'));
   assert.ok(ui.includes('Object.keys(more).forEach(id=>{ if(id!==String(c.ownerId)) onUpdate(id, more[id], { kind:"floor-plan-edit" }); });'));
   // while a wall is dragged the picture keeps its scale
   assert.ok(ui.includes("begin:hold=>setEdit(e=>e ? { ...e, hold:!!hold,") && face.includes("holding ? planHold.current : null") && read("app/location-set-card.js").includes("function planModel(plan,space,cameraKey,people,width,shotCams,tight,hold){"));
@@ -372,7 +438,7 @@ test("6 the page: an Edit switch on a confirmed plan, Undo, Cancel, Save; The pl
   // loaded before the card that uses them, under this change's key
   assert.ok(html.indexOf("app/floor-plan-drag.js?v=") > 0 && html.indexOf("app/floor-plan-drag.js?v=") < html.indexOf("app/floor-plan-drag-ui.jsx?v=") && html.indexOf("app/floor-plan-drag-ui.jsx?v=") < html.indexOf("app/location-set-card-ui.jsx?v="));
   for (const f of ["app/floor-plan-drag.js", "app/floor-plan-drag-ui.jsx", "app/location-set-card.js", "app/location-set-card-ui.jsx", "app/locations-ui.jsx", "app/app.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/MOVE THINGS AND WALLS ON THE PLAN \(2026-11-25\)/.test(ai) && /Where things stand/.test(ai));
   assert.ok(!/Hussain|Pike|Liaqat/.test(ai.slice(ai.indexOf("MOVE THINGS AND WALLS ON THE PLAN"), ai.indexOf("MOVE THINGS AND WALLS ON THE PLAN") + 3000)), "no name of a film in what the assistant is told");
 });

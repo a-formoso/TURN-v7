@@ -30,11 +30,14 @@ test("2 Shots: the header's place is a link with its hour; Uses names the hour; 
   assert.ok(shots.includes('r.kind==="location" ? nm+" image"+(hour ? " · "+hour : "")'));
   assert.ok(shots.includes('"data-testid":"shot-face-open-set"') && shots.includes('onClick:()=>window.turnOpenLocationCard(drawColour.loc.id)},"Open this place’s set")'));
   assert.ok(css.includes(".ssx-loc-link{") && css.includes(".loc-step-stale{"));
-  assert.ok(css.includes(".location-scenes .prop-scene-chip{white-space:nowrap}"), "a chip with its hour stays on one line");
+  assert.ok(css.includes(".location-scenes .prop-scene-chip{white-space:nowrap}"), "a chip stays on one line");
 });
 
 test("3 Locations: scenes with their hours, facts without a camera count, a stale image said on its step", () => {
-  assert.ok(locs.includes('label:String(s.no).padStart(2,"0")+(sceneTimeOf[String(s.no)] ? " \\u00b7 "+(typeof window.shotHourWords==="function"'));
+  // (owner 2026-11-26: "instead of showing (01) night, just show the number") the chip is the scene's number, as on a
+  // character's or a prop's card; its hour is in its tooltip
+  assert.ok(locs.includes('items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",'));
+  assert.ok(locs.includes('title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \\u00b7 "+sceneTimeOf[String(s.no)].join(", "):"")'), "the hour is in the tooltip");
   assert.ok(locs.includes("onClick:()=>onChipClick&&onChipClick(s.id)"), "a scene chip still shows that scene's places");
   assert.ok(!/cams\+\(cams===1\?" camera":" cameras"\)/.test(card));
   assert.ok(locs.includes('done:!!gen.genUrl&&!imageStale,stale:!!gen.genUrl&&imageStale,') && locs.includes('st.stale&&E("span",{className:"loc-step-stale","data-testid":"location-step-stale"},"out of date")'));
@@ -52,7 +55,7 @@ test("4 a scene's shots can be opened from anywhere in the Art Room; fresh keys;
   assert.ok(shots.includes('const top = ()=>{ const page = document.querySelector(".artroom"); if(page && page.scrollTop) page.scrollTop = 0; };') && shots.includes("top(); setTimeout(top, 120);"));
   assert.ok(shots.indexOf("top(); setTimeout(top, 120);") > shots.indexOf('if(String(f.action||"").indexOf("shot:")===0){'), "only when the hand-off names no shot");
   for (const f of ["app/app.jsx", "app/shots-ui.jsx", "app/location-set-card.js", "app/locations-ui.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/SHOTS AND LOCATIONS POINT AT EACH OTHER \(2026-11-25\)/.test(ai) && /marked 'out of date' on the step itself/.test(ai));
   assert.ok(!/Hussain|Liaqat|Pike\b/.test(ai), "no film's own names in what Frances is told");
 });

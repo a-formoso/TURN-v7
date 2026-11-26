@@ -222,7 +222,8 @@ test("8 the card is laid out top to bottom as designed, then in sections that fo
   const order=flat(el).map(x=>x.props.className).filter(Boolean).map(c=>c.split(" ")[0]);
   // (owner 2026-11-25) the switch sits ON the picture, top left, where the MASTER SET tag was; the facts and what the
   // camera is for are in Location sheet, the section they belong to
-  const want=["lsc-stage","lsc-seg","lsc-camtag","lsc-body","lsc-head","lsc-name","lsc-chips","lsc-folds","lsc-info","lsc-thumbs"];
+  // (owner 2026-11-26) the picture sits in the frame every card's picture sits in (.sheet-frame, 12px, rounded corners)
+  const want=["sheet-frame","lsc-stage","lsc-seg","lsc-camtag","lsc-body","lsc-head","lsc-name","lsc-chips","lsc-folds","lsc-info","lsc-thumbs"];
   // (owner 2026-11-25, "Let's implement your recommendations") the sections follow the work: Floor plan, then The set in
   // 3D (it was "Location sheet", first on the card), then Location image; the Reference pack is gone
   const stage=flat(el).find(x=>x.props.className&&String(x.props.className).split(" ")[0]==="lsc-stage");
@@ -295,7 +296,8 @@ test("8c the chips are the rooms: a chip changes the whole card when the card sa
 });
 
 test("9 it draws from the place's own 3D set, with surfaces and the stand-ins, one view for the whole tab, only on screen, and saves nothing", ()=>{
-  assert.ok(face.includes("const built = P.scene(space);")&&face.includes("const view = await P.viewer(built.scene, built.light, { surfaces:true });"));
+  // (owner 2026-11-26: with the floor plan being changed and not yet saved, the set is drawn from the film as Save would leave it)
+  assert.ok(face.includes("const built = P.scene(space, from ? from.list : undefined);")&&face.includes("const view = await P.viewer(built.scene, built.light, { surfaces:true });"));
   assert.ok(face.includes("if(lscLive && lscLive.key!==key) lscClose();")&&face.includes("lscLive.timer = setTimeout(lscClose, 30000);"),"one 3D view, closed after a rest");
   assert.ok(face.includes("const turn = lscLine.then(run, run);"),"one drawing at a time");
   assert.ok(face.includes('if(typeof stale==="function" && stale()) return null;'),"a drawing nobody waits for is skipped");
@@ -366,11 +368,11 @@ test("10b The set in 3D is Previs alone, with the render style beside the image 
 test("11 the look is the app's own (its tokens and type), and the files are on the page in order", ()=>{
   const block=css.slice(css.indexOf("THE SET CARD (owner 2026-11-23)"));
   for(const t of [".lsc-stage{position:relative;aspect-ratio:16/9;",".lsc-body{padding:15px;display:flex;flex-direction:column;gap:15px}",
-    ".lsc-name{margin:0;font:600 20px/1.25 var(--f-display);",".lsc-thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}",
+    ".lsc-name{margin:0;font:600 20px/1.25 var(--f-display);",".lsc-thumbs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}",
     // (owner 2026-11-25) black walls on every room; the chosen space is told by its amber floor; the chosen chip is black; the switch is a white pill on the picture
     ".lsc-room{fill:var(--bg-1);stroke:var(--txt-0);stroke-linejoin:miter}",".lsc-room.lit{fill:color-mix(in srgb,var(--hs-amber,var(--pos)) 30%,var(--bg-1));stroke:var(--txt-0)}",".lsc-room-lit{fill:none;stroke:none;pointer-events:none}",
     ".lsc-chip[aria-pressed=\"true\"]{background:var(--txt-0);border-color:var(--txt-0);color:var(--bg-1)}",".lsc-seg{position:absolute;top:10px;left:10px;z-index:3;display:inline-flex;",".lsc-seg button[aria-pressed=\"true\"]{background:var(--txt-0);color:var(--bg-1)}",
-    ".lsc-folds > .location-scenes{margin:0;padding:10px 0;border-top:1px solid var(--line-1)}",".lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}",
+    ".lsc-body > .location-scenes{margin:0}",".lsc-window{stroke:var(--hs-fall,#5DB0D8);stroke-linecap:butt}",
     ".lsc-person.can-move{cursor:grab;touch-action:none}",".lsc-fold .sheet-fold-body[hidden]{display:none !important}"])
     assert.ok(block.includes(t),t);
   assert.ok(!/#1B1A19|#252422|#F0B255|Inter\b/.test(block),"none of the demo's own colours or type");
@@ -378,7 +380,7 @@ test("11 the look is the app's own (its tokens and type), and the files are on t
   assert.ok(i("app/set-surfaces.js?v=")>0&&i("app/set-surfaces.js?v=")<i("app/set-previs.js?v=")&&i("app/set-previs.js?v=")<i("app/location-set-card.js?v=")
     &&i("app/location-set-card.js?v=")<i("app/location-set-card-ui.jsx?v=")&&i("app/location-set-card-ui.jsx?v=")<i("app/locations-ui.jsx?v="));
   for(const f of ["app/set-surfaces.js","app/location-set-card.js","app/location-set-card-ui.jsx","app/set-previs.js","app/locations-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"])
-    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261123-setcard1", "20261123-looks1", "20261123-light1", "20261124-figures1", "20261124-kit1", "20261124-kit2", "20261124-kit3", "20261124-paint1", "20261124-angle1", "20261124-layout1", "20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
 });
 
 test("11b Frame, the fourth word of the switch: the place's location image, shown where the drawings are shown", ()=>{
@@ -396,7 +398,7 @@ test("11d with Frame on, the camera chosen in The set in 3D is the part of the l
     'const quadOf = key=> (framePanels && key && framePanels[key]) ? key : "";','const quad = isFrame && view ? quadOf(view.key) : "";','className:quad ? "lsc-quad" : undefined, "data-quad":quad || undefined',
     'view && !cannot && (!isFrame || quad) && LSC_E("span",{ className:"lsc-camtag"','(isFrame && quadOf(v.key)) ? LSC_E("img",{ src:frameNow, alt:"", draggable:false, className:"lsc-quad", "data-quad":v.key })']) assert.ok(ui.includes(t),t);
   assert.deepEqual(K.KEYS,["TL","TR","BL","BR"],"the cameras' keys are the sheet's four parts");
-  for(const f of ["app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this change's key");
+  for(const f of ["app/location-set-card-ui.jsx","app/styles.css","app/ai.jsx","app/script.jsx"]) assert.ok(["20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has this change's key");
   assert.ok(ui.includes(': frame.of!==frameId ? LSC_E("span",{ className:"lsc-wait" },"Opening the location image\u2026")'),"while the image is being read, the card does not say there is none");
   // the part asked for fills the frame: the whole picture at twice the size, moved
   for(const c of [".lsc-stage img.lsc-quad,.lsc-thumb img.lsc-quad{position:absolute;top:0;left:0;width:200%;height:200%;max-width:none;object-fit:fill}",'img.lsc-quad[data-quad="TR"]{left:-100%}','img.lsc-quad[data-quad="BL"]{top:-100%}','img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}']) assert.ok(css.includes(c),c);
@@ -404,12 +406,37 @@ test("11d with Frame on, the camera chosen in The set in 3D is the part of the l
   for(const t of ["with Frame on the picture on top is the view of the camera chosen in The set in 3D","the four small views there are its four parts","an image that is not such a sheet is shown whole"]) assert.ok(f.includes(t),t);
 });
 
+test("11e the set card has the look of the other cards: its picture in the card's frame, the sizes of a character's card (owner 2026-11-26)", ()=>{
+  const ui=read("app/location-set-card-ui.jsx");
+  // the picture sits in the frame every card's picture sits in, with the card's 12px around it and rounded corners
+  assert.ok(ui.includes('LSC_E("div",{ className:"sheet-frame lsc-frame" },')&&css.includes(".lsc-frame{padding:12px}"));
+  assert.ok(css.includes(".lsc-stage{position:relative;aspect-ratio:16/9;background:var(--bg-2);overflow:hidden;border:1px solid var(--line-2);border-radius:var(--r-l)}"));
+  // measured on a character's card: a head button is 30px at 11px/600, a section's button 32px at 12.5px/600, one in a box 28px
+  for(const t of [".lsc-chip{min-height:30px;padding:0 11px;border-radius:var(--r-m);border:1px solid var(--line-2);",
+    "font:600 11px/1 var(--f-ui);cursor:pointer;transition:.12s}",
+    ".lsc-primary,.lsc-ghost{min-height:32px;border-radius:var(--r-m);font:600 12.5px/1.3 var(--f-ui);cursor:pointer;padding:3px 14px;transition:.12s}",
+    ".lsc-edit-bar.on .lsc-ghost,.lsc-edit-bar.on .lsc-primary{min-height:28px;padding:3px 12px;font-size:12px}",
+    // a section's body: 11px between its parts and 15px under the last, as the card's own rhythm
+    ".lsc-fold .sheet-fold-body{display:flex;flex-direction:column;gap:11px;min-width:0}",".lsc-folds > .sheet-fold > .sheet-fold-body{padding-bottom:15px}",
+    // notes in the app's own type, small labels as a card's small labels
+    ".lsc-mono{margin:0;font:11.5px/1.45 var(--f-ui);color:var(--txt-2)}",".lsc-role{font:12.5px/1.45 var(--f-ui);color:var(--txt-0)}",
+    ".lsc-lab{margin:0;font:400 9.5px/1.45 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--txt-3)}",
+    // Scenes is a plain row of the card; the sections after the set card's own follow it as one list
+    ".lsc-body > .location-scenes{margin:0}",".loc-workspace-sheet > .lsc:not(:last-child) > .lsc-body{padding-bottom:0}",
+    ".loc-workspace-sheet > .lsc + .sheet-body:has(> :is(.sheet-fold,.sheet-group):first-child){padding-top:0}",
+    // phones keep their touch sizes
+    ".lsc-primary,.lsc-ghost,.lsc-edit-bar.on .lsc-ghost,.lsc-edit-bar.on .lsc-primary{min-height:44px}"]) assert.ok(css.includes(t),t);
+  assert.ok(!css.includes(".lsc-folds > .location-scenes{"),"Scenes is no longer a row of the section list");
+});
+
 test("11c Scenes sits in the set card, just above The place (owner 2026-11-25)", ()=>{
   const ui=read("app/location-set-card-ui.jsx"), loc=read("app/locations-ui.jsx");
   assert.ok(ui.indexOf("S.scenes || null,")>0&&ui.indexOf("S.scenes || null,")<ui.indexOf("S.place || null,")&&ui.indexOf("S.scenes || null,")>ui.indexOf('label:"Location sheet"'));
+  // (owner 2026-11-26) a row of its own in the card's 15px rhythm, as on a character's card: after the tracker, before the sections
+  assert.ok(ui.indexOf("S.steps || null,")<ui.indexOf("S.scenes || null,")&&ui.indexOf("S.scenes || null,")<ui.indexOf('className:"lsc-folds"'),"Scenes is a row of the card, not of the section list");
   assert.ok(loc.includes('slot("scenes",React.createElement("div",{className:"prop-scenes location-scenes"},'),"the same row, moved: a card without the set card on top keeps it where it was");
   const fact=ai.slice(ai.indexOf('name:"Location card: the set card on top (one card per set)"')); const f=fact.slice(0,fact.indexOf("\n"));
-  for(const t of ["the switch Previs, Clay, Depth, Frame sits on the picture itself, at its top left","(the chosen one is black)","THE SET IN 3D (it was called Location sheet): first THE FACTS","SCENES: the scenes that play here, each a chip with its number and its hour"]) assert.ok(f.includes(t),t);
+  for(const t of ["the switch Previs, Clay, Depth, Frame sits on the picture itself, at its top left","(the chosen one is black)","THE SET IN 3D (it was called Location sheet): first THE FACTS","SCENES: the scenes that play here, each a chip with the scene's number, as on a character's or a prop's card"]) assert.ok(f.includes(t),t);
   assert.ok(!f.includes("tagged Master set"));
 });
 

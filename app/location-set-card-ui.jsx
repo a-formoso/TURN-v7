@@ -25,15 +25,16 @@ function lscClose(){ if(!lscLive) return; clearTimeout(lscLive.timer); try{ lscL
    cast = the stand-ins as the viewer takes them. stale() true = nobody waits for this drawing any more: it is
    skipped (a stand-in being dragged asks for many). Throws the set builder's own sentence when the floor plan or the
    cameras are not ready. */
-function lscDraw(space, jobs, cast, stale){
+function lscDraw(space, jobs, cast, stale, from){
   const run = async ()=>{
     if(typeof stale==="function" && stale()) return null;
     const P = window.KinolotPrevis;
     if(!P || typeof P.scene!=="function" || typeof P.viewer!=="function") throw new Error("The set in 3D is not available here.");
-    const key = lscSig(space);
+    // from = {list, key}: the film as an unsaved change of the floor plan would leave it (the plan being edited)
+    const key = from ? from.key : lscSig(space);
     if(lscLive && lscLive.key!==key) lscClose();
     if(!lscLive){
-      const built = P.scene(space);
+      const built = P.scene(space, from ? from.list : undefined);
       const view = await P.viewer(built.scene, built.light, { surfaces:true });
       lscLive = { key, view, built, timer:0 };
     }
@@ -157,22 +158,27 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const space = all.find(s=>s.id===(spaceId || pick.space)) || all[0];
   const choose = id=>{ if(typeof onSpace==="function") onSpace(id); else setPick(p=>({ ...p, space:id, cam:0 })); };
   const list = ((window.turnContinuity||{}).locations) || undefined;
-  const views = K.views(space.location, list);
-  const camIndex = Math.min(pick.cam, Math.max(0, views.length-1)), view = views[camIndex] || null;
   const look = K.LOOKS.find(x=>x.id===pick.look) || K.LOOKS[0];
   /* THE FLOOR PLAN, CHANGED BY HAND (owner 2026-11-25, step 1): while things are being moved the plan shown is the one
      being edited; it is saved by the edit itself (floor-plan-drag-ui.jsx), never from this file. */
   const planEdit = typeof window.usePlanEdit==="function" ? window.usePlanEdit(place, onUpdate, readOnly) : null;
   const editing = !!(planEdit && planEdit.on);
+  /* THE 3D SET FOLLOWS THE PLAN WHILE IT IS CHANGED (owner 2026-11-26): with something moved and not yet saved, the
+     views are drawn from the film as Save would leave it (the plan, the cameras that move or turn with it, the
+     dressing: floor-plan-drag.js preview). Nothing is saved; Cancel brings the saved set back. */
+  const trial = editing && planEdit.preview ? planEdit.preview : null;
+  const drawn3d = trial ? (trial.list.find(x=>x && x.id===space.location.id) || space.location) : space.location;
+  const views = K.views(drawn3d, trial ? trial.list : list);
+  const camIndex = Math.min(pick.cam, Math.max(0, views.length-1)), view = views[camIndex] || null;
   // the floor plan, whatever its state (a plan not confirmed yet is still worth looking at)
   let plan = null, coords = null, ready = false;
   try{ const st = typeof locationSpatialPlanState==="function" ? locationSpatialPlanState(place) : null;
     const owner = (st && st.owner) || place, shown = editing ? planEdit.plan : (st && st.plan);
-    plan = typeof locationFloorPlanScene==="function" ? locationFloorPlanScene(owner, shown) : null;
+    plan = typeof locationFloorPlanScene==="function" ? locationFloorPlanScene(owner, shown, trial ? trial.list : undefined) : null;
     coords = shown && shown.coordinates; ready = !!(st && st.ready); }catch(_){ plan = null; }
   const drawn = !!(plan && (plan.spaces||[]).length);
   const links = drawn ? K.connections(space.id, plan) : [];
-  const sig = lscSig(space.location);
+  const sig = trial ? "edit|"+space.id+"|"+trial.key : lscSig(space.location);
 
   /* THE SCENES SHOT HERE, ON THE PLAN (owner 2026-11-25: "the location doesn't show its shots"): every planned scene
      with a set in this space. The one chosen puts the stand-ins on ITS marks and shows where its plan put each
@@ -219,7 +225,7 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
     let live = true;
     const jobs = (needThumbs ? K.KEYS.map(key=>({ key, w:320, h:180, look:"" })) : []).concat([{ key:view.key, w:960, h:540, look:look.look }]);
     setPics(p=>({ ...p, drawing:true, error:"" }));
-    lscDraw(space.location, jobs, cast, ()=>!live || latest.current!==heroKey).then(res=>{ if(!res) return;
+    lscDraw(drawn3d, jobs, cast, ()=>!live || latest.current!==heroKey, trial ? { list:trial.list, key:sig } : null).then(res=>{ if(!res) return;
       heroes.current.set(heroKey, res.urls[res.urls.length-1]);
       if(heroes.current.size>18) heroes.current.delete(heroes.current.keys().next().value);
       if(!live) return;
@@ -272,7 +278,8 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
   const planTools = planFold.children;
 
   return LSC_E("div",{ ref, className:"lsc", "data-testid":"set-card", "data-set-card":place.id },
-    // the chosen camera's view
+    // the chosen camera's view, in the frame every card's picture sits in (owner 2026-11-26: one look for the cards)
+    LSC_E("div",{ className:"sheet-frame lsc-frame" },
     LSC_E("div",{ className:"lsc-stage"+(pics.drawing?" drawing":""), "aria-busy":pics.drawing?"true":"false", "data-look":look.id },
       isFrame ? (frameNow ? LSC_E("img",{ src:frameNow, alt:(space.name||"This place")+", its location image"+(quad ? ", camera "+view.n+": "+view.role : ""), draggable:false,
               "data-testid":"set-card-frame", className:quad ? "lsc-quad" : undefined, "data-quad":quad || undefined })
@@ -299,7 +306,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
       LSC_E("div",{ className:"lsc-seg", role:"group", "aria-label":"How the view is drawn" },
         K.LOOKS.map(x=>LSC_E("button",{ key:x.id, type:"button", "aria-pressed":x.id===look.id?"true":"false", title:x.title, disabled:cannot && !x.frame,
           onClick:()=>setPick(p=>({ ...p, look:x.id })) }, x.name))),
-      view && !cannot && (!isFrame || quad) && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view))),
+      view && !cannot && (!isFrame || quad) && LSC_E("span",{ className:"lsc-camtag", "data-testid":"set-card-camtag" }, K.camTag(view)),
+      // the set as the unsaved change of the floor plan would leave it
+      trial && !isFrame && LSC_E("span",{ className:"lsc-camtag lsc-trial", "data-testid":"set-card-trial", title:"The set as it will be once the floor plan is saved. Cancel brings the saved set back." },"Not saved yet"))),
     LSC_E("div",{ className:"lsc-body" },
       // the name, and the place and its rooms
       LSC_E("div",{ className:"lsc-head" },
@@ -319,9 +328,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
          tool; Location image is the picture with its versions and the making of it (they were two sections, and
          the making sat in a third). The Reference pack is gone: the switch on the picture shows the same three looks. */
       S.steps || null,
+      // the scenes that play here: a row of its own in the card's rhythm, as on a character's card (owner 2026-11-26)
+      S.scenes || null,
       LSC_E("div",{ className:"lsc-folds" },
-        // the scenes that play here, then the description of the place
-        S.scenes || null,
         // the description of the place, to read and to edit: the card's own section
         S.place || null,
 

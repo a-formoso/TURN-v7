@@ -26,6 +26,45 @@ function usePlanEdit(place, onUpdate, readOnly){
   const writable = ()=> !readOnly && typeof onUpdate==="function" && (typeof window.turnArtRoomWritable!=="function" || window.turnArtRoomWritable());
   const able = !!D && !!st && !!st.ready && writable();
   const change = fn=>setEdit(e=>{ if(!e) return e; const next = fn(e.plan); return next===e.plan ? e : { ...e, plan:next }; });
+  /* THE 3D SET FOLLOWS THE EDIT, BEFORE IT IS SAVED (owner 2026-11-26: "when a floor plan is changed, edited, or things
+     are moved, this reflects in the 3D set"): the film as a Save would leave it (floor-plan-drag.js preview: the plan,
+     the cameras that move or turn, the dressing), worked out each time something is let go. The set card draws its
+     views from it. While a wall is being dragged the last one stays. Nothing is saved. */
+  const livePlan = edit && !edit.hold ? edit.plan : null, basePlan = edit ? edit.base : null, shown = React.useRef(null);
+  const made = React.useMemo(()=>{ if(!livePlan || livePlan===basePlan || !D || typeof D.preview!=="function") return null;
+    try{ return D.preview(place, basePlan, livePlan, ((window.turnContinuity||{}).locations)||[]); }catch(_){ return null; } },[livePlan, basePlan]);
+  if(!edit) shown.current = null; else if(!edit.hold) shown.current = made;
+  /* AFTER A SAVE, EACH CAMERA'S VIEW IS LOOKED AT AGAIN (the app's own check of a view: one filled by a near surface,
+     or showing nothing of the set, fails). A camera that had a clear view before the change and has none after it is
+     named, with one button that places those cameras again; the others stay. Free. */
+  const [check, setCheck] = React.useState(null), [fixing, setFixing] = React.useState(false), run = React.useRef(0);
+  const PANELS = ["TL","TR","BL","BR"];
+  const lookAgain = (before, after, ids)=>{
+    const R = window.KinolotCloudRender; if(!R || typeof R.assessCameras!=="function") return;
+    const mine = ++run.current;
+    setTimeout(async ()=>{ const bad = [];
+      for(const id of ids){ const a = after.find(x=>x && String(x.id)===String(id)), b = before.find(x=>x && String(x.id)===String(id));
+        if(!a || !b || !Array.isArray(a.coverageViews) || !a.coverageViews.length) continue;
+        try{ const now = await R.assessCameras(a, after); let was = {}; try{ was = await R.assessCameras(b, before); }catch(_){ was = {}; }
+          const keys = PANELS.filter(k=>now && now[k] && !(was && was[k])); if(keys.length) bad.push({ id:a.id, name:a.name||"This place", keys }); }catch(_){}
+      }
+      if(run.current===mine && bad.length) setCheck({ bad }); }, 60);
+  };
+  const fixCameras = async ()=>{
+    const R = window.KinolotCloudRender; if(!check || fixing || !R || typeof R.proposeCamerasAuto!=="function") return;
+    setFixing(true); setError("");
+    try{
+      for(const b of check.bad){
+        const list = ((window.turnContinuity||{}).locations)||[], now = list.find(x=>x && x.id===b.id); if(!now) continue;
+        const proposal = await R.proposeCamerasAuto(now, list, { keep:PANELS.filter(k=>b.keys.indexOf(k)<0) });
+        const latest = ((window.turnContinuity||{}).locations)||[], still = latest.find(x=>x && x.id===b.id);
+        if(!still || !writable()) throw new Error("The open location changed. Open it again.");
+        onUpdate(b.id, { coverageViews:R.cameraProposalViews(still, proposal, latest) }, { kind:"suggested-cameras" });
+      }
+      setCheck(null); setNote("The cameras named were placed again for a clear view of the set as it is now. The others were not moved.");
+    }catch(e){ setError((e && e.message) || "The cameras could not be placed again. Nothing was changed."); }
+    setFixing(false);
+  };
   const save = ()=>{
     if(!edit) return;
     try{
@@ -39,24 +78,33 @@ function usePlanEdit(place, onUpdate, readOnly){
          with it. And the dressing that stands on a thing that moved (the clutter on a worktop) goes with that thing.
          Each is saved on its own card, in the same step as the plan. */
       const C = (c.walls && c.walls.length) ? D.carry(edit.base, c.plan) : null;
-      const f = D.follow(C, ((window.turnContinuity||{}).locations)||[], c.spaces, c.ownerId, edit.base, c.moved), more = f.patches, cams = f.cameras, pieces = f.pieces;
+      /* AND THE CAMERAS KEEP THEIR VIEW (owner 2026-11-26): one aimed at a thing follows it, a wide one turns with
+         its room, one set by hand is never turned (floor-plan-drag.js follow, with the plan as it is saved). */
+      const before = ((window.turnContinuity||{}).locations)||[];
+      const f = D.follow(C, before, c.spaces, c.ownerId, edit.base, c.moved, c.plan), more = f.patches, cams = f.cameras, pieces = f.pieces;
       onUpdate(c.ownerId, { spatialPlan:c.plan, ...(more[c.ownerId]||{}) }, { kind:"floor-plan-edit" });
       Object.keys(more).forEach(id=>{ if(id!==String(c.ownerId)) onUpdate(id, more[id], { kind:"floor-plan-edit" }); });
+      // each camera's view, looked at again on the set as it is now
+      setCheck(null);
+      try{ lookAgain(before, before.map(L=>{ if(!L) return L; const m = more[String(L.id)];
+        return String(L.id)===String(c.ownerId) ? { ...L, spatialPlan:c.plan, ...(m||{}) } : m ? { ...L, ...m } : L; }), c.spaces); }catch(_){}
       // a scene's marks that stand beside what moved follow it, and a wall keeps a scene's marks and cameras in the room
       let followed = 0;
       try{ if(typeof window.turnFloorPlanMoved==="function") followed = Number(window.turnFloorPlanMoved(c.spaces, c.moved, C)) || 0; }catch(_){ followed = 0; }
       setEdit(null); setError("");
       const many = (n, one, more2)=>n+" "+(n===1 ? one : more2);
       setNote("Saved. The set, its four views and every shot\u2019s drawing follow the new floor plan."
-        +(cams ? " "+many(cams, "camera of this place moved with a wall.", "cameras of this place moved with the walls.") : "")
+        +(cams ? " "+many(cams, "camera of this place moved or turned to keep its view.", "cameras of this place moved or turned to keep their views.") : "")
+        +(f.hand ? " "+many(f.hand, "camera set by hand kept its angle: look at its view.", "cameras set by hand kept their angle: look at their views.") : "")
         +(pieces ? " "+many(pieces, "piece of the set\u2019s dressing moved with it.", "pieces of the set\u2019s dressing moved with it.") : "")
         +(C && C.any && pieces ? " Dressing made to the old walls\u2019 lengths (a rail, a skirting) may no longer fit: dress the set again if it shows." : "")
         +(followed ? " "+many(followed, "mark or camera of a planned scene moved with it.", "marks and cameras of planned scenes moved with it.") : "")
         +" The location image was made before this change: make it again when the set looks right.");
     }catch(e){ setError((e && e.message) || "The floor plan could not be saved. Nothing was changed."); }
   };
-  if(!edit) return { able, on:false, note, error:"", start:()=>{ if(!able) return; setError(""); setNote(""); setEdit({ plan:st.plan, base:st.plan, undo:[], sel:"", hold:false, stop:"" }); } };
-  return { able:true, on:true, plan:edit.plan, sel:edit.sel, error, note:"",
+  if(!edit) return { able, on:false, note, error, check, fixing, fixCameras,
+    start:()=>{ if(!able) return; run.current++; setError(""); setNote(""); setCheck(null); setEdit({ plan:st.plan, base:st.plan, undo:[], sel:"", hold:false, stop:"" }); } };
+  return { able:true, on:true, plan:edit.plan, sel:edit.sel, error, note:"", preview:shown.current,
     changed:D.changed(edit.base, edit.plan), canUndo:edit.undo.length>0,
     // (holding: a wall is being dragged, so the picture keeps its scale until it is let go; stop: what stopped it)
     holding:!!edit.hold, stop:edit.stop||"",
@@ -152,10 +200,19 @@ function PlanEditLayer({ model, edit, metres }){
    and what the last save did. Editing: one line of help, then Undo, Cancel, Save. */
 function PlanEditBar({ edit }){
   if(!edit || (!edit.able && !edit.note)) return null;
+  // (a camera's number is its place in the four views: 1 to 4)
+  const N = { TL:1, TR:2, BL:3, BR:4 }, bad = !edit.on && edit.check && edit.check.bad ? edit.check.bad : [];
   if(!edit.on) return FPD_E("div",{ className:"lsc-edit-bar", "data-testid":"plan-edit-bar" },
     edit.able && FPD_E("button",{ type:"button", className:"lsc-ghost", "data-testid":"plan-edit-start", onClick:edit.start,
       title:"Drag a wall, a piece of furniture, a door or a window to where it should be. Nothing is saved until you press Save." },"Move things and walls"),
-    edit.note && FPD_E("p",{ className:"lsc-mono dim", role:"status", "data-testid":"plan-edit-note" }, edit.note));
+    edit.note && FPD_E("p",{ className:"lsc-mono dim", role:"status", "data-testid":"plan-edit-note" }, edit.note),
+    // after a save: the cameras that lost their clear view, and one button that places them again
+    bad.length>0 && FPD_E("div",{ className:"lsc-edit-check", role:"status", "data-testid":"plan-edit-cameras" },
+      FPD_E("p",{ className:"lsc-mono" }, bad.map(b=>(b.keys.length===1 ? "Camera "+N[b.keys[0]] : "Cameras "+b.keys.map(k=>N[k]).join(", ").replace(/, (\d)$/, " and $1"))+" of "+b.name
+        +(b.keys.length===1 ? " no longer has" : " no longer have")+" a clear view of the set.").join(" ")),
+      edit.able && FPD_E("button",{ type:"button", className:"lsc-ghost", disabled:!!edit.fixing, "data-testid":"plan-edit-fix-cameras", onClick:edit.fixCameras,
+        title:"Place these cameras again for a clear view of the set as it is now. The other cameras stay where they are. Free." }, edit.fixing ? "Placing the cameras\u2026" : "Fix cameras")),
+    edit.error && FPD_E("p",{ className:"loc-spatial-error", role:"alert", "data-testid":"plan-edit-error" }, edit.error));
   const D = window.KinolotPlanDrag, isWall = /^wall:/.test(edit.sel||"");
   const wall = isWall ? D.walls(edit.plan).find(w=>w.id===edit.sel) : null, room = wall ? D.where(edit.plan).find(x=>x.id==="room:"+wall.spaceId) : null;
   const sel = wall ? { name:wall.name, text:(Math.round(wall.length*100)/100)+" m long. "+(wall.locked ? wall.locked : (wall.spaceName||"The room")+" is "+(room ? room.text.split(/\. (?:Walls|Sides), in order/)[0] : "")+".") }

@@ -2530,8 +2530,9 @@ function LocationSheet({ l, project, scenes, drafts, onUpdate, onDelete, onDraft
       slot("scenes",React.createElement("div",{className:"prop-scenes location-scenes"},
         React.createElement("span",{className:"prop-scenes-lab"},"SCENES"),
         React.createElement(SceneChipPager,{ none:"No scenes reference this place",
-          // each scene with its hour ("05 · Dawn": owner 2026-11-25), as the variants below are named
-          items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0")+(sceneTimeOf[String(s.no)] ? " \u00b7 "+(typeof window.shotHourWords==="function" ? window.shotHourWords(sceneTimeOf[String(s.no)][0]) : sceneTimeOf[String(s.no)][0]) : ""), className:"prop-scene-chip",
+          // each scene by its number alone, as on a character's or a prop's card (owner 2026-11-26: "instead of showing
+          // (01) night, just show the number"); its hour is in the chip's tooltip, and the variants below are named by it
+          items: locScenes.map(s=>({ key:s.id, label:String(s.no).padStart(2,"0"), className:"prop-scene-chip",
             title:(s.title||("Scene "+s.no))+(sceneTimeOf[String(s.no)]?" \u00b7 "+sceneTimeOf[String(s.no)].join(", "):""), onClick:()=>onChipClick&&onChipClick(s.id) })) }))),
 
       // THE CARD IN FIVE SECTIONS (owner 2026-11-21, "build the 5 sections, no numbers"): The place, Floor plan, The set in 3D,

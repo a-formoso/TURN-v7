@@ -310,6 +310,13 @@
         let now=null; try{ now=root.locationInnerWall(sp,o); }catch(_){ now=null; }
         const L0=Math.hypot(run.b[0]-run.a[0],run.b[1]-run.a[1]), t0=Math.hypot(c[0]-run.a[0],c[1]-run.a[1]), need=Math.min(GAP,t0-w/2,L0-t0-w/2);
         if(!now||!(now.at-w/2>=need-1e-6)||!(now.length-now.at-w/2>=need-1e-6)) return {ok:false,why:(o0.name||"A doorway")+" stands in a wall of its own inside "+room+": this wall cannot come that close to it."};
+        /* ITS OWN WALL STILL ENDS WHERE IT ENDED (2026-11-26, found by a dry run on the film's flat): an inner wall runs
+           across the room until it meets the outline. Widen the hall beside the kitchen and the wall that holds the
+           kitchen doorway lost the corner it ended at, and ran on down the middle of the hall. Each end must still meet
+           a wall of the outline it met before (a corner counts for both its walls). */
+        const meets=(P,q)=>{ const out=[]; for(let i=0;i<P.length;i++) if(segDist(q,P[i],P[(i+1)%P.length])<=0.02) out.push(i); return out; };
+        const kept=(q0,q1)=>{ const m1=meets(poly,q1); return !!q1&&meets(old,q0).some(i=>m1.indexOf(i)>=0); };
+        if(!kept(run.a,pt(now.a))||!kept(run.b,pt(now.b))) return {ok:false,why:"The wall inside "+room+" that holds "+(o0.name||"a doorway")+" ends at this corner. Moved this way, that wall would run on across the room."};
         continue;
       }
       if([iP,e,iN].indexOf(run.edge)<0) continue;
@@ -407,12 +414,38 @@
        clutter on a worktop, the mugs on a shelf: inside the thing's outline, at its top) goes with that thing, with
        or without a wall (base = the plan before, moved = moves()); else it goes with a wall it stood within 30 cm
        of (a picture rail, a radiator), and a wall that passes one pushes it ahead.
+     THE CAMERAS KEEP THEIR VIEW (owner 2026-11-26: "how the walls being moved affect the camera angle ... how the 3D
+       set should respond"). With edited (the plan after the change) each stored camera of these cards is looked at:
+       · a camera aimed at a thing (pose.target = a thing or a door of the plan, in the middle of its picture:
+         within 20 degrees of where it looks) follows its subject: when the thing
+         moved and the camera can stand as far from it as before (inside its room, 30 cm clear of the walls, not in
+         a piece of furniture) it moves by the same step, so its picture of the thing is the same; else, or when a
+         wall carried the camera, it turns (and tilts) so the thing sits where it sat in its picture;
+       · any other camera (a wide view, or one whose named thing is not what it looks at) in a room whose walls
+         moved turns with the room: the middle of the room stays
+         where it was in its picture;
+       · a camera SET BY HAND (pose.basis "user") is only ever moved by a wall, never turned: it is counted in
+         `hand` when its room or its subject changed, so the page can say "check it".
+       Without edited the cameras are only moved by the walls, as before. → also turned (how many were turned).
      sceneMoves(scenePlans, spaces, moved, C, shots, keyOf) → {next:{sceneId:plan}, count}: the planned scenes of
        these places: a mark beside a thing that moved goes with it (moved = moves()); with C, every other mark is
        kept 25 cm inside the room and each shot camera 30 cm (the cameras of the shots staged in these places; all of
        them when the scene has no other place). */
-  function follow(C,locations,spaces,ownerId,base,moved){
-    const out={patches:{},cameras:0,pieces:0}, ids=arr(spaces).map(String);
+  const DEG=Math.PI/180, bearing=(a,b)=>Math.atan2(b[0]-a[0],b[1]-a[1])/DEG;   // clockwise from north (+Y), as a camera's yaw
+  const turn=d=>((d+540)%360)-180, r1=v=>Math.round(v*10)/10;
+  const thingAt=(plan,id)=>{ if(!id) return null; const a=arr(obj(plan).anchors).find(x=>x&&String(x.id)===String(id)); if(a&&pt(a.xy)) return pt(a.xy);
+    for(const sp of spacesOf(plan)){ const o=arr(sp.openings).find(x=>x&&String(x.id)===String(id)); if(o&&pt(o.centre)) return pt(o.centre); } return null; };
+  const centre=poly=>{ let a=0,x=0,y=0; for(let i=0;i<poly.length;i++){ const p=poly[i], q=poly[(i+1)%poly.length], c=p[0]*q[1]-q[0]*p[1]; a+=c; x+=(p[0]+q[0])*c; y+=(p[1]+q[1])*c; }
+    return Math.abs(a)<1e-9?null:[x/(3*a),y/(3*a)]; };
+  // can a camera stand here: inside its room, clear of its walls, and not in a thing that is as tall as it stands
+  const canStand=(plan,spaceId,v)=>{ const sp=spacesOf(plan).find(x=>String(x.id)===String(spaceId)), poly=sp?polyOf(sp):[]; if(poly.length<3) return false;
+    const xy=[v[0],v[1]]; if(!inside(xy,poly)||polyDist(xy,poly)<CAM_CLEAR) return false;
+    return !arr(obj(plan).anchors).some(a=>{ const c=pt(a&&a.xy), size=arr(a&&a.size).map(Number); if(!c||size.length!==3||!size.every(Number.isFinite)) return false;
+      const t=(Number(a.facing)||0)*DEG, dx=xy[0]-c[0], dy=xy[1]-c[1], lx=dx*Math.cos(t)-dy*Math.sin(t), ly=dx*Math.sin(t)+dy*Math.cos(t);
+      return Math.abs(lx)<=size[0]/2+0.1&&Math.abs(ly)<=size[1]/2+0.1&&(Number(a.z)||0)+size[2]/2>(Number(v[2])||0)-0.2; }); };
+  function follow(C,locations,spaces,ownerId,base,moved,edited){
+    const out={patches:{},cameras:0,pieces:0,turned:0,hand:0}, ids=arr(spaces).map(String);
+    const after=edited&&typeof edited==="object"?edited:null, went=arr(moved).length>0;
     const wallsMoved=C&&C.any&&typeof C.point==="function"?C:null;
     // the things that moved, as they stood before: outline, top, and how far each went
     const gone=arr(moved).map(m=>{ const a=arr(obj(base).anchors).find(x=>x&&String(x.id)===String(m&&m.id)), xy=pt(a&&a.xy), size=arr(a&&a.size).map(Number);
@@ -420,13 +453,39 @@
       .sort((x,y)=>x.size[0]*x.size[1]-y.size[0]*y.size[1]);
     const onThing=v=>gone.find(g=>{ const dx=v[0]-g.xy[0], dy=v[1]-g.xy[1], cs=Math.cos(g.t), sn=Math.sin(g.t), lx=dx*cs-dy*sn, ly=dx*sn+dy*cs, z=Number(v[2]);
       return Math.abs(lx)<=g.size[0]/2+0.05&&Math.abs(ly)<=g.size[1]/2+0.05&&Number.isFinite(z)&&Number.isFinite(g.top)&&z>=g.top-0.15&&z<=g.top+0.5; });
-    if(!wallsMoved&&!gone.length) return out;
+    if(!wallsMoved&&!gone.length&&!(after&&went)) return out;
     arr(locations).forEach(L=>{
       if(!L||(ids.indexOf(String(L.id))<0&&String(L.id)!==String(ownerId))) return;
       const space=ids.indexOf(String(L.id))>=0?String(L.id):"", patch={};
-      if(wallsMoved&&Array.isArray(L.coverageViews)){ let n=0;
-        const views=L.coverageViews.map(v=>{ const pos=v&&v.pose&&v.pose.position; if(!Array.isArray(pos)) return v;
-          const q=C.point(pos,{space,ride:CAM_RIDE,clear:CAM_CLEAR}); if(q===pos) return v; n++; return {...v,pose:{...v.pose,position:q}}; });
+      if((wallsMoved||after)&&Array.isArray(L.coverageViews)){ let n=0;
+        const room0=space&&after?spacesOf(base).find(x=>String(x.id)===space):null, room1=space&&after?spacesOf(after).find(x=>String(x.id)===space):null;
+        const reshaped=!!room0&&!!room1&&JSON.stringify(polyOf(room0))!==JSON.stringify(polyOf(room1));
+        const views=L.coverageViews.map(v=>{ const pose=v&&v.pose, pos=pose&&pose.position; if(!Array.isArray(pos)||!pt(pos)) return v;
+          const p0=pos.map(Number), yaw0=Number(pose.yaw), hand=pose.basis==="user";
+          let q=wallsMoved?C.point(pos,{space,ride:CAM_RIDE,clear:CAM_CLEAR}):pos, yaw=yaw0, pitch=pose.pitch;
+          if(after&&Number.isFinite(yaw0)){
+            const tid=String(pose.target||""); let t0=thingAt(base,tid), t1=thingAt(after,tid);
+            // (a camera may name a thing it does not look at: one fitted into a tight space keeps the name of the
+            //  station it was planned for. Its subject is a thing in the middle of its picture, within 20 degrees.)
+            if(t0&&t1&&Math.abs(turn(bearing(p0,t0)-yaw0))>20) t0=t1=null;
+            if(t0&&t1){ const by=[t1[0]-t0[0],t1[1]-t0[1]], subject=Math.hypot(by[0],by[1])>1e-6;
+              if(hand){ if(subject||q!==pos||reshaped) out.hand++; }
+              else{
+                // the subject moved and no wall carried the camera: it goes the same step, when it can stand there
+                if(subject&&q===pos&&space){ const cand=[r2(p0[0]+by[0]),r2(p0[1]+by[1])].concat(p0.slice(2)); if(canStand(after,space,cand)) q=cand; }
+                const q0=q.map(Number), d0=Math.hypot(t0[0]-p0[0],t0[1]-p0[1]), d1=Math.hypot(t1[0]-q0[0],t1[1]-q0[1]);
+                if((subject||q!==pos)&&d0>0.05&&d1>0.05){
+                  yaw=r1((yaw0+turn(bearing(q0,t1)-bearing(p0,t0))+360)%360);
+                  // (the height at which the middle of the picture passes over the subject stays the same)
+                  if(Number.isFinite(Number(pose.pitch))) pitch=r2(Math.max(-40,Math.min(25,Math.atan2(Math.tan(Number(pose.pitch)*DEG)*d0,d1)/DEG))); } } }
+            else if(reshaped){
+              if(hand) out.hand++;
+              else{ const c0=centre(polyOf(room0)), c1=centre(polyOf(room1)), q0=q.map(Number);
+                if(c0&&c1&&Math.hypot(c0[0]-p0[0],c0[1]-p0[1])>0.3&&Math.hypot(c1[0]-q0[0],c1[1]-q0[1])>0.3) yaw=r1((yaw0+turn(bearing(q0,c1)-bearing(p0,c0))+360)%360); } } }
+          const aimed=Number.isFinite(yaw0)&&(Math.abs(turn(yaw-yaw0))>=0.1||(Number.isFinite(Number(pose.pitch))&&Math.abs(Number(pitch)-Number(pose.pitch))>=0.01));
+          if(q===pos&&!aimed) return v;
+          n++; if(aimed) out.turned++;
+          return {...v,pose:{...pose,position:q,...(aimed?{yaw,pitch}:{})}}; });
         if(n){ patch.coverageViews=views; out.cameras+=n; } }
       const pv=L.previs;
       if(pv&&typeof pv==="object"&&pv.v===1){ let n=0;
@@ -500,5 +559,19 @@
     }catch(e){ return {ok:false,error:(e&&e.message)||"The floor plan could not be saved. Nothing was changed."}; }
   }
 
-  root.KinolotPlanDrag={SNAP,objects,openings,spaceOf,runOf,wallOf,edgesOf,moveObject,moveOpening,walls,slideWall,moveWall,carry,changed,follow,sceneMoves,roomText,moves,placementOf,where,byHand,commit};
+  /* THE EDIT AS THE FILM WOULD BE IF IT WERE SAVED NOW (owner 2026-11-26: "when a floor plan is changed, edited, or
+     things are moved, this reflects in the 3D set"): the film's locations with the edited plan on its place, and each
+     card's cameras and dressing as Save would write them. The set card draws its 3D views from it while the plan is
+     being changed. Nothing is saved. → null when nothing moved or the change could not be saved (Save says why);
+     else {list, key, ownerId, cameras, turned, hand, pieces}. key changes with every change of the plan. */
+  function preview(place,base,edited,locations){
+    const c=commit(place,base,edited,locations); if(!c||!c.ok||c.same) return null;
+    const C=c.walls&&c.walls.length?carry(base,c.plan):null, f=follow(C,locations,c.spaces,c.ownerId,base,c.moved,c.plan);
+    const list=arr(locations).map(L=>{ if(!L) return L; const more=f.patches[String(L.id)];
+      return String(L.id)===String(c.ownerId)?{...L,spatialPlan:c.plan,...(more||{})}:more?{...L,...more}:L; });
+    const str=JSON.stringify([c.plan&&c.plan.anchors,c.plan&&c.plan.coordinates,f.patches]); let h=5381; for(let i=0;i<str.length;i++) h=((h<<5)+h+str.charCodeAt(i))|0;
+    return {list,key:(h>>>0).toString(36)+":"+str.length,ownerId:String(c.ownerId),cameras:f.cameras,turned:f.turned,hand:f.hand,pieces:f.pieces};
+  }
+
+  root.KinolotPlanDrag={SNAP,objects,openings,spaceOf,runOf,wallOf,edgesOf,moveObject,moveOpening,walls,slideWall,moveWall,carry,changed,follow,sceneMoves,roomText,moves,placementOf,where,byHand,commit,preview};
 })(typeof window!=="undefined"?window:globalThis);
