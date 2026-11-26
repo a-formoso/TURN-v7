@@ -156,5 +156,23 @@
     return out;
   }
 
-  root.KinolotBeatFrames={CLIP,POSE_N,lensOf,fromPack,normalize,frames,states,timeline,at,shots};
+  /* THE FRAME BOARD OF A BEAT, FROM WHAT ITS PLAN ALREADY HOLDS (stage 1, owner 2026-11-26: "put your frame board on
+     the beat card"). Until a beat's frames are written out one by one, each of its shots (a moment is a shot) is
+     drawn as it STARTS, MIDWAY when someone crosses the room, and as it ENDS: those are its frames. A moment's
+     seconds are shared out among them: it rests on how it starts, travels, and rests on how it ends.
+     moments = [{n, name, seconds, says, cam, shotId, steps:["start","mid","end"]}] (steps = the drawings it has)
+     → {frames:[{id "beat.moment.frame", step, shotId, beat, moment, momentName, cam, says, first, last, t0, t1, t2}],
+        moments:[{beat, n, name, from, to, seconds}], seconds} */
+  const STEP_WORD={start:"Starts",mid:"Midway",end:"Ends"};
+  function board(beatN,beatName,moments){
+    const bn=Math.max(1,Math.round(num(beatN,1)));
+    const beat={n:bn,name:text(beatName,80),moments:arr(moments).map((m,mi)=>{ const o=obj(m), steps=arr(o.steps).filter(s=>STEP_WORD[s]), list=steps.length?steps:["start"];
+      const D=clamp(num(o.seconds,4),0.5,MAX_SECONDS), k=list.length, n=Math.max(1,Math.round(num(o.n,mi+1)));
+      const time=i=>k===1?[0,D]:i===0?[0,D*(k===2?0.3:0.25)]:i===k-1?[D*(k===2?0.5:0.6/(k-1)),D*(k===2?0.2:0.15)]:[D*0.6/(k-1),0];
+      return {n,name:text(o.name,80),frames:list.map((s,i)=>({id:bn+"."+n+"."+(i+1),cam:text(o.cam,120),into:r2(time(i)[0]),hold:r2(time(i)[1]),says:text(o.says,400),set:{},step:s,stepWord:STEP_WORD[s],shotId:String(o.shotId||"")}))}; })};
+    const b={beats:[beat]}, tl=timeline(b);
+    return {frames:frames(b).map((f,i)=>({...f,...tl.frames[i]})),moments:tl.moments,seconds:tl.seconds};
+  }
+
+  root.KinolotBeatFrames={CLIP,POSE_N,STEP_WORD,lensOf,fromPack,normalize,frames,states,timeline,at,shots,board};
 })(typeof window!=="undefined"?window:globalThis);

@@ -107,5 +107,35 @@ test("7 the limits are the Stage's own", () => {
   assert.ok(/Primary beat-first model: timed 4.30s clips/.test(stage), "and at least 4 s");
 });
 
+test("8 the frame board of a beat from what its plan already holds: a shot's frames are how it starts, midway, and how it ends", () => {
+  const bd = F.board(1, "", [{ n: 1, name: "Medium", seconds: 5, says: "Come in. Tea?", cam: "Medium shot", shotId: "a", steps: ["start", "end"] },
+    { n: 2, name: "Two-shot", seconds: 6, says: "", cam: "", shotId: "b", steps: ["start", "mid", "end"] }, { n: 3, name: "Insert", seconds: 4, says: "The keys.", cam: "Insert", shotId: "c", steps: ["start"] }]);
+  assert.deepEqual(plain(bd.frames.map(f => [f.id, f.step, f.stepWord, f.shotId, f.first, f.t0, f.t2])), [["1.1.1", "start", "Starts", "a", true, 0, 1.5], ["1.1.2", "end", "Ends", "a", false, 1.5, 5],
+    ["1.2.1", "start", "Starts", "b", true, 5, 6.5], ["1.2.2", "mid", "Midway", "b", false, 6.5, 8.3], ["1.2.3", "end", "Ends", "b", false, 8.3, 11], ["1.3.1", "start", "Starts", "c", true, 11, 15]]);
+  assert.equal(bd.seconds, 15, "the beat lasts as long as its shots"); assert.deepEqual(plain(bd.moments.map(m => [m.n, m.name, m.from, m.seconds])), [[1, "Medium", 0, 5], [2, "Two-shot", 5, 6], [3, "Insert", 11, 4]]);
+  assert.equal(bd.frames[0].says, "Come in. Tea?"); assert.equal(bd.frames[5].cam, "Insert"); assert.equal(bd.frames[0].momentName, "Medium");
+  // a shot with no drawing yet still has its place on the board; a step the board does not know is left out
+  assert.deepEqual(plain(F.board(2, "", [{ n: 1, name: "Wide", seconds: 3, shotId: "x", steps: [] }, { n: 2, name: "Close", seconds: 3, shotId: "y", steps: ["start", "sideways", "end"] }]).frames.map(f => f.id)), ["2.1.1", "2.2.1", "2.2.2"]);
+});
+
+test("9 the page: the Frame board button on a beat's card opens the board across the beat's row; nothing in it makes an image or saves", () => {
+  const ui = read("app/beat-frames-ui.jsx"), face = read("app/shot-beat-card-ui.jsx"), shots = read("app/shots-ui.jsx"), strip = read("app/shot-previs-ui.jsx"), html = read("TURN.html"), css = read("app/styles.css");
+  assert.ok(face.includes('"data-testid":"beat-card-board"') && face.includes('board ? "Hide the frame board" : "Frame board"'));
+  assert.ok(shots.includes("board:!!boardByBeat[L.n], onBoard:window.BeatFrameBoard ? (on)=>setBoardByBeat(o=>({...o,[L.n]:!!on})) : null,") && shots.includes('"data-testid":"beat-row-board"'));
+  // the frames are the drawings the beat already has, in any of the three looks, each kept apart
+  assert.ok(strip.includes("function beatStripRows(info, ctx, look){") && strip.includes('if(look) info = { ...info, sig:info.sig+"|look:"+look };') && strip.includes("...(look ? { look } : {}),"));
+  assert.ok(ui.includes("window.beatStripRows(info, ctx, look)") && ui.includes('if(r.start) steps.push("start"); if(r.mid) steps.push("mid"); if(r.end) steps.push("end");'));
+  // what the owner's own board shows: moment, name and frame; Previous, Play frames, Next; the time; a square a frame
+  for (const t of ['"Moment "+f.moment+" · "+f.momentName+" · frame "+f.id', '"Previous"', 'playing ? "Stop" : "Play frames"', '"Next"', 'secs(f.t0)+" / "+secs(board.seconds)+" s"', '"data-testid":"beat-frame-board-squares"']) assert.ok(ui.includes(t), t);
+  // a moment is a shot, and its first frame is the shot's starting frame: said under the picture and marked on its square
+  assert.ok(ui.includes('"This is the starting frame of shot "+f.beat+"."+f.moment+": its frame is made from this picture."') && ui.includes('className:"bfb-square"+(x.first?" key":"")') && css.includes(".bfb-square.key{"));
+  // Play frames gives each frame its own time
+  assert.ok(ui.includes("const t = setTimeout(()=>setAt(i+1), Math.max(300,(f.t2-f.t0)*1000));"));
+  assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made, nothing is charged, nothing is saved");
+  const at = n => html.indexOf(n); const keys = ["20261126-board1"];
+  assert.ok(at("app/beat-frames.js?v=") > 0 && at("app/beat-frames.js?v=") < at("app/beat-frames-ui.jsx?v=") && at("app/shot-previs-ui.jsx?v=") > 0, "the rules are on the page before the board that reads them");
+  assert.ok(keys.some(k => html.includes('app/beat-frames.js?v=' + k + '"')) && keys.some(k => html.includes('app/beat-frames-ui.jsx?v=' + k + '"')));
+});
+
 console.log("\n" + passed + " passed, " + failed + " failed");
 process.exit(failed ? 1 : 0);

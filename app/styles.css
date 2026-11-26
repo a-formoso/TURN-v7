@@ -13033,3 +13033,32 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .loc-where-list{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font:12.5px/1.45 var(--f-ui);color:var(--txt-1)}
 .loc-where-list b{color:var(--txt-0);font-weight:600}
 .loc-where-list li.hand b::after{content:" \00b7 by hand";font-weight:500;color:var(--amber-ink,#8a5a12)}
+
+/* THE FRAME BOARD OF A BEAT (owner 2026-11-26, their own board of a scene built in code): one picture at a time across
+   the beat's row, with what the frame is, the frames as squares grouped by moment, and Previous / Play frames / Next.
+   The first square of each moment has a ring: it is that shot's starting frame. */
+.bfb{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,1fr);gap:16px;align-items:start;min-width:0}
+.bfb-stage{position:relative;aspect-ratio:16/9;border:1px solid var(--line-2);border-radius:var(--r-l);overflow:hidden;background:var(--bg-2)}
+.bfb-stage img{display:block;width:100%;height:100%;object-fit:cover;cursor:zoom-in;transition:opacity .2s}
+.bfb-stage img.wait{opacity:.6}
+.bfb-none{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:20px;text-align:center;color:var(--txt-2);font-size:12px}
+.bfb-none b{font-size:13px;color:var(--txt-0)}
+.bfb-wait{left:auto;right:10px}
+.bfb-side{display:flex;flex-direction:column;gap:11px;min-width:0}
+.bfb-title{margin:0;font:600 16px/1.3 var(--f-display);color:var(--txt-0)}
+.bfb-cam{margin:0;font:400 9.5px/1.45 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--txt-3)}
+.bfb-says{margin:0;font:13.5px/1.45 var(--f-ui);color:var(--txt-0)}
+.bfb-squares{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.bfb-moment{display:inline-flex;align-items:center;gap:5px}
+.bfb-moment-n{font:400 10px/1 var(--f-mono);color:var(--txt-3);min-width:10px}
+.bfb-square{width:22px;height:22px;padding:0;border:1px solid var(--line-2);border-radius:6px;background:var(--bg-2);cursor:pointer;transition:.12s}
+.bfb-square.key{border-color:var(--txt-1);border-width:2px}
+.bfb-square:hover{border-color:var(--txt-0)}
+.bfb-square[aria-pressed="true"]{background:var(--hs-amber,var(--pos));border-color:var(--hs-amber,var(--pos))}
+.bfb-square:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.bfb-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.bfb-acts .sbc-btn{min-height:32px;padding:3px 14px;font-size:12.5px}
+.bfb-acts .sbc-btn.primary{min-width:108px}
+.bfb-time{margin-left:auto;font:400 11px/1 var(--f-mono);color:var(--txt-2);white-space:nowrap}
+@media (max-width:860px){ .bfb{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:640px){ .bfb-acts .sbc-btn{min-height:44px} .bfb-square{width:30px;height:30px} }

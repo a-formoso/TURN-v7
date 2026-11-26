@@ -19,7 +19,7 @@ function useSbcSeen(ref){
   },[seen]);
   return seen;
 }
-function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, onView, readOnly=false, onAddShot, momentsLine=null, busy=false, strip=false, onStrip=null }){
+function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, onView, readOnly=false, onAddShot, momentsLine=null, busy=false, strip=false, onStrip=null, board=false, onBoard=null }){
   const K = window.KinolotBeatCard;
   const ref = React.useRef(null), seen = useSbcSeen(ref);
   const [, tick] = React.useState(0);
@@ -91,6 +91,10 @@ function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, on
     SBC_E("div",{className:"sbc-acts"},
       SBC_E("button",{type:"button",className:"sbc-btn primary","data-testid":"beat-card-stage",
         title:"Open the Stage on this beat’s clip. Nothing is rendered until you press Generate there.",onClick:toStage},"Send this beat to the Stage"),
+      // the beat as a board of frames, one picture at a time, played in order (beat-frames-ui.jsx)
+      onBoard && SBC_E("button",{type:"button",className:"sbc-btn","data-testid":"beat-card-board","aria-expanded":board?"true":"false",disabled:!info,
+        title:info ? "The beat frame by frame: each shot as it starts, midway and as it ends, one picture at a time, with Previous, Play frames and Next. Free." : "Plan this scene first (Scene plan, above): a beat is drawn from its plan.",
+        onClick:()=>onBoard(!board)},board ? "Hide the frame board" : "Frame board"),
       SBC_E("div",{className:"sbc-acts-row"},
         SBC_E("button",{type:"button",className:"sbc-btn","data-testid":"beat-card-draw","aria-expanded":strip?"true":"false",disabled:!info,
           title:info ? "The whole beat staged once in code: every shot from start to end, with the frames under their drawings. Free." : "Plan this scene first (Scene plan, above): a beat is drawn from its plan.",

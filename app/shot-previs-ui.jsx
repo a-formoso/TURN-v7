@@ -367,12 +367,14 @@ function beatStripInfo(scene, shots, sceneShots, ctx){
   return { plan, list, staged, sig, endOwnerId };
 }
 const BEAT_STRIP_DRAWING = new Map();
-function beatStripRows(info, ctx){
+function beatStripRows(info, ctx, look){
   if(!info || !info.sig) return Promise.resolve(null);
+  // (look = "clay" or "depth": the same beat drawn in that look, for the frame board; kept apart from the colour drawings)
+  if(look) info = { ...info, sig:info.sig+"|look:"+look };
   if(BEAT_STRIP_KEPT.has(info.sig)) return Promise.resolve(BEAT_STRIP_KEPT.get(info.sig));
   if(BEAT_STRIP_DRAWING.has(info.sig)) return BEAT_STRIP_DRAWING.get(info.sig);
   const cast = Object.values(((ctx||{}).charById)||{}), props = Object.values(((ctx||{}).propById)||{});
-  const draw = ()=> window.ShotPrevis.beat(info.plan, info.list, { list:ctx.locations||[], cast, props, width:640, states:info.staged,
+  const draw = ()=> window.ShotPrevis.beat(info.plan, info.list, { list:ctx.locations||[], cast, props, width:640, states:info.staged, ...(look ? { look } : {}),
     locationOf:(sh)=>shotPrevisPlace(sh, info.plan, ctx), cameraOf:(sh)=>shotPrevisCamera(sh, info.plan) });
   const turn = shotPrevisLine.then(draw, draw);
   shotPrevisLine = turn.then(()=>{}, ()=>{});

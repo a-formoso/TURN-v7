@@ -2646,6 +2646,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
      open one, so a run of frames still finds each card's own generator. */
   const [openByBeat, setOpenByBeat] = React.useState({});
   const [stripByBeat, setStripByBeat] = React.useState({});   // the beats whose drawings are showing ("Draw the beat")
+  const [boardByBeat, setBoardByBeat] = React.useState({});   // the beats whose frame board is showing ("Frame board")
   const [addBeat, setAddBeat] = React.useState(null);
   React.useEffect(()=>{
     const h = ()=> setNeedsTick(t=>t+1);
@@ -2960,6 +2961,7 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
                   _el("div",{className:"sbc-side"},_el(window.ShotBeatFace,{L,lanesLen:lanes.length,bm,scene,ctx,ordered,openId:openNow,onView,readOnly,busy:!!renderBusy,
                     onOpen:(id)=>setOpenByBeat(o=>({...o,[L.n]:id})),
                     strip:!!stripByBeat[L.n], onStrip:(on)=>setStripByBeat(o=>({...o,[L.n]:!!on})),
+                    board:!!boardByBeat[L.n], onBoard:window.BeatFrameBoard ? (on)=>setBoardByBeat(o=>({...o,[L.n]:!!on})) : null,
                     onAddShot:(onAddShot&&!readOnly)?()=>setAddBeat(L.n):null,
                     momentsLine:beatMomentsLine({L:Lopen,scene,ctx,characters,bm,primary,momentShots,onSplitMoments,onJoinMoments,busy:busyAll,readOnly})})),
                   _el("div",{className:"sbc-open"},
@@ -2975,6 +2977,10 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
                       _el(MomentShotCard,{sh, L, scene, ctx, characters, propsAvail, ordered, firstId, toggleHead,
                         onUpdate, onDelete, onView, onDeleteShotReference, onGenerateShot, onRegenDownstream, onStopChain, onBatchDone, batchActiveId, readOnly,
                         face:true, faceOpen:sh.id===openNow})))),
+                  // "Frame board" (owner 2026-11-26): the beat frame by frame, one picture at a time, across the row
+                  (boardByBeat[L.n] && window.BeatFrameBoard) && _el("div",{className:"sheet-card sbc-strip bfb-row","data-testid":"beat-row-board"},
+                    _el(window.BeatFrameBoard,{scene,L,bm,shots:L.shots,sceneShots:ordered,ctx,onView,
+                      onOpen:(id)=>setOpenByBeat(o=>({...o,[L.n]:id}))})),
                   // "Draw the beat": the whole beat staged once, every shot from start to end, across the row
                   (stripByBeat[L.n] && window.BeatStrip) && _el("div",{className:"sheet-card sbc-strip","data-testid":"beat-row-strip"},
                     _el(window.BeatStrip,{scene,beatN:L.n,shots:L.shots,sceneShots:ordered,ctx,onView,readOnly,bare:true})),
