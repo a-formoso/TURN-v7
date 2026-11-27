@@ -120,19 +120,19 @@ test("8 the frame board of a beat from what its plan already holds: a shot's fra
 
 test("9 the page: the Frame board button on a beat's card opens the board across the beat's row; nothing in it makes an image or saves", () => {
   const ui = read("app/beat-frames-ui.jsx"), face = read("app/shot-beat-card-ui.jsx"), shots = read("app/shots-ui.jsx"), strip = read("app/shot-previs-ui.jsx"), html = read("TURN.html"), css = read("app/styles.css");
-  assert.ok(face.includes('"data-testid":"beat-card-board"') && face.includes('board ? "Hide the frame board" : "Frame board"'));
+  assert.ok(face.includes('"data-testid":"beat-card-board"') && face.includes('board ? "Hide frame board" : "Show frame board"'));
   assert.ok(shots.includes("board:!!boardByBeat[L.n], onBoard:window.BeatFrameBoard ? (on)=>setBoardByBeat(o=>({...o,[L.n]:!!on})) : null,") && shots.includes('"data-testid":"beat-row-board"'));
   // the frames are the drawings the beat already has, in any of the three looks, each kept apart
   assert.ok(strip.includes("function beatStripRows(info, ctx, look, written){") && strip.includes('if(look) info = { ...info, sig:info.sig+"|look:"+look };') && strip.includes("...(look ? { look } : {}),"));
-  assert.ok(ui.includes("window.beatStripRows(info, ctx, look, written)") && ui.includes('if(r.start) steps.push("start"); if(r.mid) steps.push("mid"); if(r.end) steps.push("end");'));
+  assert.ok(ui.includes("window.beatStripRows(info, ctx, drawLook, written)") && ui.includes('if(r.start) steps.push("start"); if(r.mid) steps.push("mid"); if(r.end) steps.push("end");'));
   // what the owner's own board shows: moment, name and frame; Previous, Play frames, Next; the time; a square a frame
-  for (const t of ['"Moment "+f.moment+" · "+f.momentName+" · frame "+f.id', '"Previous"', 'playing ? "Stop" : "Play frames"', '"Next"', 'secs(f.t0)+" / "+secs(board.seconds)+" s"', '"data-testid":"beat-frame-board-squares"']) assert.ok(ui.includes(t), t);
+  for (const t of ['"Moment "+f.moment+" · "+f.momentName+" · step "+stepNo(f)+" of "+stepsOf(f)', '"Previous"', 'playing ? "Stop" : "Play frames"', '"Next"', 'secs(f.t0)+" / "+secs(board.seconds)+" s"', '"data-testid":"beat-frame-board-squares"']) assert.ok(ui.includes(t), t);
   // a moment is a shot, and its first frame is the shot's starting frame: said under the picture and marked on its square
-  assert.ok(ui.includes('"This is the starting frame of shot "+f.beat+"."+f.moment+": its frame is made from this picture."') && ui.includes('className:"bfb-square"+(x.first?" key":"")') && css.includes(".bfb-square.key{"));
+  assert.ok(ui.includes('"Starting frame of shot "+shotNo(f)+": the shot\\u2019s image is made from this picture."') && ui.includes('className:"bfb-square"+(x.first?" key":"")') && css.includes(".bfb-square.key{"));
   // Play frames gives each frame its own time
   assert.ok(ui.includes("const t = setTimeout(()=>setAt(i+1), Math.max(300,(f.t2-f.t0)*1000));"));
   assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made; the only thing it can start is the writing pass, which asks first");
-  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2"];
+  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1"];
   assert.ok(at("app/beat-frames.js?v=") > 0 && at("app/beat-frames.js?v=") < at("app/beat-frames-ui.jsx?v=") && at("app/shot-previs-ui.jsx?v=") > 0, "the rules are on the page before the board that reads them");
   assert.ok(keys.some(k => html.includes('app/beat-frames.js?v=' + k + '"')) && keys.some(k => html.includes('app/beat-frames-ui.jsx?v=' + k + '"')));
 });
@@ -214,6 +214,18 @@ test("13 stage 3: a shot starts as its moment's first written frame, wherever th
   // the first frame keeps the plan's place, hands and things, so nothing a camera or a check reads has moved
   const got = F.written({ moments: [{ beat: 1, moment: 1, frames: [{ says: "a", into: 0, hold: 1, people: { ann: { face: 45, joints: HOLD, at: [3, 3], holding: [] } } }, { says: "b", into: 1, hold: 1 }] }] }, CTX).frames["1.1"];
   assert.equal(got.frames[0].state.people.ann.where, "m-door"); assert.equal(got.frames[0].state.people.ann.xy, undefined); assert.deepEqual(plain(got.frames[0].state.people.ann.holding), ["box"]); assert.deepEqual(plain(got.frames[0].state.things), plain(START.things));
+});
+
+test("14 the board's words say what a square is, and Frame shows the real images (owner 2026-11-27)", () => {
+  const ui = read("app/beat-frames-ui.jsx"), css = read("app/styles.css");
+  // a square is a step of the action inside one shot, never a cut: the owner read "frame 1.3.5" as cuts inside a shot
+  assert.ok(ui.includes('"Step "+stepNo(f)+" of "+stepsOf(f)+" inside shot "+shotNo(f)+": the same camera, no cut."') && !ui.includes('" · frame "+f.id'));
+  assert.ok(ui.includes('"data-testid":"beat-frame-board-help"') && ui.includes("A square is a step of the action inside that shot, not a cut.") && css.includes(".bfb-help{"));
+  // Frame: the shot's own image on its first step, the beat's end frame on its last; the drawings stay the Previs ones
+  assert.ok(ui.includes('const isFrame = look==="frame", drawLook = isFrame ? "" : look;') && ui.includes("window.beatStripRows(info, ctx, drawLook, written)"));
+  assert.ok(ui.includes("if(x.first) return nbGetImage(x.shotId) || \"\";") && ui.includes('if(x.last && info && info.endOwnerId===x.shotId) return nbGetImage(x.shotId+"-end") || "";'));
+  assert.ok(ui.includes('"data-testid":"beat-frame-board-noimage"') && ui.includes('"No image for this step yet"'), "a step with no image says so");
+  assert.ok(!/nbGenerate|proxyGenerate|__shotPrevisMake/.test(ui), "the Frame view reads images; it makes none");
 });
 
 console.log("\n" + passed + " passed, " + failed + " failed");

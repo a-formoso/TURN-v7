@@ -13,6 +13,7 @@ const BFB_E = React.createElement;
 function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, readOnly=false }){
   const F = window.KinolotBeatFrames, K = window.KinolotBeatCard;
   const [look, setLook] = React.useState("");
+  const isFrame = look==="frame", drawLook = isFrame ? "" : look;
   const [rows, setRows] = React.useState({});          // look → the beat's drawings
   const [err, setErr] = React.useState("");
   const [at, setAt] = React.useState(0);               // which frame is shown
@@ -32,11 +33,24 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
   React.useEffect(()=>{
     if(!sig || typeof window.beatStripRows!=="function") return undefined;
     let live = true; setErr("");
-    window.beatStripRows(info, ctx, look, written).then(r=>{ if(live) setRows(o=>({ ...o, [rowKey(look)]:r||[] })); },
+    window.beatStripRows(info, ctx, drawLook, written).then(r=>{ if(live) setRows(o=>({ ...o, [rowKey(drawLook)]:r||[] })); },
       e=>{ if(live) setErr((e && e.message) || "This beat could not be drawn."); });
     return ()=>{ live = false; };
-  },[sig, look, wkey]);
-  const colour = rows[rowKey("")] || null, mine = rows[rowKey(look)] || null;
+  },[sig, drawLook, wkey]);
+  const colour = rows[rowKey("")] || null, mine = rows[rowKey(drawLook)] || null;
+  /* FRAME (owner 2026-11-27: "could we add the option for the frame view also ... play the entire moment with real
+     images"): the fourth word of the switch shows the REAL images where the beat has them: a shot's own frame on its
+     first step (it is made from that step's drawing), and the beat's end frame on its last step. A step with no image
+     yet shows its drawing, dimmed, and says so. Read from the images the film already holds; nothing is made here. */
+  const [, imgTick] = React.useState(0);
+  React.useEffect(()=>{
+    if(!isFrame || !info) return undefined;
+    let live = true; const again = ()=>{ if(live) imgTick(n=>n+1); };
+    const ids = info.list.map(sh=>sh.id).concat(info.endOwnerId ? [info.endOwnerId+"-end"] : []);
+    ids.forEach(id=>{ if(typeof nbGetImage==="function" && !nbGetImage(id) && typeof nbLoadImage==="function"){ try{ Promise.resolve(nbLoadImage(id)).then(again, ()=>{}); }catch(e){} } });
+    window.addEventListener("nb-gen-done", again); window.addEventListener("nb-prefetched", again);
+    return ()=>{ live = false; window.removeEventListener("nb-gen-done", again); window.removeEventListener("nb-prefetched", again); };
+  },[isFrame, sig]);
   // the beat's shots as moments, each with the drawings it has (read from the colour drawings: every look has the same)
   const board = React.useMemo(()=>{
     if(!F || !K || !info || !colour) return null;
@@ -77,42 +91,57 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
   const canWrite = !readOnly && !!info && typeof window.turnWriteBeatFrames==="function";
   const write = async ()=>{ if(writing || !canWrite) return; setWriting(true); setPlaying(false);
     try{ await window.turnWriteBeatFrames(scene.id, L.n); setAt(0); }finally{ setWriting(false); } };
-  const pic = pick(mine) || "", waiting = !!look && !pic && !!pick(colour);
-  const shown = pic || pick(colour);
+  const pic = pick(mine) || "", waiting = !!drawLook && !pic && !!pick(colour);
+  // the real image of this step, when the film has one: the shot's frame on its first step, the beat's end frame on its last
+  const realOf = x=>{ if(!x || typeof nbGetImage!=="function") return "";
+    if(x.first) return nbGetImage(x.shotId) || "";
+    if(x.last && info && info.endOwnerId===x.shotId) return nbGetImage(x.shotId+"-end") || "";
+    return ""; };
+  const real = isFrame ? realOf(f) : "";
+  const shown = real || pic || pick(colour);
+  // (a moment's steps: how many, and which one this is)
+  const stepsOf = x=>frames.filter(y=>y.moment===x.moment).length, stepNo = x=>frames.filter(y=>y.moment===x.moment).indexOf(x)+1;
+  const shotNo = x=>x.beat+"."+x.moment;
   const go = n=>{ setPlaying(false); setAt(Math.max(0, Math.min(frames.length-1, n))); };
   const play = ()=>{ if(!frames.length) return; if(playing){ setPlaying(false); return; } if(i>=frames.length-1) setAt(0); setPlaying(true); };
-  const looks = (window.SHOT_PREVIS_LOOKS || [{ id:"", name:"Previs", title:"" }]);
+  const looks = (window.SHOT_PREVIS_LOOKS || [{ id:"", name:"Previs", title:"" }]).concat([{ id:"frame", name:"Frame",
+    title:"The real images: each shot\u2019s frame on its first step, and the beat\u2019s end frame on its last. Used to see the beat in real images and play it; a step with no image yet shows its drawing, dimmed." }]);
   const moments = board ? board.moments : [];
   const secs = v=>(Math.round(v*10)/10).toFixed(1);
   return BFB_E("div",{ className:"bfb", "data-testid":"beat-frame-board", "data-beat":L.n },
     BFB_E("div",{ className:"bfb-stage" },
       (filmNow && filmNow.url) ? BFB_E("video",{ src:filmNow.url, controls:true, loop:true, autoPlay:true, muted:true, playsInline:true, className:"bfb-film", "data-testid":"beat-frame-board-video",
           "aria-label":"The blockout film of shot "+(f ? f.beat+"."+f.moment : "") })
-      : shown ? BFB_E("img",{ src:shown, alt:f ? "Frame "+f.id+", drawn in code" : "", role:"button", tabIndex:0, title:"View larger", className:waiting ? "wait" : undefined,
-          onClick:()=>onView && onView(shown,{ name:"Frame "+(f ? f.id : "") }),
-          onKeyDown:e=>{ if(e.key==="Enter" || e.key===" "){ e.preventDefault(); onView && onView(shown,{ name:"Frame "+(f ? f.id : "") }); } } })
+      : shown ? BFB_E("img",{ src:shown, alt:f ? "Shot "+shotNo(f)+", step "+stepNo(f)+(real ? ", its image" : ", drawn in code") : "", role:"button", tabIndex:0, title:"View larger",
+          className:(waiting || (isFrame && !real)) ? "wait" : undefined, "data-real":real ? "1" : undefined,
+          onClick:()=>onView && onView(shown,{ name:"Shot "+(f ? shotNo(f)+", step "+stepNo(f) : "") }),
+          onKeyDown:e=>{ if(e.key==="Enter" || e.key===" "){ e.preventDefault(); onView && onView(shown,{ name:"Shot "+(f ? shotNo(f)+", step "+stepNo(f) : "") }); } } })
         : BFB_E("div",{ className:"bfb-none", "data-testid":"beat-frame-board-none" },
             err ? BFB_E(React.Fragment,null,BFB_E("b",null,"This beat could not be drawn"),BFB_E("span",null,err))
               : !info ? BFB_E(React.Fragment,null,BFB_E("b",null,"No drawing yet"),BFB_E("span",null,"Plan this scene first (Scene plan, above): a beat is drawn from its plan."))
               : BFB_E("span",{ className:"shot-previs-wait", role:"status" },BFB_E("span",{ className:"ns-spin" }),"Drawing the beat…")),
       BFB_E("div",{ className:"lsc-seg bfb-looks", role:"group", "aria-label":"How the frame is drawn" },
         looks.map(x=>BFB_E("button",{ key:x.id||"colour", type:"button", "aria-pressed":x.id===look?"true":"false", title:x.title, onClick:()=>setLook(x.id) }, x.name))),
-      waiting && BFB_E("span",{ className:"lsc-camtag bfb-wait", role:"status" },"Drawing…")),
+      waiting && BFB_E("span",{ className:"lsc-camtag bfb-wait", role:"status" },"Drawing…"),
+      // (Frame: a step the film has no image for yet shows its drawing, and says so)
+      isFrame && f && shown && !real && BFB_E("span",{ className:"lsc-camtag", "data-testid":"beat-frame-board-noimage" },"No image for this step yet")),
     BFB_E("div",{ className:"bfb-side" },
       f ? BFB_E(React.Fragment,null,
-        BFB_E("h4",{ className:"bfb-title", "data-testid":"beat-frame-board-title" },"Moment "+f.moment+" · "+f.momentName+" · frame "+f.id),
+        BFB_E("h4",{ className:"bfb-title", "data-testid":"beat-frame-board-title" },"Moment "+f.moment+" · "+f.momentName+" · step "+stepNo(f)+" of "+stepsOf(f)),
         BFB_E("p",{ className:"bfb-cam" },[f.stepWord, f.cam].filter(Boolean).join(" · ")),
         f.says && BFB_E("p",{ className:"bfb-says" }, f.says),
         // a moment is a shot: its first frame is the shot's starting frame
         BFB_E("p",{ className:"lsc-mono dim", "data-testid":"beat-frame-board-key" },
-          f.first ? "This is the starting frame of shot "+f.beat+"."+f.moment+": its frame is made from this picture."
-            : "A frame inside shot "+f.beat+"."+f.moment+". The shot’s frame is made from its first frame, "+f.beat+"."+f.moment+".1."))
+          f.first ? "Starting frame of shot "+shotNo(f)+": the shot\u2019s image is made from this picture."
+            : "Step "+stepNo(f)+" of "+stepsOf(f)+" inside shot "+shotNo(f)+": the same camera, no cut."))
         : null,
       frames.length>0 && BFB_E("div",{ className:"bfb-squares", role:"group", "aria-label":"The frames of beat "+L.n, "data-testid":"beat-frame-board-squares" },
+        BFB_E("span",{ className:"bfb-help", tabIndex:0, role:"note", "data-testid":"beat-frame-board-help",
+          "aria-label":"What the squares are", title:"The numbers are this beat\u2019s moments. Here each moment is one shot: one camera, no cut inside it. A square is a step of the action inside that shot, not a cut. The ringed square is the shot\u2019s first step: its starting frame, the only one a shot needs an image for." },"\u24d8"),
         moments.map(m=>BFB_E("span",{ key:m.n, className:"bfb-moment" },
           BFB_E("span",{ className:"bfb-moment-n", title:"Moment "+m.n+": "+m.name+", "+secs(m.seconds)+" s" }, m.n),
           frames.map((x,k)=>x.moment===m.n ? BFB_E("button",{ key:x.id, type:"button", className:"bfb-square"+(x.first?" key":""), "aria-pressed":k===i?"true":"false",
-            "aria-label":"Frame "+x.id+(x.first ? ", the starting frame of its shot" : ""), title:"Frame "+x.id+(x.stepWord ? ": "+x.stepWord.toLowerCase() : "")+(x.first ? " (the shot’s starting frame)" : ""), onClick:()=>go(k) }) : null)))),
+            "aria-label":"Shot "+shotNo(x)+", step "+stepNo(x)+" of "+stepsOf(x)+(x.first ? ", the starting frame of the shot" : ""), title:"Shot "+shotNo(x)+", step "+stepNo(x)+" of "+stepsOf(x)+(x.first ? ": the shot’s starting frame" : ": a step of the action, the same camera"), onClick:()=>go(k) }) : null)))),
       BFB_E("div",{ className:"bfb-acts" },
         BFB_E("button",{ type:"button", className:"sbc-btn", disabled:!frames.length || i<=0, "data-testid":"beat-frame-board-prev", onClick:()=>go(i-1) },"Previous"),
         BFB_E("button",{ type:"button", className:"sbc-btn primary", disabled:frames.length<2, "data-testid":"beat-frame-board-play", "aria-pressed":playing?"true":"false",

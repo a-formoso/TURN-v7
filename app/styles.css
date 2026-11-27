@@ -13051,6 +13051,8 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .bfb-says{margin:0;font:13.5px/1.45 var(--f-ui);color:var(--txt-0)}
 .bfb-squares{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
 .bfb-moment{display:inline-flex;align-items:center;gap:5px}
+.bfb-help{font-size:13px;line-height:1;color:var(--txt-3);cursor:help}
+.bfb-help:hover,.bfb-help:focus-visible{color:var(--txt-0)}
 .bfb-moment-n{font:400 10px/1 var(--f-mono);color:var(--txt-3);min-width:10px}
 .bfb-square{width:22px;height:22px;padding:0;border:1px solid var(--line-2);border-radius:6px;background:var(--bg-2);cursor:pointer;transition:.12s}
 .bfb-square.key{border-color:var(--txt-1);border-width:2px}

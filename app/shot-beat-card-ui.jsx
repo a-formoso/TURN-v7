@@ -94,7 +94,7 @@ function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, on
       // the beat as a board of frames, one picture at a time, played in order (beat-frames-ui.jsx)
       onBoard && SBC_E("button",{type:"button",className:"sbc-btn","data-testid":"beat-card-board","aria-expanded":board?"true":"false",disabled:!info,
         title:info ? "The beat frame by frame: each shot as it starts, midway and as it ends, one picture at a time, with Previous, Play frames and Next. Free." : "Plan this scene first (Scene plan, above): a beat is drawn from its plan.",
-        onClick:()=>onBoard(!board)},board ? "Hide the frame board" : "Frame board"),
+        onClick:()=>onBoard(!board)},board ? "Hide frame board" : "Show frame board"),
       SBC_E("div",{className:"sbc-acts-row"},
         SBC_E("button",{type:"button",className:"sbc-btn","data-testid":"beat-card-draw","aria-expanded":strip?"true":"false",disabled:!info,
           title:info ? "The whole beat staged once in code: every shot from start to end, with the frames under their drawings. Free." : "Plan this scene first (Scene plan, above): a beat is drawn from its plan.",
