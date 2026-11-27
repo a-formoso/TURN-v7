@@ -161,6 +161,10 @@ palette, sheet prompts) — that is drafted in the Art Room once the Lookbook ha
 > story actually gives them: the spine declares each scene's stage and the build keeps the longest
 > in-order run, falling back to position only when the key stages are missing.
 
+> **Approved titles stay** *(approved 2026-11-27 by owner)*: the scene titles on the build's approval
+> card are the film's scene titles. Writing a scene may refine its card, never its title; only a scene
+> with no title yet is given one.
+
 > **Psychology before the script** *(approved 2026-09-25 by owner)*: the principal cast's
 > desire complex is designed **before any beat is written** — from the synopsis and the scenes
 > each character will drive — so the scenes are written *from* it: every scene prompt carries
@@ -820,6 +824,7 @@ lines longer than one clip are split at a sentence/beat boundary. Built audio-fi
 ---
 
 ## Change log
+- *(2026-11-27 — Step 3, by owner approval: "yes, keep the approved title", then "yes, add the sentence to the Story Pipeline")* — **approved titles stay**: a scene keeps the title it had on the build's approval card; writing the scene may refine its card, never its title, and only a scene with no title yet is given one. No pipeline step was added, removed or reordered.
 - *(2026-11-23 — Step 9, Shots, previs, cameras and the beat in code, by owner approval: "yes, add the paragraph to the Story Pipeline doc")* — in a planned scene whose place has a floor plan, each shot is **drawn in code** from the 3D set before any image is made (people as block figures on their marks, props as red boxes, doors as the plan has them); **cameras are given in numbers** and checked against the set; **the beat in code** stages a whole beat once and draws its shots in order; a frame can be made from its drawing and is checked against it. No pipeline step was added, removed or reordered.
 - *(2026-11-22 — Step 9, Shots, end frames, by owner approval: "yes, correct the doc, and go ahead with stage 2")* — in a planned scene the last shot of each beat has an **end frame** (the same shot as it ends), and the next beat's first shot starts from it; an ordered run makes it right after its shot. The scene plan's wording was corrected too: it takes a few short writing passes, not one. No pipeline step was added, removed or reordered.
 - *(2026-11-22 — Step 9, Shots, by owner approval: "yes, go with it, end frames per beat", then "we need these props listed in the props tab ... assign them to each character ... and ... to their particular scenes")* — **the scene plan**: one writing pass plans a whole scene before its shots (blocking, the line, a things tracker, a camera idea, and one shot per moment with a start state, an end state and a hand-off); checks in code say what does not join up; tracked things become kept prop cards tied to their scene and their character. Stage 1 (writing and checks) is built; frames composed from the 3D set and an end frame per beat follow. No other step was added, removed or reordered.
