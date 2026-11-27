@@ -502,13 +502,20 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const receiveProposal=(p,expected)=>{if(expected!=null&&application.current!==expected)return;application.current++;setApplying(false);setProposal(p);setError("");setPreviewRequest(null);setSelected(p?l.id+":TL":"");setMapOpen(!!p);return application.current;};
   // Fitted to the set as it will be built (2026-11-11): every proposed view is checked for a clear, unobstructed frame.
   // If that fit cannot run (the 3D module didn't load), the older placement from object bounds still answers.
-  const suggest=async()=>{
+  /* TWO WAYS TO COVER A ROOM (owner 2026-11-27: "preserve both coverage options and have user asking for [the]
+     alternative when they are not satisfied with the default one"). The default is the checked fit: two wide views
+     across the room from opposite sides, and two close-ups that repeat nothing. "Try other views" asks for the other:
+     the same checked fit with a wide view from each end of the room. Pressing it again comes back. */
+  const suggest=async(other)=>{
     if(readOnly||fitting)return;setError("");
     const ticket=++application.current;setFitting(true);
     try{
       let p;
-      try{p=api.proposeCamerasAuto?await api.proposeCamerasAuto(l,list):api.proposeCameras(l,list);}
-      catch(first){try{p=api.proposeCameras(l,list);}catch(_){throw first;}}
+      if(other===true)p={...(await api.proposeCamerasAuto(l,list,{square:true})),ends:true};
+      else{
+        try{p=api.proposeCamerasAuto?await api.proposeCamerasAuto(l,list):api.proposeCameras(l,list);}
+        catch(first){try{p=api.proposeCameras(l,list);}catch(_){throw first;}}
+      }
       receiveProposal(p,ticket);
     }catch(e){if(application.current===ticket)setError(e.message);}
     finally{setFitting(false);}
@@ -537,11 +544,16 @@ function LocationCameraSuggestions({l,onUpdate,readOnly=false}){
   const workbench=state.ready&&ownRoom&&api.enabled?.()&&window.LocationCameraAngleWorkbench&&E(window.LocationCameraAngleWorkbench,{l,onUpdate,readOnly,previewRequest:proposal?null:previewRequest,inline:inlinePreview});
   return E("div",{className:"loc-map-wrap","data-testid":"camera-suggestions"},
     E("div",{className:"loc-step-actions loc-camera-primary-actions"+(inlinePreview?" is-inline":"")},
-      E("span",{className:"loc-camera-control"},E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom||fitting,onClick:suggest,
+      E("span",{className:"loc-camera-control"},E("button",{type:"button",className:"art-draftall ghost",disabled:readOnly||!state.ready||!ownRoom||fitting,onClick:()=>suggest(),
         title:blocked||"Free: four cameras fitted to the set as it will be built, each checked for a clear view; review before saving"},fitting?"Finding clear views\u2026":"Suggest 4 cameras"),
         window.InfoTip&&E(window.InfoTip,{label:"About camera suggestions",text:"Free. Two wide views and two details are fitted to the set, and each is checked so that nothing blocks the frame. Review the four proposed 3D views, then choose Use these cameras to save them. Suggesting and reviewing makes no paid call."})),
       !readOnly&&(!state.ready||!ownRoom)&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>window.goToLocationStep(l,2)},"Review floor plan"),
       proposal&&E("button",{type:"button",className:"art-draftall",disabled:readOnly||stale||applying,onClick:apply},applying?"Checking cameras…":"Use these cameras"),
+      proposal&&!proposal.imageMatch&&E("button",{type:"button",className:"art-draftall ghost","data-testid":"camera-other-views",disabled:readOnly||fitting||applying,
+        onClick:()=>suggest(!proposal.ends),
+        title:proposal.ends?"Free: back to the first four, two wide views across the room from opposite sides and two close-ups"
+          :"Free: another way to cover this room, a view from each end and two details. Nothing is saved until you choose Use these cameras"},
+        proposal.ends?"Back to the first views":"Try other views"),
       proposal&&E("button",{type:"button",className:"art-draftall ghost",onClick:()=>receiveProposal(null)},"Discard proposal"),
       inlinePreview&&workbench),
     !inlinePreview&&workbench,
@@ -1366,14 +1378,15 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
      has a room on it but not four usable cameras gets clear ones (blender-render.js proposeCamerasForPlace); a card
      whose cameras are usable is never touched. Fitted on the list the confirm built, saved only if the saved plan and
      that card's cameras are still the ones it was fitted to. */
-  const fitPlaceCameras=async(ownerId,list,sig,epoch)=>{
+  const fitPlaceCameras=async(ownerId,list,sig,epoch,redo)=>{
     const api=window.KinolotCloudRender;
     if(!api||typeof api.proposeCamerasForPlace!=="function"||typeof api.camerasMissingForPlace!=="function")return;
     try{
       const place=list.find(x=>x.id===ownerId);
-      if(!place||!api.camerasMissingForPlace(place,list).length)return;
+      // (2026-11-27) a confirmed DRAFT has its cameras fitted afresh (redo); a hand edit only fills what is missing
+      if(!place||!redo&&!api.camerasMissingForPlace(place,list).length)return;
       if(alive.current)setCameraNote("Setting the cameras\u2026");
-      const rows=await api.proposeCamerasForPlace(place,list);
+      const rows=await api.proposeCamerasForPlace(place,list,{redo:!!redo});
       const now=currentState(),live=((window.turnContinuity||{}).locations)||[];
       const writable=!readOnly&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
       if(!writable||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch||now.owner.id!==ownerId||locationSpatialPlanSig(now.plan)!==sig){if(alive.current)setCameraNote("");return;}
@@ -1485,7 +1498,7 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
       onUpdate(planOwner.id,{spatialPlan:reviewed},{kind:repair&&!draftBeforeRepair.current?"measurement-repair":draft?"layout-proposal":"floor-plan-edit"});
       draftBeforeRepair.current=null;
       setCandidate(null);setError("");setConfirmation({sig:locationSpatialPlanSig(reviewed),measured,issues,repairCount:repair?.changes.length||0});setMeasurementRepair(null);
-      if(measured&&!issues.length){finishEditing(planOwner.id,shown.epoch);fitPlaceCameras(planOwner.id,list,locationSpatialPlanSig(reviewed),shown.epoch);}
+      if(measured&&!issues.length){finishEditing(planOwner.id,shown.epoch);fitPlaceCameras(planOwner.id,list,locationSpatialPlanSig(reviewed),shown.epoch,!!draft&&!repair);}
     }catch(e){setError(e?.message||"Could not confirm the layout. Please try again.");}
   };
   const confirmationNow=confirmation&&confirmation.sig===locationSpatialPlanSig(plan)&&!state.stale?confirmation:null;

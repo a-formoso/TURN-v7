@@ -258,6 +258,7 @@
     kit_linen:{baseColor:[0.78,0.77,0.72],metallic:0,roughness:0.9},
     kit_cover:{baseColor:[0.2,0.26,0.34],metallic:0,roughness:0.9},
     kit_bulb:{baseColor:[0.95,0.9,0.75],metallic:0,roughness:0.4},
+    kit_service_door:{baseColor:[0.33,0.37,0.36],metallic:0,roughness:0.7},
     kit_book1:{baseColor:[0.03,0.1,0.2],metallic:0,roughness:0.75},kit_book2:{baseColor:[0.45,0.08,0.03],metallic:0,roughness:0.75},
     kit_book3:{baseColor:[0.6,0.45,0.08],metallic:0,roughness:0.75},kit_book4:{baseColor:[0.08,0.2,0.1],metallic:0,roughness:0.75},
     kit_book5:{baseColor:[0.72,0.69,0.58],metallic:0,roughness:0.8},kit_book6:{baseColor:[0.2,0.03,0.03],metallic:0,roughness:0.75}};
@@ -485,7 +486,7 @@
   }
   // a thing's own colour, a little darker: the panels of a door read against its leaf
   function shade(scene,name,out){
-    const m=scene&&scene.materials&&scene.materials[name], key=name+"_kitshade";
+    const m=(scene&&scene.materials&&scene.materials[name])||MATERIALS[name], key=name+"_kitshade";
     if(!m||!Array.isArray(m.baseColor)) return name;
     out.materials[key]={...m,baseColor:m.baseColor.map(v=>r3(v*0.8))};
     return key;
@@ -527,6 +528,16 @@
       if(!FITS[piece](e)) return;
       found.push({g,piece,flat,cut,e});
     });
+    /* TWO DOORS OF ONE SET ARE TOLD APART (2026-11-27). A bakery's iron front door and its back entrance were both
+       dressed black: two frames, each with a black door on its far wall, read as one view with the furniture changed.
+       When a door named as a back, rear, side, service, staff, fire or yard door has the very colour of another door
+       that is not one, it is drawn as what it is: a plain painted service door. Doors with their own colours, and
+       doors of one kind, stay as dressed. */
+    const SERVICE_DOOR=/\b(back|rear|side|service|staff|fire|emergency|yard|store|storeroom|delivery|goods)\b/i;
+    const doorTone=f=>f.cut.structure[0].material;
+    found.filter(f=>f.piece==="door"&&SERVICE_DOOR.test(f.g.name)).forEach(f=>{
+      if(found.some(o=>o!==f&&o.piece==="door"&&!SERVICE_DOOR.test(o.g.name)&&doorTone(o)===doorTone(f)))f.service=true;
+    });
     const tables=found.filter(f=>f.piece==="table").map(f=>f.e.centre);
     const walls=objects.filter(o=>o&&/^wall-/.test(String(o.id||""))&&Array.isArray(o.position)&&Array.isArray(o.size));
     let count=0;
@@ -538,7 +549,7 @@
         const a=cut.said.faces*Math.PI/180, v=local(f.e,[f.e.centre[0]+Math.sin(a),f.e.centre[1]+Math.cos(a)]);
         e=turned(f.e,frontTo(LONG[piece]||piece==="bed"||f.flat?[0,v[1]]:v));
       }else e=facing(piece,f.e,cut.structure,tables,walls);
-      const tone=f.flat?{main:cut.structure[0].material,second:""}:colours(cut.structure), c=Math.cos(e.turn), s=Math.sin(e.turn);
+      const tone=f.flat?{main:f.service?"kit_service_door":cut.structure[0].material,second:""}:colours(cut.structure), c=Math.cos(e.turn), s=Math.sin(e.turn);
       const glazed=piece==="door"&&!cut.kept.length&&(/\b(glass|glazed|frosted|pane)\b/i.test(g.name));
       const more={base:e.base,seed:g.name+"@"+Math.round(e.centre[0]*10)+","+Math.round(e.centre[1]*10),books:piece==="shelves"&&/book/i.test(g.name),
         closed:/\b(closed|drawn|shut)\b/i.test(g.name),type:piece!=="lamp"?"":e.base>=1.2?"pendant":e.h>=1.1&&e.base<0.2?"floor":"table"};

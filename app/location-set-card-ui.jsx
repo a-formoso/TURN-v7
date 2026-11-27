@@ -377,7 +377,9 @@ function LocationSetCard({ place, rooms, space:spaceId="", onSpace=null, project
               LSC_E("span",{ className:"lsc-num" }, v.n)))),
           // the camera tool, beside the views it moves (it sat with the making of the image)
           !readOnly && typeof onUpdate==="function" && !cannot && views.length>0 && window.LocationCameraAngleWorkbench && LSC_E("div",{ className:"loc-step-actions previs-move-camera", "data-testid":"set-card-move-camera" },
-            LSC_E(window.LocationCameraAngleWorkbench,{ l:space.location, onUpdate, readOnly, inline:true, label:"Move a camera" })),
+            LSC_E(window.LocationCameraAngleWorkbench,{ l:space.location, onUpdate, readOnly, inline:true, label:"Move a camera" }),
+            // (2026-11-27) not the views you want? the other way of covering this space, in one free press
+            window.LocationOtherViews && LSC_E(window.LocationOtherViews,{ l:space.location, onUpdate, readOnly })),
           // a place with rooms: the whole of it from above, drawn only when asked for
           all.length>1 && window.LocationPrevisOverview && LSC_E(LscWhole,{ place }),
           // what the space connects to, with its views (owner 2026-11-23: one section, not two)

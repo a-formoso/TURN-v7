@@ -301,7 +301,7 @@
         ...(feature?{targetId:feature.anchor.id}:{}),pose:{position:at,yaw,pitch,lensMm,basis:"design"}});
     }
     if(detailUses.size<2)warnings.push("This room has fewer than two distinct visible detail targets; review the proposed details.");
-    warnings.push("Default coverage: a wide room view, a reverse room view and two different feature details. Positions avoid saved walls and sized objects; review the four camera previews before saving.");
+    warnings.push("Views from each end: a wide room view, a reverse room view and two different feature details. Positions avoid saved walls and sized objects; review the four camera previews before saving.");
     return {key:cameraProposalKey(location,list),panels,warnings};
   }
   /* AUTOMATIC COVERAGE (2026-11-11, owner: a useful first result for any location, no per-room camera recipes).
@@ -319,8 +319,13 @@
     const centre=[0,1].map(i=>space.footprint.reduce((n,p)=>n+p[i],0)/space.footprint.length);
     const hold={position:[centre[0],centre[1],space.floorZ+1.5],yaw:0,pitch:0,lensMm:24};
     const scene=buildScene(location,list,undefined,{cameras:{TL:hold,TR:hold,BL:hold,BR:hold}});
+    /* THE STATIONS THE FLOOR PLAN ITSELF AIMS AT COUNT FOR MORE (2026-11-27). Every object of a designed plan has the
+       same standing, so the close-ups went to whatever the wide views hid (flour sacks under a bench) and not to the
+       oven and the bench the scenes are played at. The plan's own cameras name those: an object one of them aims at
+       counts as much as one the screenplay names. */
+    const aimed=new Set((((plan.coordinates||{}).cameras)||[]).filter(c=>c&&c.spaceId===space.id&&c.target).map(c=>String(c.target)));
     const subjects=plan.anchors.filter(a=>(root.locationAnchorSpaceOf(a,family)||owner).id===space.id).map(a=>({id:a.id,name:tidy(a.name,80),
-      weight:/\b(?:script|screenplay)\b/i.test(a.evidence||"")?3:a.basis==="script"||a.basis==="observed"?2:1,opening:isOpening(a,space),
+      weight:/\b(?:script|screenplay)\b/i.test(a.evidence||"")||aimed.has(String(a.id))?3:a.basis==="script"||a.basis==="observed"?2:1,opening:isOpening(a,space),
       kind:a.size?[Math.min(a.size[0],a.size[1]),Math.max(a.size[0],a.size[1]),a.size[2]].join("x"):""}));
     return {scene,space,subjects,plan,spaces,family,owner};
   }
@@ -332,7 +337,7 @@
     return root.KinolotCameraCoverage.assess(T,root.KinolotAnglePreview,input.scene,input.space,savedPoses(location,list),{subjects:input.subjects});
   }
   // A proposal like proposeCameras's. `keep`: panel keys whose saved cameras stay exactly as they are.
-  async function proposeCamerasAuto(location,list,{keep=[]}={}){
+  async function proposeCamerasAuto(location,list,{keep=[],square=false}={}){
     list=list||((root.turnContinuity||{}).locations)||[];
     const key=cameraProposalKey(location,list),T=await root.KinolotAnglePreview.load();
     // The fit takes about a second of solid work: let the card show that it has started first.
@@ -348,13 +353,13 @@
        whenever the checked fit cannot, on every road, and says so. A camera someone set by hand is still kept. */
     const tight=(first)=>{
       let simple;try{simple=proposeCameras(location,list);}catch(_){throw first;}
-      const panels=simple.panels.map(p=>({key:p.key,role:p.role||"",label:tidy(p.label||"a view of the space",90),...(p.pose&&p.pose.target?{targetId:p.pose.target}:{}),pose:kept[p.key]||p.pose}));
+      const panels=simple.panels.map(p=>({key:p.key,role:kept[p.key]?"kept":p.role||"",label:tidy(p.label||"a view of the space",90),...(p.pose&&p.pose.target?{targetId:p.pose.target}:{}),pose:kept[p.key]||p.pose}));
       if(Object.keys(cameraProblemsIn(location,list,input.plan,input.spaces,input.family,input.owner,panels)).length)throw first;
       return {key,panels,auto:false,simple:true,warnings:[
         "This space is too tight for a checked, unobstructed fit, so the four cameras were placed by the simpler rule: inside the room, clear of its walls and its sized objects. Review the four previews before saving; your current cameras are unchanged."]};
     };
     let result;
-    try{result=root.KinolotCameraCoverage.plan(T,root.KinolotAnglePreview,input.scene,input.space,{subjects:input.subjects,keep:kept});}
+    try{result=root.KinolotCameraCoverage.plan(T,root.KinolotAnglePreview,input.scene,input.space,{subjects:input.subjects,keep:kept,square:!!square});}
     catch(first){return tight(first);}
     const panels=result.panels.map(p=>({key:p.key,role:p.role,label:tidy(p.label,90),...(p.targetId?{targetId:p.targetId}:{}),
       pose:kept[p.key]||{position:p.pose.position,yaw:p.pose.yaw,pitch:p.pose.pitch,lensMm:p.pose.lensMm,...(p.targetId?{target:p.targetId}:{}),basis:"design"}}));
@@ -372,8 +377,24 @@
     const state=root.locationSpatialPlanState(location,list);
     if(!state.ready||Object.keys(cameraProblemsIn(location,list,state.plan,renderSpaces(state.plan),root.locationSpatialFamily(state.owner,list),state.owner,proposal.panels)).length)
       throw Error("These camera positions no longer fit the room. Suggest 4 cameras again.");
+    /* THE NOTE SAYS WHAT THE CAMERA IS (2026-11-27). A saved camera kept the note of the view it replaced: "high
+       overview from an elevated corner" on a camera at eye level, "key station: Door bolt" on one aimed at the work
+       bench. The note goes into the location image's prompt, so the image was asked for one thing and drawn another.
+       A fitted camera now carries its own: what kind of view it is, and of what. A camera kept as it was keeps its. */
+    const along=!!proposal.ends;
+    const said=p=>p.role==="reverse"?(along?"reverse wide view of the space, from its other end":"reverse wide view of the space, from the opposite side")
+      :p.role==="wide"?(p.key==="TL"||p.key==="TR"?(along?"wide view along the space from one end":"wide three-quarter view across the space"):"another wide view of the space")
+      :p.role==="detail"?"close-up of "+(tidy(String(p.label||"").replace(/\s+detail$/i,""),80)||"a key feature of the space"):"";
+    // …only where the note is the app's own: a note someone wrote on the card is theirs and stays
+    const appsOwn=text=>!String(text||"").trim()||/^(?:key station: |high three-quarter overview|raised three-quarter overview|wide establishing|reusable establishing view|from the doorway|high corner view|close-up of |the window wall|the doorway wall|eye-level |reverse wide view|wide three-quarter view|wide view along|another wide view)/i.test(String(text).trim());
     let next=location;
-    for(const p of proposal.panels)next={...next,coverageViews:root.locationCoverageViewsWithPose(next,p.key,p.pose)};
+    for(const p of proposal.panels){
+      next={...next,coverageViews:root.locationCoverageViewsWithPose(next,p.key,p.pose)};
+      const words=said(p);
+      // (a wide view aims at no one thing: the object the replaced camera aimed at is not carried over)
+      if(words)next={...next,coverageViews:next.coverageViews.map((v,i)=>v&&(v.panel===p.key||p.key==="TL"&&i===0&&!v.panel)&&appsOwn(v.purpose)
+        ?{...v,purpose:words,...(p.role==="detail"?{}:{target:""})}:v)};
+    }
     return next.coverageViews;
   }
   /* THE WHOLE PLACE AT ONCE (owner 2026-11-16, the whole place first: "use camera to capture the subspaces"). Every
@@ -396,7 +417,10 @@
       let bad=PANEL_KEYS;try{bad=unusableCameras(m,list);}catch(_){bad=PANEL_KEYS;}
       return bad.length?{id:m.id,name:m.name||"Room",missing:bad}:null;}).filter(Boolean);
   }
-  async function proposeCamerasForPlace(location,list){
+  /* `redo` (2026-11-27): a floor plan DRAFT brings cameras of its own, written with the plan and never checked against
+     the set (a bakery's four: its two end walls square on, then each of them again). When a draft is confirmed, every
+     camera nobody set by hand and that was not read from an image is fitted afresh, usable or not. */
+  async function proposeCamerasForPlace(location,list,{redo=false}={}){
     list=list||((root.turnContinuity||{}).locations)||[];
     const state=root.locationSpatialPlanState(location,list);
     if(!state.ready)throw Error(state.reason||"Review the floor plan first.");
@@ -407,8 +431,12 @@
       if(!spaces.some(s=>s.id===m.id&&(s.footprint||[]).length>=3)){rows.push({...row,outside:true});continue;}
       try{
         let bad=unusableCameras(m,list);
+        if(redo){
+          const poses=root.locationPanelPoses(m,list);
+          bad=PANEL_KEYS.filter(k=>{const basis=((poses.find(p=>p.key===k)||{}).pose||{}).basis;return bad.includes(k)||basis!=="user"&&basis!=="observed";});
+        }
         // a camera the app placed whose view is now blocked is fitted again; one set by hand is only ever reported
-        if(bad.length<4)try{
+        else if(bad.length<4)try{
           const faults=await assessCameras(m,list),poses=root.locationPanelPoses(m,list);
           bad=PANEL_KEYS.filter(k=>bad.includes(k)||(faults[k]&&((poses.find(p=>p.key===k)||{}).pose||{}).basis!=="user"));
         }catch(_){}
@@ -418,6 +446,37 @@
       }catch(e){rows.push({...row,error:tidy(e&&e.message||"The cameras could not be fitted.",200)});}
     }
     return rows;
+  }
+  /* THE OTHER WAY TO COVER A SPACE (owner 2026-11-27: "preserve both coverage options and have user asking for [the]
+     alternative when they are not satisfied with the default one"). There are two:
+       across  the default, the checked fit: two wide views across the space from opposite sides, and two close-ups
+               that repeat nothing already shown;
+       ends    the same checked fit, its two wide views looking along the space from each end.
+     otherViews answers with the one the space is NOT on now: the fit when its saved cameras are not the fit's, else
+     the ends. A camera set by hand, or read from an image, stays where it is in both. Nothing is saved here: the card
+     saves the proposal. Free: no model call. → {proposal, coverage, note} */
+  async function otherViews(location,list){
+    list=list||((root.turnContinuity||{}).locations)||[];
+    const state=root.locationSpatialPlanState(location,list);
+    if(!state.ready)throw Error(state.reason||"Review the floor plan first.");
+    const poses=root.locationPanelPoses(location,list),poseOf=k=>(poses.find(p=>p.key===k)||{}).pose||null;
+    const keep=PANEL_KEYS.filter(k=>{const basis=(poseOf(k)||{}).basis;return basis==="user"||basis==="observed";});
+    if(keep.length===4)throw Error("All four cameras of this space were set by hand, so they stay as they are. Change one with Move a camera.");
+    const across=await proposeCamerasAuto(location,list,{keep});
+    const same=(a,b)=>!!a&&!!b&&Array.isArray(a.position)&&Array.isArray(b.position)
+      &&Math.hypot(a.position[0]-b.position[0],a.position[1]-b.position[1],a.position[2]-b.position[2])<.06
+      &&Math.abs(((a.yaw-b.yaw)%360+540)%360-180)<2&&Math.abs(a.lensMm-b.lensMm)<.5;
+    if(!across.panels.every(p=>same(p.pose,poseOf(p.key))))return {proposal:across,coverage:"across",
+      note:across.simple?"Views changed, free. This space is too tight for a checked fit, so its cameras stand as clear of the set as it allows."
+        :"Views changed, free: two wide views across the space from opposite sides, and two close-ups. Press Try other views again for a view from each end instead."};
+    if(across.simple)throw Error("This space is too tight for another set of views. To change a view yourself, use Move a camera.");
+    // the same checked fit, its two wide views turned to look along the space (the simpler placement is not checked
+    // for a clear frame: it stood a camera against the side of an oven)
+    const ends=await proposeCamerasAuto(location,list,{keep,square:true});
+    if(ends.simple||ends.panels.every((p,i)=>same(p.pose,across.panels[i].pose)))
+      throw Error("This space has no other set of clear views. To change a view yourself, use Move a camera.");
+    return {proposal:{...ends,ends:true},coverage:"ends",
+      note:"Views changed, free: a view from each end of the space and two details. Press Try other views again to go back to the first views."};
   }
   // What a whole-place fit did, in one line for the card.
   function placeCamerasText(rows){
@@ -702,6 +761,6 @@
     if(JSON.stringify(state||null)!==before)root.dispatchEvent?.(new CustomEvent("kinolot-cloud-job",{detail:{locationId}}));
   }
   const jobState=locationId=>jobs.get(locationId)||null;
-  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,proposeCamerasAuto,assessCameras,cameraProposalViews,camerasMissingForPlace,proposeCamerasForPlace,placeCamerasText,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
+  root.KinolotCloudRender={enabled,inputIssues,inputIssueList,cameraProblems,cameraProposalKey,proposeCameras,proposeCamerasAuto,assessCameras,cameraProposalViews,camerasMissingForPlace,proposeCamerasForPlace,otherViews,placeCamerasText,noteJob,jobState,buildScene,request,requestIdentity,estimateSeconds,
     buildMoments,setBuildMoment,buildMoment};
 })(typeof window!=="undefined"?window:globalThis);

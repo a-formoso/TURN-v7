@@ -505,6 +505,41 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
         onOpenCard:typeof onSelectLocation==="function"?section=>onSelectLocation(room.id,section):undefined})
       :own);
 }
+/* TRY OTHER VIEWS (owner 2026-11-27: "preserve both coverage options and have user asking for [the] alternative when
+   they are not satisfied with the default one"). Beside Move a camera on the set card. One press changes the four
+   views of the open space to the other way of covering it and saves them: free, no model call. The app's default is
+   two wide views across the space from opposite sides and two close-ups; the other is a view from each end and two
+   details (blender-render.js otherViews). Pressing again goes back. A camera set by hand stays where it is. */
+function LocationOtherViews({l,onUpdate,readOnly}){
+  const E=React.createElement,api=window.KinolotCloudRender;
+  const [busy,setBusy]=React.useState(false),[note,setNote]=React.useState(""),[fail,setFail]=React.useState("");
+  const alive=React.useRef(true);
+  React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
+  React.useEffect(()=>{setNote("");setFail("");},[l&&l.id]);
+  if(readOnly||typeof onUpdate!=="function"||!l||!api||typeof api.otherViews!=="function")return null;
+  const writable=()=>typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable();
+  async function press(){
+    if(busy||!writable())return;
+    setBusy(true);setNote("");setFail("");
+    try{
+      const list=((window.turnContinuity||{}).locations)||[],now=list.find(x=>x.id===l.id);
+      if(!now)throw new Error("The open location changed. Open it again.");
+      const epoch=typeof window.nbEpoch==="function"?window.nbEpoch():0,next=await api.otherViews(now,list);
+      const latest=((window.turnContinuity||{}).locations)||[],still=latest.find(x=>x.id===l.id);
+      if(!still||!writable()||(typeof window.nbEpoch==="function"?window.nbEpoch():0)!==epoch)throw new Error("The open film changed. Nothing was saved.");
+      onUpdate(l.id,{coverageViews:api.cameraProposalViews(still,next.proposal,latest)},{kind:"suggested-cameras"});
+      if(alive.current)setNote(next.note);
+    }catch(e){if(alive.current)setFail((e&&e.message)||"Other views could not be found.");}
+    finally{if(alive.current)setBusy(false);}
+  }
+  return E(React.Fragment,null,
+    E("button",{type:"button",className:"art-draftall ghost","data-testid":"set-card-other-views",disabled:busy,onClick:press,
+      title:"Free. Changes this space\u2019s four views to the other way of covering it and saves them. A camera you set by hand stays. Press again to go back."},
+      busy?"Finding views\u2026":"Try other views"),
+    note&&E("p",{className:"loc-layer-note previs-other-views-note",role:"status","data-testid":"set-card-other-views-note"},note),
+    fail&&E("p",{className:"loc-spatial-error",role:"alert"},fail));
+}
+window.LocationOtherViews=LocationOtherViews;
 /* A VARIANT FROM THE LOCATION IMAGE (owner 2026-11-16: "variants should be deriving from already generated location
    image ... the image a user chooses to be the location image", so that nothing is redrawn from the 3D set and no new
    mistake can come in). A variant is the same place at another hour or in another state, and its image is ONE frame:

@@ -78,9 +78,21 @@
       // wider views, and can still add to a detail of something beside them.
       g.flat=g.size[2]<.1;g.overhead=!open&&g.min[2]>floor+height*.7&&g.size[2]<.35;
       // …and it frames something of furniture scale or larger: a small prop is shown beside what it sits on.
-      g.detail=!g.flat&&!g.overhead&&Math.max(...g.size)>=.6&&!known.get(g.id)?.opening;
+      g.detail=!g.flat&&!g.overhead&&Math.max(...g.size)>=.6&&!known.get(g.id)?.opening
+        // …and it is this room's own (2026-11-27): the set holds the rooms around it too, and a step outside the
+        // front door was chosen as a close-up from inside: a frame of the shut door. With no list given, all count.
+        &&(!known.size||known.has(g.id));
       // Objects saved with the same dimensions are the same kind of thing (a row of benches, a pair of hoops).
       g.kind=known.get(g.id)?.kind||[Math.min(g.size[0],g.size[1]),Math.max(g.size[0],g.size[1]),g.size[2]].map(n=>Math.round(n*20)/20).join("x");
+    }
+    /* WHAT STANDS UNDER OR ON SOMETHING BIGGER IS SHOWN WITH IT (2026-11-27). Flour sacks kept under a work bench
+       were chosen as a close-up of their own, because no wide view could see them: the frame was the underside of a
+       bench. An object whose floor area lies inside a larger object's is part of that station, never a close-up. */
+    for(const g of groups.values()){
+      if(!g.detail)continue;
+      const area=x=>x.size[0]*x.size[1];
+      if([...groups.values()].some(o=>o!==g&&!o.flat&&!known.get(o.id)?.opening&&area(o)>area(g)*1.2
+        &&g.min[0]>=o.min[0]-.05&&g.max[0]<=o.max[0]+.05&&g.min[1]>=o.min[1]-.05&&g.max[1]<=o.max[1]+.05))g.detail=false;
     }
     // Distance along a world ray to a part's unit bounds in its own frame (-1 = missed). The ray keeps its world
     // length under the part's transform, so the distance needs no conversion.
@@ -260,7 +272,10 @@
   }
   /* Four views of the set. `keep` holds cameras that must stay exactly as they are (set by hand, or already good):
      they count as coverage, and only the other panels are placed. */
-  function plan(T,preview,scene,space,{subjects=[],keep={}}={}){
+  /* `square` (2026-11-27): the other way to cover a room, for whoever asks for it. The two wide views look along the
+     room from each end, square to its walls, where the default turns them across it. Everything else is the same
+     checked fit. */
+  function plan(T,preview,scene,space,{subjects=[],keep={},square=false}={}){
     const s=survey(T,preview,scene,space,{subjects});
     try{
       const groups=[...s.groups.values()],total=groups.reduce((n,g)=>n+g.weight,0)||1;
@@ -290,20 +305,27 @@
         const c=measure(pose);if(s.gate(pose,[...c.values()].map(x=>x.value),v))return null;
         return {pose,c,v,cover:coverage(c)};
       };
+      /* THREE-QUARTER WIDE VIEWS (2026-11-27). Two wide views that each look square at an end wall are mirror
+         images: a far wall, a door on it, furniture either side. A view turned across the room shows two walls and
+         how the floor is laid out, and its reverse from the opposite side shows the other two. 0 = square to a wall,
+         1 = turned 30 degrees or more from every wall line (the footprint's own edges, by length). */
+      const edges=s.poly.map((a,i)=>{const b=s.poly[(i+1)%s.poly.length];return {bearing:Math.atan2(b[0]-a[0],b[1]-a[1])/RAD,length:Math.hypot(b[0]-a[0],b[1]-a[1])};});
+      const edgeTotal=edges.reduce((n,e)=>n+e.length,0)||1;
+      const oblique=yaw=>edges.reduce((n,e)=>{const m=(((yaw-e.bearing)%90)+90)%90;return n+e.length*clamp(Math.min(m,90-m)/30,0,1);},0)/edgeTotal;
       const roomBest=new Uint8Array(s.samples.length),count=a=>a.reduce((n,x)=>n+x,0)/Math.max(1,a.length);
       const roomGain=item=>item.room.reduce((n,x,i)=>n+(x&&!roomBest[i]?1:0),0)/Math.max(1,item.room.length);
       const apart=(a,b)=>Math.hypot(a.position[0]-b.position[0],a.position[1]-b.position[1]);
       const turn=(a,b)=>Math.cos((a.yaw-b.yaw)*RAD);
       const chosen={},best=new Map(groups.map(g=>[g.id,0]));
       const take=(key,item,role,label,target)=>{
-        chosen[key]={key,role,label,pose:item.pose,...(target?{targetId:target.id}:{}),
+        chosen[key]={key,role,label,pose:item.pose,c:item.c,...(target?{targetId:target.id}:{}),
           shows:groups.filter(g=>item.c.get(g.id).value>=.3).sort((a,b)=>item.c.get(b.id).value-item.c.get(a.id).value).map(g=>g.name)};
         for(const g of groups)best.set(g.id,Math.max(best.get(g.id),item.c.get(g.id).value));
         (item.room||s.roomSeen(item.pose)).forEach((x,i)=>{if(x)roomBest[i]=1;});
       };
       for(const key of KEYS)if(keep[key]){
         const pose=keep[key],c=measure(pose);
-        chosen[key]={key,role:"kept",label:"Kept as set",pose,shows:groups.filter(g=>c.get(g.id).value>=.3).map(g=>g.name)};
+        chosen[key]={key,role:"kept",label:"Kept as set",pose,c,shows:groups.filter(g=>c.get(g.id).value>=.3).map(g=>g.name)};
         for(const g of groups)best.set(g.id,Math.max(best.get(g.id),c.get(g.id).value));
         s.roomSeen(pose).forEach((x,i)=>{if(x)roomBest[i]=1;});
       }
@@ -337,7 +359,8 @@
           const item=view(c.pose);if(!item)continue;
           item.room=s.roomSeen(c.pose);
           // A wide view is worth what it shows of the room and of its saved objects, with depth and a clear foreground.
-          item.score=.5*count(item.room)+.5*item.cover+.15*item.v.depthRange-1.5*Math.max(0,item.v.near-.05)-.8*Math.max(0,item.v.topShare-.45)-(c.pose.lensMm===18?.02:0);
+          item.score=.5*count(item.room)+.5*item.cover+.15*item.v.depthRange-1.5*Math.max(0,item.v.near-.05)-.8*Math.max(0,item.v.topShare-.45)-(c.pose.lensMm===18?.02:0)
+            +(square?-.12:.12)*oblique(c.pose.yaw);
           wides.push(item);
         }
       });
@@ -345,15 +368,20 @@
       const gain=item=>groups.reduce((n,g)=>n+g.weight*Math.max(0,item.c.get(g.id).value-best.get(g.id)),0)/total;
       const free=KEYS.filter(k=>!chosen[k]);
       const others=()=>Object.values(chosen).map(c=>c.pose);
+      // (the other coverage keeps to views square to the walls, within 15 degrees, wherever the room has clear ones)
+      const squared=square?wides.filter(c=>oblique(c.pose.yaw)<=.5):[],pool=squared.length?squared:wides;
       if(free.includes("TL")){
-        const pick=wides.slice().sort((a,b)=>(b.score+gain(b)+roomGain(b))-(a.score+gain(a)+roomGain(a)))[0];
+        const pick=pool.slice().sort((a,b)=>(b.score+gain(b)+roomGain(b))-(a.score+gain(a)+roomGain(a)))[0];
         take("TL",pick,"wide","Wide room view");
       }
       if(free.includes("TR")){
         const first=chosen.TL.pose;
         const value=c=>gain(c)*1.2+roomGain(c)*1.2+c.score*.6;
         const rank=list=>list.sort((a,b)=>value(b)-value(a))[0];
-        const pick=rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.3&&turn(c.pose,first)<=.2))
+        // from the opposite side first (turned 120 degrees or more, most of the room away), then as before
+        const pick=rank(pool.filter(c=>apart(c.pose,first)>=s.diag*.45&&turn(c.pose,first)<=-.5))
+          ||rank(pool.filter(c=>apart(c.pose,first)>=s.diag*.3&&turn(c.pose,first)<=.2))
+          ||rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.3&&turn(c.pose,first)<=.2))
           ||rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.2&&turn(c.pose,first)<=.7))
           ||rank(wides.filter(c=>apart(c.pose,first)>=s.diag*.12||turn(c.pose,first)<=.5));
         if(!pick)throw Error("This room has no second clear wide view. Check the footprint and object sizes in Floor plan.");
@@ -376,7 +404,8 @@
             const span=Math.max(x1-x0,y1-y0);if(span<.3||span>1.15)continue;
             const inFrame=(clamp(x1,0,1)-clamp(x0,0,1))*(clamp(y1,0,1)-clamp(y0,0,1))/Math.max(1e-6,(x1-x0)*(y1-y0));
             if(inFrame<.7)continue;
-            list.push({pose,score:-Math.abs(span-.5)*.6-(1-inFrame)*.6});
+            // (2026-11-27: a close-up is close; it aimed for half the frame and came out as a second wide view)
+            list.push({pose,score:-Math.abs(span-.62)*.6-(1-inFrame)*.6});
           }
         }
         list.sort((a,b)=>b.score-a.score);
@@ -409,7 +438,15 @@
       const ranked=o=>detailScore(o)*(taken.some(g=>g.kind===o.primary.kind)?.35:1);
       for(const key of ["BL","BR"]){
         if(!free.includes(key))continue;
-        const pick=options.filter(o=>fresh(o)&&distinct(o)).sort((a,b)=>ranked(b)-ranked(a)||a.primary.id.localeCompare(b.primary.id))[0];
+        /* NO FRAME REPEATS ANOTHER (owner 2026-11-27). A bakery's four frames showed its oven wall twice and its
+           window wall twice: the set was right, and it read as broken. A close-up of something a wide view already
+           faces is taken from another side (45 degrees or more round from that view), so the four frames are four
+           different pictures. It guides the CHOICE only, while another close-up is to be had: in a bare corridor
+           every view shows the same door, and a rule the fit could not keep would only nag. Cameras kept as they
+           are count as views already chosen. */
+        const adding=o=>!Object.values(chosen).some(v=>v.role!=="detail"&&turn(v.pose,o.pose)>.707&&v.c.get(o.primary.id).value>=.3);
+        const able=options.filter(o=>fresh(o)&&distinct(o)),byRank=(a,b)=>ranked(b)-ranked(a)||a.primary.id.localeCompare(b.primary.id);
+        const pick=able.filter(adding).sort(byRank)[0]||able.sort(byRank)[0];
         if(pick){taken.push(pick.primary);take(key,pick,"detail",pick.primary.name+" detail",pick.primary);continue;}
         // A sparse room: the next most useful different view of the room, rather than a forced close-up.
         const extra=wides.filter(distinct).sort((a,b)=>(gain(b)*2+b.score*.4)-(gain(a)*2+a.score*.4))[0];
@@ -417,7 +454,7 @@
         take(key,extra,"wide","Another room view");
       }
       const unseen=groups.filter(g=>best.get(g.id)<.3).map(g=>g.name);
-      return {panels:KEYS.map(k=>chosen[k]),unseen,
+      return {panels:KEYS.map(k=>{const {c,...panel}=chosen[k];return panel;}),unseen,
         coverage:r2(groups.reduce((n,g)=>n+g.weight*best.get(g.id),0)/total)};
     }finally{s.dispose();}
   }
