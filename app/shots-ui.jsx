@@ -2538,8 +2538,10 @@ function ScenePlanBlock({ scene, bm, ordered, ctx, characters, planning, failed,
   const noCard = things.filter(t=>t.kind==="prop" && !cardOf(t));
   const planned = (ordered||[]).filter(sh=>sh && sh.planned).length;
   const goShot = (id)=>{ if(id==null) return;
-    const card = document.querySelector('[data-shot-card="'+String(id).replace(/"/g,"")+'"]');
-    if(card){ try{ card.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} } };
+    // (its beat may be out of sight: one beat shows at a time)
+    try{ if(typeof window.turnShowShot==="function") window.turnShowShot(id); }catch(e){}
+    setTimeout(()=>{ const card = document.querySelector('[data-shot-card="'+String(id).replace(/"/g,"")+'"]');
+      if(card){ try{ card.scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){} } }, 140); };
   const turn = (typeof sceneTurnText==="function") ? sceneTurnText(scene) : String(scene.turningPoint||"");
   const driver = scene.driver ? nameOf(scene.driver) : "";
   const row = (k,v)=> v ? _el("div",{className:"ssx-plan-row"},_el("span",{className:"ssx-plan-k"},k),_el("span",{className:"ssx-plan-v"},v)) : null;
@@ -2648,6 +2650,18 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
   const [openByBeat, setOpenByBeat] = React.useState({});
   const [stripByBeat, setStripByBeat] = React.useState({});   // the beats whose drawings are showing ("Draw the beat")
   const [boardByBeat, setBoardByBeat] = React.useState({});   // the beats whose frame board is showing ("Frame board")
+  /* ONE BEAT AT A TIME (owner 2026-11-27: "to avoid the scroll, the user [changes] it by clicking an arrow ... right /
+     left arrow to change beat number"). The beat's card has Previous and Next arrows; the other beats stay built but
+     out of sight (their shot cards go on making frames in a run), and a run that reaches another beat brings that beat
+     up by itself. A link that names a shot (window.turnShowShot) brings its beat up and opens it. */
+  const [beatIdx, setBeatIdx] = React.useState(0);
+  const lanesRef = React.useRef([]);
+  React.useEffect(()=>{
+    const show = (id)=>{ const list = lanesRef.current||[], i = list.findIndex(L=>(L.shots||[]).some(sh=>sh && sh.id===id));
+      if(i<0) return false; setBeatIdx(i); setOpenByBeat(o=>({ ...o, [list[i].n]:id })); return true; };
+    window.turnShowShot = show;
+    return ()=>{ if(window.turnShowShot===show) window.turnShowShot = null; };
+  },[]);
   /* THE PAGER ANSWERS IN THE NEXT PICTURE (owner 2026-11-26). Going to another scene rebuilds the whole tab, which
      takes a moment during which nothing used to change. So the press itself writes the new scene's number and name
      into the head and dims the beats that are about to go, the browser shows that, and only then is the scene
@@ -2974,6 +2988,10 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
         _el("div",{key:"beat-grid",className:"beat-grid-wrap"+(draftingScene?" drafting":"")},
           _el("div",{className:"beat-card-grid"+((window.ShotBeatFace && window.KinolotBeatCard)?" beat-first":"")},
             lanes.map((L,Li)=>{
+              // (the beat that shows: the one a run is making frames in, else the one the arrows chose)
+              lanesRef.current = lanes;
+              const runAt = lanes.findIndex(x=>x.shots.some(sh=>shotRunsHere(sh,batchActiveId)));
+              const beatNow = runAt>=0 ? runAt : Math.min(beatIdx, Math.max(0, lanes.length-1));
               // a split beat: its moment shots get cards of their own after the opening card
               const momentShots=L.shots.filter(sh=>sh.keyframeMode==="moment")
                 .sort((a,b)=>Number(a.moment&&a.moment.n)-Number(b.moment&&b.moment.n));
@@ -2987,10 +3005,11 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
                 const momentOpen=momentShots.some(sh=>sh.id===openNow);
                 const primary=typeof shotPrimaryOf==="function" ? shotPrimaryOf(Lopen.shots) : (Lopen.shots[0]||null);
                 const busyAll=!!renderBusy||!!draftingBlocked||!!draftingScene||!!refiningBeat||!!splittingBeat||!!planningScene;
-                return _el("div",{key:"bf"+(L.canonical?"c":"o")+L.n,className:"sbc-row","data-testid":"beat-row","data-beat":L.n},
+                return _el("div",{key:"bf"+(L.canonical?"c":"o")+L.n,className:"sbc-row","data-testid":"beat-row","data-beat":L.n,hidden:Li!==beatNow ? true : undefined},
                   // (its own column: the beat's card follows the page inside it, never over the row below)
                   _el("div",{className:"sbc-side"},_el(window.ShotBeatFace,{L,lanesLen:lanes.length,bm,scene,ctx,ordered,openId:openNow,onView,readOnly,busy:!!renderBusy,
                     onOpen:(id)=>setOpenByBeat(o=>({...o,[L.n]:id})),
+                    beatNav:lanes.length>1 ? { idx:beatNow, total:lanes.length, onGo:(i)=>setBeatIdx(Math.max(0, Math.min(lanes.length-1, i))) } : null,
                     strip:!!stripByBeat[L.n], onStrip:(on)=>setStripByBeat(o=>({...o,[L.n]:!!on})),
                     board:!!boardByBeat[L.n], onBoard:window.BeatFrameBoard ? (on)=>setBoardByBeat(o=>({...o,[L.n]:!!on})) : null,
                     onAddShot:(onAddShot&&!readOnly)?()=>setAddBeat(L.n):null,
@@ -3289,6 +3308,8 @@ function ShotList({ project, scenes, characters, props, locations, shots, beatsM
       const shotId = String(f.action).slice(5); let tries = 0;
       const go = ()=>{ const card = document.querySelector('[data-shot-card="'+shotId.replace(/"/g,"")+'"]');
         if(!card){ if(++tries<24) setTimeout(go, 250); return; }
+        // (one beat shows at a time: the shot's own beat is brought up first)
+        if(!card.getClientRects().length && tries<24){ try{ if(typeof window.turnShowShot==="function") window.turnShowShot(shotId); }catch(e){} tries++; setTimeout(go, 250); return; }
         try{ card.scrollIntoView({behavior:"smooth",block:"start"}); }catch(e){}
         try{ window.dispatchEvent(new CustomEvent("nb-open-fold",{ detail:"shot-previs-"+shotId })); }catch(e){} };
       setTimeout(go, 300);

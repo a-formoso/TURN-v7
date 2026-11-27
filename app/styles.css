@@ -13091,3 +13091,13 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .sbc-thumb{position:relative}
 .sbc-thumb-cut{position:absolute;top:5px;left:5px;padding:1px 6px;border-radius:5px;background:var(--txt-0);color:var(--bg-1);font:400 9px/1.5 var(--f-mono);letter-spacing:.06em;text-transform:uppercase}
 @media (max-width:640px){ .sbc-moment{min-width:40px;height:40px} }
+
+/* ONE BEAT AT A TIME (owner 2026-11-27): the beat's card has two arrows; the other beats' rows are out of sight */
+.sbc-row[hidden]{display:none}
+.sbc-beat-nav{margin-left:auto;display:inline-flex;gap:6px}
+.sbc-beat-arrow{display:inline-grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1);color:var(--txt-1);cursor:pointer;transition:.12s}
+.sbc-beat-arrow:hover:not(:disabled){border-color:var(--txt-2);color:var(--txt-0)}
+.sbc-beat-arrow:active:not(:disabled){transform:scale(.92)}
+.sbc-beat-arrow:disabled{opacity:.4;cursor:default}
+.sbc-beat-arrow:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+@media (max-width:640px){ .sbc-beat-arrow{width:40px;height:40px} }

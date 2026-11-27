@@ -19,7 +19,7 @@ function useSbcSeen(ref){
   },[seen]);
   return seen;
 }
-function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, onView, readOnly=false, onAddShot, momentsLine=null, busy=false, strip=false, onStrip=null, board=false, onBoard=null }){
+function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, onView, readOnly=false, onAddShot, momentsLine=null, busy=false, strip=false, onStrip=null, board=false, onBoard=null, beatNav=null }){
   const K = window.KinolotBeatCard;
   const ref = React.useRef(null), seen = useSbcSeen(ref);
   const [, tick] = React.useState(0);
@@ -80,7 +80,13 @@ function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, on
   return SBC_E("section",{ref,className:"sheet-card sbc-beat","data-testid":"beat-card","data-beat":L.n,"aria-label":"Beat "+L.n},
     SBC_E("div",{className:"sbc-beat-head"},
       SBC_E("span",{className:"sbc-kicker"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:""),
-        String((bm||{}).turnAt||"")===String(L.n) && SBC_E("span",{className:"sbc-turn",title:"The scene turns in this beat."},Icon.bolt && SBC_E(Icon.bolt,{s:10}),"Turning point")),
+        String((bm||{}).turnAt||"")===String(L.n) && SBC_E("span",{className:"sbc-turn",title:"The scene turns in this beat."},Icon.bolt && SBC_E(Icon.bolt,{s:10}),"Turning point"),
+        // one beat shows at a time: the arrows go to the beat before and the beat after (owner 2026-11-27)
+        beatNav && SBC_E("span",{className:"sbc-beat-nav",role:"group","aria-label":"Beats of this scene","data-testid":"beat-card-nav"},
+          SBC_E("button",{type:"button",className:"sbc-beat-arrow",disabled:beatNav.idx<=0,"aria-label":"Previous beat",title:"Previous beat","data-testid":"beat-card-prev",
+            onClick:()=>beatNav.onGo(beatNav.idx-1)},Icon.chevL ? SBC_E(Icon.chevL,{s:14}) : "\u2039"),
+          SBC_E("button",{type:"button",className:"sbc-beat-arrow",disabled:beatNav.idx>=beatNav.total-1,"aria-label":"Next beat",title:"Next beat","data-testid":"beat-card-next",
+            onClick:()=>beatNav.onGo(beatNav.idx+1)},Icon.chevR ? SBC_E(Icon.chevR,{s:14}) : "\u203a"))),
       SBC_E("h3",{className:"sbc-beat-title"},title || "Beat "+L.n),
       SBC_E("span",{className:"sbc-beat-meta","data-testid":"beat-card-meta"},K.beatMeta({ place:place && place.name, moments:groups.length, shots:shots.length, seconds }))),
     SBC_E("div",{className:"sbc-chips","data-testid":"beat-card-counts"},K.countWords(c).map((t,i)=>SBC_E("span",{key:i,className:"sbc-chip"},t))),

@@ -107,6 +107,16 @@ test("6 the beat's own card: what it shows and its four actions", ()=>{
   // (owner 2026-11-27: the card shows the beat's moments, and the shots inside the chosen one, numbered beat . moment . shot)
   assert.ok(face.includes('K.shotNumber(sh, shots)+" "+K.name(sh)')&&face.includes("K.beatMeta({ place:place && place.name, moments:groups.length, shots:shots.length, seconds })")&&face.includes("K.countWords(c).map("));
   for(const id of ["beat-card-moments","beat-card-moment-pick","beat-card-moment","beat-card-cut"]) assert.ok(face.includes('"data-testid":"'+id+'"'),id);
+  // (owner 2026-11-27: one beat at a time, with arrows on the beat's card; the other beats stay built, out of sight)
+  {
+    const shotsUi=read("app/shots-ui.jsx"), cssAll=read("app/styles.css");
+    for(const id of ["beat-card-nav","beat-card-prev","beat-card-next"]) assert.ok(face.includes('"data-testid":"'+id+'"'),id);
+    assert.ok(face.includes("disabled:beatNav.idx<=0")&&face.includes("disabled:beatNav.idx>=beatNav.total-1")&&face.includes("onClick:()=>beatNav.onGo(beatNav.idx+1)"));
+    assert.ok(shotsUi.includes('hidden:Li!==beatNow ? true : undefined},')&&cssAll.includes(".sbc-row[hidden]{display:none}"),"the other beats' rows are out of sight, and stay built");
+    assert.ok(shotsUi.includes("const runAt = lanes.findIndex(x=>x.shots.some(sh=>shotRunsHere(sh,batchActiveId)));")&&shotsUi.includes("const beatNow = runAt>=0 ? runAt : Math.min(beatIdx, Math.max(0, lanes.length-1));"),"a run brings the beat it is working in up by itself");
+    assert.ok(shotsUi.includes("window.turnShowShot = show;")&&shotsUi.includes('if(typeof window.turnShowShot==="function") window.turnShowShot(id);'),"a link that names a shot brings its beat up");
+    assert.ok(shotsUi.includes("beatNav:lanes.length>1 ? { idx:beatNow, total:lanes.length,"),"a scene of one beat has no arrows");
+  }
   assert.ok(face.includes("const mNow = groups.find(g=>g.shots.some(sh=>sh.id===openId)) || groups[0] || null;"),"the moment shown is the open shot's own");
   assert.ok(face.includes("onClick:()=>onOpen && g.shots[0] && onOpen(g.shots[0].id)}, g.n);"),"pressing a moment opens its first shot");
   assert.ok(face.includes('mNow.shots.map((sh,k)=>{')&&face.includes('k>0 && SBC_E("span",{className:"sbc-thumb-cut","data-testid":"beat-card-cut"},"cut")'),"only the chosen moment's shots; a shot after the first begins with a cut");
@@ -189,7 +199,7 @@ test("9 Send this beat to the Stage only goes there; loaded in order; Frances kn
   const i=s=>html.indexOf(s);
   assert.ok(i("app/location-set-card.js?v=")<i("app/shot-beat-card.js?v=")&&i("app/shot-beat-card.js?v=")<i("app/shot-beat-card-ui.jsx?v="),"the plan reader, the words, then the screen");
   for(const f of ["app/shot-beat-card.js","app/shot-beat-card-ui.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/stage.jsx","app/app.jsx","app/styles.css","app/ai.jsx"])
-    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1", "20261127-beats1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Shots: a beat and its open shot')).join("\n"))(g.APP_FEATURES);
   assert.equal(g.APP_FEATURES.length,1);
   const fact=g.APP_FEATURES[0].what;
