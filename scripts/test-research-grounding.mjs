@@ -138,6 +138,25 @@ await test("B4 citation tags come out of the text, and the pages they name are t
   ];
   assert.deepEqual(W.webSearchSources(uneven).map((x) => Number(x.url.split("/").pop())), [1, 21, 31, 2, 3]);
   assert.deepEqual(W.webSearchSources([]), []);
+  // ONE PAGE, ONCE (2026-11-27): the third proof run listed one review page twice, under two addresses
+  const r = (url, title) => ({ type: "web_search_result", url, title });
+  const twice = [
+    { type: "web_search_tool_result", content: [r("https://www.reviews.example/Restaurant_Review-d4567-Corner_Bakery.html", "CORNER BAKERY - Reviews, Photos & Phone Number"), r("https://a.example/night-shift/", "The Night Shift")] },
+    { type: "web_search_tool_result", content: [r("https://www.reviews.example/Restaurant_Review-g99-d4567-Corner_Bakery.html", "Corner Bakery -  Reviews, Photos & Phone Number"), r("http://www.a.example/night-shift#comments", "The Night Shift | A Example")] },
+    { type: "web_search_tool_result", content: [r("https://b.example/night-shift", "The Night Shift"), r("https://c.example/1", ""), r("https://c.example/2", "")] },
+  ];
+  assert.deepEqual(W.webSearchSources(twice).map((x) => x.url), [
+    "https://www.reviews.example/Restaurant_Review-d4567-Corner_Bakery.html",   // its twin (same site, same title) is left out
+    "http://www.a.example/night-shift#comments",                                // the second search's turn; its twin (no www, a slash) is left out later
+    "https://b.example/night-shift",                                            // the same title on ANOTHER site is another page
+    "https://c.example/1", "https://c.example/2",                               // two untitled pages of one site are two pages
+  ]);
+  // a different query string is a different page; the first one seen is the one kept
+  assert.deepEqual(W.webSearchSources([{ type: "web_search_tool_result", content: [r("https://s.example/list?page=1", "List 1"), r("https://s.example/list?page=2", "List 2"), r("https://s.example/list?page=1", "List 1 again")] }]).map((x) => x.title), ["List 1", "List 2"]);
+  // a cited page is not repeated lower down under its second address
+  const cited = W.webSearchSources([{ type: "web_search_tool_result", content: [r("https://a.example/x/", "X"), r("https://a.example/y", "Y")] },
+    { type: "text", text: "…", citations: [{ url: "https://www.a.example/x", title: "X" }] }]);
+  assert.deepEqual(cited.map((x) => [x.url, x.cited]), [["https://www.a.example/x", true], ["https://a.example/y", false]]);
   // a tag that names a page the searches did not return adds nothing; with no text the old order stands
   assert.equal(W.webSearchSources(blocks, '<cite index="99-1">x</cite>')[0].url, "https://p.example/1");
   assert.equal(W.webSearchSources(blocks)[0].cited, false);

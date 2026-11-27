@@ -31,14 +31,30 @@ export function citeTagPages(text) {
    The other results are taken a page from EACH SEARCH IN TURN (2026-11-27). A research asks about
    several things (the place, then each principal's work), and the list the writer sees is short:
    in the order found it was eight pages from the first search, with none behind the facts about
-   the second character. In turn, every search's subject is on the list. */
+   the second character. In turn, every search's subject is on the list.
+
+   ONE PAGE, ONCE (2026-11-27). The same page comes back from two searches under two addresses (a
+   review page with and without its "www", its closing slash or its page anchor; a listing under two
+   ids), and the short list showed it twice. A page is on the list already when its address is the
+   same once those are set aside, or when the same site already gave a page with the same title. */
+function sourceHost(u) {
+  try { return new URL(u).hostname.toLowerCase().replace(/^www\./, ""); } catch (_e) { return ""; }
+}
+function sourceAddressKey(u) {
+  try { const x = new URL(u); return sourceHost(u) + x.pathname.replace(/\/+$/, "") + x.search; } catch (_e) { return String(u); }
+}
 export function webSearchSources(blocks, text = "") {
   const out = [];
   const seen = new Set();
   const add = (url, title, cited) => {
     const u = String(url || "").trim();
-    if (!/^https?:\/\//i.test(u) || seen.has(u) || out.length >= 12) return;
-    seen.add(u); out.push({ url: u, title: String(title || "").trim().slice(0, 200), cited });
+    if (!/^https?:\/\//i.test(u) || out.length >= 12) return;
+    const t = String(title || "").trim().slice(0, 200);
+    const byAddress = "a:" + sourceAddressKey(u);
+    const byTitle = t ? "t:" + sourceHost(u) + "|" + t.toLowerCase().replace(/\s+/g, " ") : "";
+    if (seen.has(byAddress) || (byTitle && seen.has(byTitle))) return;
+    seen.add(byAddress); if (byTitle) seen.add(byTitle);
+    out.push({ url: u, title: t, cited });
   };
   for (const b of blocks || []) for (const c of (b && b.type === "text" && Array.isArray(b.citations)) ? b.citations : []) add(c.url, c.title, true);
   // every page the searches returned, in order: a tag's number counts into this list
