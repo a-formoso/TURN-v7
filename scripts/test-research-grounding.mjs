@@ -58,7 +58,20 @@ const textRoute = proxy.slice(proxy.indexOf('if (task === "text") {'), proxy.ind
 await test("B1 search is asked for explicitly, only on Claude, never on Frances's free path", () => {
   assert.match(textRoute, /const searchTool = body\.webSearch === true && provider === "anthropic" && textKind !== "muse" \? textWebSearchTool\(model\) : "";/);
   assert.match(textRoute, /const est = \{ model: priceKey, messages, imageCount: images\.length, vision, promptCache, webSearches, unit \};/);
-  assert.match(textRoute, /tools: \[\{ type: searchTool, name: "web_search", max_uses: TEXT_WEB_SEARCH_MAX_USES \}\]/);
+  assert.match(textRoute, /tools: \[\{ type: searchTool, name: "web_search", max_uses: TEXT_WEB_SEARCH_MAX_USES, \.\.\.\(searchDirect \? \{ allowed_callers: \["direct"\] \} : \{\}\) \}\]/);
+});
+await test("B1b the engine reads what it searched: searches are direct calls, with one retry if the provider refuses the field (2026-11-27)", () => {
+  // by default the tool runs from the provider's code sandbox, where the engine sees only what its script prints
+  // and a script past max_uses loses every result: a research said "no web search went through" under 8 sources
+  assert.match(textRoute, /let searchDirect = true;\s*const callClaude = /);
+  assert.match(textRoute, /if \(!\(searchTool && searchDirect && r\.status === 400 && \/allowed_callers\/i\.test\(d\)\)\) return textRefused\(d, r\.status\);/);
+  assert.match(textRoute, /searchDirect = false;\s*r = await callClaude\(sendTurns\);\s*if \(!r\.ok\) \{[^}]*\} catch \(_e\) \{ \/\* noop \*\/ \} return textRefused\(d, r\.status\); \}/);
+  // every other refusal is passed on as before: no second call on a plain call, or on another 400
+  assert.equal((textRoute.match(/searchDirect = false;/g) || []).length, 1);
+  // the app's prompt keeps the engine inside the limit (the server allows 5)
+  const aiSrc = read("app/ai.jsx");
+  assert.ok(aiSrc.includes('"GROUND THE FACT PILLAR: if you can search the web, run a few focused searches, one at a time and 5 at most in "+'));
+  assert.equal(P.TEXT_WEB_SEARCH_MAX_USES, 5);
 });
 await test("B2 a paused searching turn resumes once with the paused turn appended (no 'continue' message), usage summed", () => {
   assert.match(textRoute, /if \(data\.stop_reason === "pause_turn"\) \{\s*const r2 = await callClaude\(\[\.\.\.sendTurns, \{ role: "assistant", content: data\.content \|\| \[\] \}\]\);/);
@@ -66,7 +79,7 @@ await test("B2 a paused searching turn resumes once with the paused turn appende
   assert.doesNotMatch(textRoute, /content: "[Cc]ontinue/);
 });
 await test("B3 the reply says whether the engine could search and which pages it used", () => {
-  assert.match(textRoute, /\{ webSearch: \{ available: true, searches \}, sources \}/);
+  assert.match(textRoute, /\{ webSearch: \{ available: true, searches, direct: searchDirect \}, sources \}/);
   assert.match(textRoute, /if \(body\.webSearch === true && !\("webSearch" in extra\)\) extra = \{ \.\.\.extra, webSearch: \{ available: false, searches: 0 \} \};/);
   // the sources helper runs: cited pages first, then the other results, http(s) only, one per URL
   const src = proxy.slice(proxy.indexOf("function webSearchSources"), proxy.indexOf("\n}\n", proxy.indexOf("function webSearchSources")) + 2);

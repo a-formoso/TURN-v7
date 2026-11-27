@@ -78,7 +78,8 @@ charges, scenes that turn, beats → script → Art Room → Stage). Served at *
   container, a recording above 6 min (`STT_MAX_SECONDS`; the app stops at 5, `NS_MAX_ANSWER_SECONDS`) or an unknown
   `modelId` gets a 400 before any hold, and the app then switches to the browser's speech recognition. **Web search on a
   writing call** (`webSearch: true`; New Story's research, owner 2026-10-02) runs only on Claude Opus 5 / 5.5 and Sonnet
-  5 / 5.5 (`web_search_20260209`, max 5 searches) and never on Frances's free path; held at $0.01 a search plus 15,000
+  5 / 5.5 (`web_search_20260209`, max 5 searches, called directly — `allowed_callers: ["direct"]` — so the engine reads
+  the results itself, 2026-11-27) and never on Frances's free path; held at $0.01 a search plus 15,000
   input tokens a search for the pages read, settled on `usage.server_tool_use.web_search_requests`
   (`billing-pricing.mjs` `textWebSearchTool`). **Attribution:** an image call names its film and item
   (`context: {projectId, assetId, purpose}`, from `imagegen.jsx` `proxyGenerate`); the proxy records them with the

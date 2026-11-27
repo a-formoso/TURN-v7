@@ -1185,6 +1185,14 @@ Deno.serve(async (req) => {
       // exactly the engine they asked for.
       const runModel = museRunModel(textKind, model);
       const sendTurns: any[] = turns.length ? turns : [{ role: "user", content: "" }];
+      // THE ENGINE READS WHAT IT SEARCHED (2026-11-27). On web_search_20260209 a search runs, by default, from
+      // inside the provider's code sandbox: the engine sees only what its own script prints, and a script that asks
+      // for more than max_uses searches ends in an error. The found pages still come back in the reply, so a research
+      // was shown as "checked against the web" with eight sources while its own text said no search went through.
+      // `allowed_callers: ["direct"]` makes each search an ordinary call: the engine reads the results itself, and a
+      // search past the limit fails alone. A provider that refuses the field (a 400 naming it) is asked once more
+      // without it, so research never breaks on it.
+      let searchDirect = true;
       const callClaude = (msgs: any[]) => fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           signal: AbortSignal.timeout(textTimeoutMs),
@@ -1192,12 +1200,19 @@ Deno.serve(async (req) => {
           // a metered call's cap is the held one (never below the 16k thinking room: the hold covers it)
           body: JSON.stringify({ model: runModel, max_tokens: textKind === "muse" ? MUSE_LIMITS.maxOutputTokens : Math.max(reqMaxTokens || 0, 16000),
             ...(textKind !== "muse" && claudeEffort && /^claude-(fable|mythos|opus-5|sonnet-5)/.test(runModel) ? { output_config: { effort: claudeEffort } } : {}),
-            ...(searchTool ? { tools: [{ type: searchTool, name: "web_search", max_uses: TEXT_WEB_SEARCH_MAX_USES }] } : {}),
+            ...(searchTool ? { tools: [{ type: searchTool, name: "web_search", max_uses: TEXT_WEB_SEARCH_MAX_USES, ...(searchDirect ? { allowed_callers: ["direct"] } : {}) }] } : {}),
             ...(system ? { system } : {}), messages: msgs }),
         });
       try {
-        const r = await callClaude(sendTurns);
-        if (!r.ok) { let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return textRefused(d, r.status); }
+        let r = await callClaude(sendTurns);
+        if (!r.ok) {
+          let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ }
+          if (!(searchTool && searchDirect && r.status === 400 && /allowed_callers/i.test(d))) return textRefused(d, r.status);
+          console.warn(`[image-proxy] web search: direct calls refused (${runModel}), asking again without the field.`);
+          searchDirect = false;
+          r = await callClaude(sendTurns);
+          if (!r.ok) { d = ""; try { d = (await r.json())?.error?.message || ""; } catch (_e) { /* noop */ } return textRefused(d, r.status); }
+        }
         let data = await r.json();
         // A DECLINED REQUEST (2026-11-12, with Fable 5.2): the current Claude engines can answer 200 with
         // stop_reason "refusal" and no text. That is not an empty draft: say so, write nothing and charge nothing
@@ -1232,7 +1247,7 @@ Deno.serve(async (req) => {
         const sources = webSearchSources(blocks);
         const searches = Number(usage.server_tool_use?.web_search_requests) || 0;
         return await finishText("anthropic", runModel, { ...data, usage }, blocks.filter((b: any) => b && b.type === "text").map((b: any) => b.text || "").join(""), aAttached > 0,
-          { webSearch: { available: true, searches }, sources });
+          { webSearch: { available: true, searches, direct: searchDirect }, sources });
       } catch (e) { return textUnreachable(e); }
     }
     return json({ error: `That writing engine isn't available on this server.` }, 400);

@@ -6239,7 +6239,10 @@ async function aiResearch(logline, seedText, frameworkId, formatId, steer, canon
     "   \u2022 howItFeels: what it feels like from the inside.\n"+
     "   \u2022 frustrating: what is genuinely frustrating, tedious or hard about it.\n"+
     "   \u2022 lovely: what is genuinely nice, beautiful or rewarding about it.\n"+
-    "GROUND THE FACT PILLAR: if you can search the web, run a few focused searches (the period and place, the "+
+    // (2026-11-27: "5 at most, one at a time" — a research that asked for more than the server's limit in one go
+    // lost every result it had found, and wrote "no web search went through" under the pages it never read)
+    "GROUND THE FACT PILLAR: if you can search the web, run a few focused searches, one at a time and 5 at most in "+
+    "all (the period and place, the "+
     "principals' real roles and their daily work) before writing it, and state as fact only what the pages you read "+
     "support \u2014 leave out a detail you could not confirm rather than guessing. Real people and real events get "+
     "only what the record shows. Without search, keep to what is widely known.\n"+
