@@ -101,7 +101,8 @@ function BeatFrameBoard({ scene, L, bm, shots, sceneShots, ctx, onView, onOpen, 
   const shown = real || pic || pick(colour);
   // (a moment's steps: how many, and which one this is)
   const stepsOf = x=>frames.filter(y=>y.moment===x.moment).length, stepNo = x=>frames.filter(y=>y.moment===x.moment).indexOf(x)+1;
-  const shotNo = x=>x.beat+"."+x.moment;
+  // (beat . moment . shot: on the board each moment is drawn as its first shot)
+  const shotNo = x=>x.beat+"."+x.moment+".1";
   const go = n=>{ setPlaying(false); setAt(Math.max(0, Math.min(frames.length-1, n))); };
   const play = ()=>{ if(!frames.length) return; if(playing){ setPlaying(false); return; } if(i>=frames.length-1) setAt(0); setPlaying(true); };
   const looks = (window.SHOT_PREVIS_LOOKS || [{ id:"", name:"Previs", title:"" }]).concat([{ id:"frame", name:"Frame",

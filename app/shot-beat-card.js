@@ -66,8 +66,8 @@
   // the beat's name is its action: what the one who drives the beat does ("Disarms"); none written = no name
   function beatTitle(row){ const r=obj(row); return text(obj(r.drive).a)||text(r.title)||text(r.name)||""; }
   function beatMeta(o){
-    o=o||{}; const n=Number(o.shots)||0, s=Math.round(Number(o.seconds)||0);
-    return [text(o.place),n+(n===1?" shot":" shots"),s>0?s+(s===1?" second":" seconds"):""].filter(Boolean).join(" · ");
+    o=o||{}; const n=Number(o.shots)||0, s=Math.round(Number(o.seconds)||0), m=Math.round(Number(o.moments)||0);
+    return [text(o.place),m>0?m+(m===1?" moment":" moments"):"",n+(n===1?" shot":" shots"),s>0?s+(s===1?" second":" seconds"):""].filter(Boolean).join(" · ");
   }
   // the beat's shots in the order they play: its moments first, in their order, then any other shot it holds
   function order(shots){
@@ -136,5 +136,23 @@
     const seen=arr(r.people).filter(p=>p&&!p.unseen).length;
     return (seen>=3?"Every face is seen.":seen===2?"Both faces are seen.":seen===1?"The face is seen.":"Nobody is in this shot.")+" Nothing stands in the way.";
   }
-  root.KinolotBeatCard={SHORT,FULL,ANGLE,MOVE,COLOUR,number,name,chips,state,counts,countWords,beatTitle,beatMeta,order,firstOpen,steps,planModel,cameraLine,checkLine};
+  /* A BEAT'S MOMENTS AND THE SHOTS INSIDE EACH (owner 2026-11-27: "I want to be able to see each moment of a beat ...
+     change moments and see the shots inside that moment with their respective cuts"; a moment holds one or more
+     shots, numbered beat . moment . shot). moments(shots) → [{n, shots:[in order], cuts}]: a moment's shots are the
+     shot the moment was split into, then any shot added to it; each shot after the first begins with a cut.
+     shotNumber(sh, shots) → "1.3.1" (shots = the beat's shots). momentMeta({shots, seconds, steps}) → the line under
+     a moment's name: "1 shot · no cut · 4 seconds". */
+  function moments(shots){
+    const by=new Map(); order(shots).forEach(sh=>{ const n=momentOf(sh); if(!by.has(n)) by.set(n,[]); by.get(n).push(sh); });
+    return Array.from(by.keys()).sort((a,b)=>a-b).map(n=>({n,shots:by.get(n),cuts:Math.max(0,by.get(n).length-1)}));
+  }
+  function shotNumber(sh,shots){
+    const s=obj(sh), b=Number(s.beatN), list=arr(shots).some(x=>x&&x.id===s.id)?shots:[s], m=moments(list).find(x=>x.n===momentOf(s)), i=m?m.shots.findIndex(x=>x.id===s.id):0;
+    return (Number.isFinite(b)&&b>0?b:0)+"."+momentOf(s)+"."+(Math.max(0,i)+1);
+  }
+  function momentMeta(o){
+    o=o||{}; const n=Math.max(1,Number(o.shots)||1), s=Math.round(Number(o.seconds)||0), k=Math.round(Number(o.steps)||0);
+    return [n+(n===1?" shot":" shots"),n===1?"no cut":(n-1)+(n===2?" cut":" cuts"),s>0?s+(s===1?" second":" seconds"):"",k>1?k+" steps written":""].filter(Boolean).join(" · ");
+  }
+  root.KinolotBeatCard={SHORT,FULL,ANGLE,MOVE,COLOUR,number,name,chips,state,counts,countWords,beatTitle,beatMeta,order,firstOpen,steps,planModel,cameraLine,checkLine,moments,shotNumber,momentMeta};
 })(typeof window!=="undefined"?window:globalThis);

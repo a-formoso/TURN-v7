@@ -13073,3 +13073,21 @@ img.lsc-quad[data-quad="BR"]{left:-100%;top:-100%}
 .scene-pager-arrow:active:not(:disabled){transform:scale(.92)}
 .scene-switching [data-testid="beat-row"],.scene-switching .beat-card-grid{opacity:.4;transition:opacity .08s}
 .shot-scene-opening{display:flex;align-items:center;gap:8px;padding:18px 4px;color:var(--txt-2);font:12.5px/1.4 var(--f-ui)}
+
+/* THE BEAT CARD'S MOMENTS (owner 2026-11-27): a number for each moment of the beat, the chosen one black; under them
+   the chosen moment's own line and the shots inside it. A shot after the first begins with a cut. */
+.sbc-moments{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.sbc-moments-lab{font:400 9.5px/1.45 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--txt-3);margin-right:3px}
+.sbc-moment{min-width:30px;height:30px;padding:0 9px;border:1px solid var(--line-2);border-radius:var(--r-m);background:var(--bg-1);color:var(--txt-1);font:600 12px/1 var(--f-ui);cursor:pointer;transition:.12s}
+.sbc-moment:hover{border-color:var(--txt-2);color:var(--txt-0)}
+.sbc-moment.made{border-color:var(--hs-amber,var(--pos))}
+.sbc-moment.approved{border-color:var(--pos);color:var(--pos-ink)}
+.sbc-moment[aria-pressed="true"]{background:var(--txt-0);border-color:var(--txt-0);color:var(--bg-1)}
+.sbc-moment:focus-visible{outline:2px solid var(--pos);outline-offset:2px}
+.sbc-moment-head{display:flex;flex-direction:column;gap:3px;min-width:0}
+.sbc-moment-head b{font:600 13px/1.3 var(--f-ui);color:var(--txt-0)}
+.sbc-moment-meta{font-size:11.5px;color:var(--txt-2)}
+.sbc-moment-says{margin:3px 0 0;font-size:12px;line-height:1.45;color:var(--txt-1)}
+.sbc-thumb{position:relative}
+.sbc-thumb-cut{position:absolute;top:5px;left:5px;padding:1px 6px;border-radius:5px;background:var(--txt-0);color:var(--bg-1);font:400 9px/1.5 var(--f-mono);letter-spacing:.06em;text-transform:uppercase}
+@media (max-width:640px){ .sbc-moment{min-width:40px;height:40px} }

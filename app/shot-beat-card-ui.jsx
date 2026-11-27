@@ -52,6 +52,13 @@ function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, on
   const beatRows = typeof window.shotScreenplayBeatRows==="function"
     ? window.shotScreenplayBeatRows(scene,{drafts:ctx.drafts||((window.turnContinuity||{}).drafts)||{},beatsMap:{[scene.id]:bm||{}}}) : ((bm && bm.rows)||[]);
   const title = K.beatTitle((beatRows||[]).find(r=>Number(r && r.n)===Number(L.n)));
+  // the beat's moments, and the one the open shot belongs to
+  const groups = K.moments(shots);
+  const mNow = groups.find(g=>g.shots.some(sh=>sh.id===openId)) || groups[0] || null;
+  const sayOf = g=>{ const sh = g && g.shots[0]; return sh ? String(sh.action||sh.openingAction||sh.purpose||"").replace(/\s+/g," ").trim() : ""; };
+  const written = g=>{ const m = g && plan && plan.frames && plan.frames[L.n+"."+g.n]; return m && Array.isArray(m.frames) ? m : null; };
+  const nameOf = g=>{ const m = written(g); return (m && String(m.name||"").trim()) || ""; };
+  const stepsOf = g=>{ const m = written(g); return m ? m.frames.length : 0; };
   const anyBusy = !!run || !!busy || shots.some(sh=>making(sh.id));
   const canMake = !readOnly && shots.some(sh=>typeof window.shotPrevisMaker==="function" && window.shotPrevisMaker(sh.id) && drawn(sh));
   const makeAll = async ()=>{
@@ -75,17 +82,33 @@ function ShotBeatFace({ L, lanesLen, bm, scene, ctx, ordered, openId, onOpen, on
       SBC_E("span",{className:"sbc-kicker"},"Beat "+L.n+(lanesLen>1?" of "+lanesLen:""),
         String((bm||{}).turnAt||"")===String(L.n) && SBC_E("span",{className:"sbc-turn",title:"The scene turns in this beat."},Icon.bolt && SBC_E(Icon.bolt,{s:10}),"Turning point")),
       SBC_E("h3",{className:"sbc-beat-title"},title || "Beat "+L.n),
-      SBC_E("span",{className:"sbc-beat-meta","data-testid":"beat-card-meta"},K.beatMeta({ place:place && place.name, shots:shots.length, seconds }))),
+      SBC_E("span",{className:"sbc-beat-meta","data-testid":"beat-card-meta"},K.beatMeta({ place:place && place.name, moments:groups.length, shots:shots.length, seconds }))),
     SBC_E("div",{className:"sbc-chips","data-testid":"beat-card-counts"},K.countWords(c).map((t,i)=>SBC_E("span",{key:i,className:"sbc-chip"},t))),
     momentsLine,
-    shots.length>0 && SBC_E("div",{className:"sbc-thumbs",role:"group","aria-label":"The shots of beat "+L.n},shots.map(sh=>{
+    /* THE BEAT'S MOMENTS, THEN THE SHOTS INSIDE THE CHOSEN ONE (owner 2026-11-27). A number for each moment: pressing one
+       opens that moment (its first shot, beside the card). Under them the chosen moment: which one it is, how many shots
+       and cuts it holds, what happens in it, and a small picture of each of its shots, numbered beat . moment . shot;
+       a shot after the first begins with a cut, and says so. The moment chosen is the open shot's own. */
+    groups.length>0 && SBC_E("div",{className:"sbc-moments",role:"group","aria-label":"The moments of beat "+L.n,"data-testid":"beat-card-moments"},
+      SBC_E("span",{className:"sbc-moments-lab"},"Moments"),
+      groups.map(g=>{ const on = !!mNow && g.n===mNow.n, made = g.shots.every(sh=>!!img(sh.id)), ok = made && g.shots.every(sh=>!!sh.locked);
+        return SBC_E("button",{key:g.n,type:"button",className:"sbc-moment"+(ok?" approved":made?" made":""),"aria-pressed":on?"true":"false","data-moment":g.n,"data-testid":"beat-card-moment-pick",
+          title:"Moment "+g.n+" of "+groups.length+(sayOf(g) ? ": \u201c"+sayOf(g).slice(0,110)+(sayOf(g).length>110?"\u2026":"")+"\u201d" : "")+" \u00b7 "+K.momentMeta({ shots:g.shots.length })
+            +(ok?" \u00b7 approved":made?" \u00b7 image made":""),
+          onClick:()=>onOpen && g.shots[0] && onOpen(g.shots[0].id)}, g.n); })),
+    mNow && SBC_E("div",{className:"sbc-moment-head","data-testid":"beat-card-moment"},
+      SBC_E("b",null,"Moment "+mNow.n+" of "+groups.length+(nameOf(mNow) ? " \u00b7 "+nameOf(mNow) : "")),
+      SBC_E("span",{className:"sbc-moment-meta"},K.momentMeta({ shots:mNow.shots.length, seconds:mNow.shots.reduce((n,sh)=>n+(typeof shotDur==="function" ? (Number(shotDur(sh))||0) : (Number(sh.dur)||0)), 0), steps:stepsOf(mNow) })),
+      sayOf(mNow) && SBC_E("p",{className:"sbc-moment-says"},"\u201c"+sayOf(mNow).slice(0,180)+(sayOf(mNow).length>180?"\u2026":"")+"\u201d")),
+    mNow && SBC_E("div",{className:"sbc-thumbs",role:"group","aria-label":"The shots of moment "+mNow.n},mNow.shots.map((sh,k)=>{
       const r = rowOf(sh), frame = img(sh.id), open = sh.id===openId;
       const pic = frame || (r && r.start && r.start.dataUrl) || "";
       const state = K.state({ open, making:making(sh.id), approved:!!sh.locked, frame:!!frame, drawn:!!(r && r.start), planned:!!(sh.planned && sh.startState) });
       return SBC_E("button",{key:sh.id,type:"button",className:"sbc-thumb"+(open?" open":""),"aria-pressed":open?"true":"false","data-testid":"beat-card-shot","data-shot":sh.id,
-          title:open ? "This shot is open below." : "Open this shot below.",onClick:()=>onOpen && onOpen(sh.id)},
+          title:(k>0 ? "This shot begins with a cut. " : "")+(open ? "This shot is open below." : "Open this shot below."),onClick:()=>onOpen && onOpen(sh.id)},
         pic ? SBC_E("img",{src:pic,alt:""}) : SBC_E("span",{className:"sbc-thumb-none","aria-hidden":"true"},K.SHORT[String(sh.size||"").toUpperCase()]||"Shot"),
-        SBC_E("span",{className:"sbc-thumb-name"},K.number(sh)+" "+K.name(sh)),
+        k>0 && SBC_E("span",{className:"sbc-thumb-cut","data-testid":"beat-card-cut"},"cut"),
+        SBC_E("span",{className:"sbc-thumb-name"},K.shotNumber(sh, shots)+" "+K.name(sh)),
         SBC_E("span",{className:"sbc-thumb-state"+(open?" open":state==="Frame made"||state==="Approved"?" made":"")},state));
     })),
     SBC_E("div",{className:"sbc-acts"},

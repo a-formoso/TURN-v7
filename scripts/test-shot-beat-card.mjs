@@ -104,7 +104,20 @@ test("5 the small floor plan, the camera's line and the line that says every che
 test("6 the beat's own card: what it shows and its four actions", ()=>{
   for(const id of ["beat-card","beat-card-meta","beat-card-counts","beat-card-shot","beat-card-stage","beat-card-draw","beat-card-frames","beat-card-new"]) assert.ok(face.includes('"data-testid":"'+id+'"'),id);
   assert.ok(face.includes('"Send this beat to the Stage"')&&face.includes('"Draw the beat"')&&face.includes('"Make frames in order"')&&face.includes('"New shot in this beat"'),"the design's four");
-  assert.ok(face.includes('K.number(sh)+" "+K.name(sh)')&&face.includes("K.beatMeta({ place:place && place.name, shots:shots.length, seconds })")&&face.includes("K.countWords(c).map("));
+  // (owner 2026-11-27: the card shows the beat's moments, and the shots inside the chosen one, numbered beat . moment . shot)
+  assert.ok(face.includes('K.shotNumber(sh, shots)+" "+K.name(sh)')&&face.includes("K.beatMeta({ place:place && place.name, moments:groups.length, shots:shots.length, seconds })")&&face.includes("K.countWords(c).map("));
+  for(const id of ["beat-card-moments","beat-card-moment-pick","beat-card-moment","beat-card-cut"]) assert.ok(face.includes('"data-testid":"'+id+'"'),id);
+  assert.ok(face.includes("const mNow = groups.find(g=>g.shots.some(sh=>sh.id===openId)) || groups[0] || null;"),"the moment shown is the open shot's own");
+  assert.ok(face.includes("onClick:()=>onOpen && g.shots[0] && onOpen(g.shots[0].id)}, g.n);"),"pressing a moment opens its first shot");
+  assert.ok(face.includes('mNow.shots.map((sh,k)=>{')&&face.includes('k>0 && SBC_E("span",{className:"sbc-thumb-cut","data-testid":"beat-card-cut"},"cut")'),"only the chosen moment's shots; a shot after the first begins with a cut");
+  {
+    const s=(id,b,m,mode,o)=>({id,beatN:b,moment:m?{n:m}:undefined,keyframeMode:mode,order:o});
+    const list=[s("a1",1,1,"beat-opening",1),s("a2",1,2,"moment",2),s("a3",1,3,"moment",3),s("a4",1,2,"",4),s("a5",1,0,"",5)];
+    assert.deepEqual(JSON.parse(JSON.stringify(K.moments(list).map(g=>[g.n,g.shots.map(x=>x.id).join("+"),g.cuts]))),[[1,"a1+a5",1],[2,"a2+a4",1],[3,"a3",0]],"a shot added to a moment follows the shot the moment was split into");
+    assert.equal(K.shotNumber(list[1],list),"1.2.1"); assert.equal(K.shotNumber(list[3],list),"1.2.2"); assert.equal(K.shotNumber({id:"z",beatN:2}),"2.1.1","a beat kept as one shot");
+    assert.equal(K.momentMeta({shots:1,seconds:4}),"1 shot · no cut · 4 seconds"); assert.equal(K.momentMeta({shots:3,seconds:7.6,steps:5}),"3 shots · 2 cuts · 8 seconds · 5 steps written");
+    assert.equal(K.beatMeta({place:"P",moments:7,shots:7,seconds:31}),"P · 7 moments · 7 shots · 31 seconds");
+  }
   assert.ok(face.includes('onClick:()=>onOpen && onOpen(sh.id)')&&face.includes('"aria-pressed":open?"true":"false"'),"a small picture opens its shot");
   assert.ok(face.includes("const pic = frame || (r && r.start && r.start.dataUrl) || \"\";"),"its frame when it has one, else its drawing");
   // drawn only once the card has been on screen, in turn with every other drawing, and kept where the strip looks
@@ -176,7 +189,7 @@ test("9 Send this beat to the Stage only goes there; loaded in order; Frances kn
   const i=s=>html.indexOf(s);
   assert.ok(i("app/location-set-card.js?v=")<i("app/shot-beat-card.js?v=")&&i("app/shot-beat-card.js?v=")<i("app/shot-beat-card-ui.jsx?v="),"the plan reader, the words, then the screen");
   for(const f of ["app/shot-beat-card.js","app/shot-beat-card-ui.jsx","app/shots-ui.jsx","app/shot-previs-ui.jsx","app/stage.jsx","app/app.jsx","app/styles.css","app/ai.jsx"])
-    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
+    assert.ok(["20261124-beatcard1", "20261124-propmodel1", "20261124-propmodel2", "20261124-propmodel3", "20261124-framing1", "20261125-labels1", "20261125-setcard2", "20261125-setcard3", "20261125-engine1", "20261125-seat1", "20261125-seat2", "20261125-fold1", "20261125-fold2", "20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1"].some(k=>html.includes(f+"?v="+k+'"')),f+" has a fresh key");
   const g={APP_FEATURES:[]}; new Function("APP_FEATURES",ai.split("\n").filter(l=>l.startsWith('APP_FEATURES.push({ name:"Shots: a beat and its open shot')).join("\n"))(g.APP_FEATURES);
   assert.equal(g.APP_FEATURES.length,1);
   const fact=g.APP_FEATURES[0].what;

@@ -1635,7 +1635,8 @@ function ShotCard({ sh, scene, ctx, characters, propsAvail, beatText, prevShot, 
       ));
   if(!faceOn) return cardTree;
   const res = drawColour.res || null;
-  const fNum = KF.number(sh), fName = KF.name(sh);
+  // (beat . moment . shot, owner 2026-11-27: a moment holds one or more shots)
+  const fNum = typeof KF.shotNumber==="function" ? KF.shotNumber(sh, (sceneShots||[]).filter(x=>x && Number(x.beatN)===Number(sh.beatN))) : KF.number(sh), fName = KF.name(sh);
   const fNotes = shotFaceNotes(res, sh);
   const previsState = (!drawColour.able || !drawColour.ready) ? "none" : (res && res.start) ? (fNotes.found.length ? "notes" : "ok") : "";
   const fSteps = KF.steps({ words:shotSteps[0].done, camera:shotSteps[1].done, previs:previsState, frame:shotSteps[2].done, approved:shotSteps[3].done, busy:!!gen.gening || waitingForShot });
@@ -2450,7 +2451,7 @@ function beatMomentsLine({L,scene,ctx,characters,bm,primary,momentShots,onSplitM
   if(split){
     const of=Number(primary&&primary.moment&&primary.moment.of)||momentShots.length+1;
     return _el("div",{className:"bc-moments","data-testid":"beat-moments"},
-      _el("span",null,"Moment 1 of "+of+": this frame shows "+quote(list[0]&&list[0].openingAction)+"."),
+      _el("span",null,"This beat is split into "+of+" moments, each with its own shot."),
       list.length&&list.length!==of&&_el("span",{className:"bc-moments-changed"}," The screenplay changed: this beat now has "+list.length+" moments. Join and split again to match."),
       onJoinMoments&&!readOnly&&_el("button",{type:"button",className:"beat-lane-btn ghost",disabled:busy,
         title:"Show this beat as one opening frame again. The moment shots move to Recently deleted; images are kept.",
