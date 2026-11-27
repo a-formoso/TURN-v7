@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { parseSync } from "@babel/core";
 import * as P from "../supabase/functions/image-proxy/billing-pricing.mjs";
+import * as W from "../supabase/functions/image-proxy/web-search-reply.mjs";
 
 const read = (f) => readFileSync(f, "utf8");
 let checks = 0, failed = 0;
@@ -82,16 +83,57 @@ await test("B3 the reply says whether the engine could search and which pages it
   assert.match(textRoute, /\{ webSearch: \{ available: true, searches, direct: searchDirect \}, sources \}/);
   assert.match(textRoute, /if \(body\.webSearch === true && !\("webSearch" in extra\)\) extra = \{ \.\.\.extra, webSearch: \{ available: false, searches: 0 \} \};/);
   // the sources helper runs: cited pages first, then the other results, http(s) only, one per URL
-  const src = proxy.slice(proxy.indexOf("function webSearchSources"), proxy.indexOf("\n}\n", proxy.indexOf("function webSearchSources")) + 2);
-  const js = src.replace(/\(blocks: any\[\]\): \{ url: string; title: string; cited: boolean \}\[\]/, "(blocks)")
-    .replace(/const out: \{ url: string; title: string; cited: boolean \}\[\] = \[\];/, "const out = [];")
-    .replace(/new Set<string>\(\)/, "new Set()").replace(/\(url: any, title: any, cited: boolean\)/, "(url, title, cited)");
-  const fn = new Function(js + "\nreturn webSearchSources;")();
+  assert.match(proxy, /import \{ stripCiteTags, webSearchSources \} from "\.\/web-search-reply\.mjs";/);
+  assert.ok(!proxy.includes("function webSearchSources"), "one copy of the rule: the module's");
+  const fn = W.webSearchSources;
   const out = fn([
     { type: "web_search_tool_result", content: [{ url: "https://a.example/1", title: "A" }, { url: "javascript:alert(1)", title: "x" }, { url: "https://b.example/2", title: "B" }] },
     { type: "text", text: "...", citations: [{ url: "https://b.example/2", title: "B" }] },
   ]);
   assert.deepEqual(out, [{ url: "https://b.example/2", title: "B", cited: true }, { url: "https://a.example/1", title: "A", cited: false }]);
+});
+
+await test("B4 citation tags come out of the text, and the pages they name are the cited ones (2026-11-27)", () => {
+  // as the research came back on the day searches became direct calls: tags inside the JSON's strings, quotes escaped
+  const reply = '{"research":{"fact":{"world":"Jobs are posted with schedules of <cite index=\\"8-11\\">typically 9pm-5am</cite>, and the baker <cite index=\\"8-9\\">work[s] alone</cite>.",'
+    + '"roles":[{"role":"<cite index=\\"2-2\\">The baker who runs the overnight shift.</cite>","frustrating":"One man said: <cite index=\\"20-11,20-12\\">there are places to cool off</cite>"}]}}}';
+  const clean = W.stripCiteTags(reply);
+  assert.ok(!/<\/?cite/i.test(clean), "no tag left");
+  const j = JSON.parse(clean);
+  assert.equal(j.research.fact.world, "Jobs are posted with schedules of typically 9pm-5am, and the baker work[s] alone.");
+  assert.equal(j.research.fact.roles[0].role, "The baker who runs the overnight shift.");
+  assert.equal(j.research.fact.roles[0].frustrating, "One man said: there are places to cool off");
+  // plain quotes too, and text with no tag is untouched (a story may say "cite" or use < and >)
+  assert.equal(W.stripCiteTags('<cite index="1-2">A</cite> B'), "A B");
+  assert.equal(W.stripCiteTags("We cite 3 < 5 and 7 > 2, <i>as is</i>."), "We cite 3 < 5 and 7 > 2, <i>as is</i>.");
+  assert.equal(W.stripCiteTags(null), "");
+  // the pages the tags name: the Nth page the searches returned, in order across every search, once each
+  assert.deepEqual(W.citeTagPages(reply), [8, 2, 20]);
+  assert.deepEqual(W.citeTagPages("no tags"), []);
+  assert.deepEqual(W.citeTagPages('<cite index="0-1">x</cite><cite index="abc">y</cite>'), []);
+  const page = (n) => ({ type: "web_search_result", url: "https://p.example/" + n, title: "Page " + n });
+  const blocks = [
+    { type: "web_search_tool_result", content: Array.from({ length: 10 }, (_, i) => page(i + 1)) },
+    { type: "web_search_tool_result", content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" } },
+    { type: "web_search_tool_result", content: Array.from({ length: 10 }, (_, i) => page(i + 11)) },
+    { type: "text", text: reply },
+  ];
+  const src = W.webSearchSources(blocks, reply);
+  assert.deepEqual(src.slice(0, 3).map((x) => [x.url, x.cited]), [["https://p.example/8", true], ["https://p.example/2", true], ["https://p.example/20", true]]);
+  assert.equal(src.length, 12);
+  assert.deepEqual(src.slice(3).map((x) => x.cited), Array(9).fill(false));
+  assert.equal(src[3].url, "https://p.example/1");
+  // a tag that names a page the searches did not return adds nothing; with no text the old order stands
+  assert.equal(W.webSearchSources(blocks, '<cite index="99-1">x</cite>')[0].url, "https://p.example/1");
+  assert.equal(W.webSearchSources(blocks)[0].cited, false);
+  // the proxy: the tags name the pages, then leave the text it returns
+  assert.match(textRoute, /const written = blocks\.filter\(\(b: any\) => b && b\.type === "text"\)\.map\(\(b: any\) => b\.text \|\| ""\)\.join\(""\);\s*const sources = webSearchSources\(blocks, written\);/);
+  assert.match(textRoute, /stripCiteTags\(written\), aAttached > 0,/);
+  // the app takes them out as well (a server not yet redeployed still sends them), on searching calls only
+  const aiSrc = read("app/ai.jsx");
+  assert.ok(aiSrc.includes('function stripCiteTags(text){ return String(text||"").replace(/<\\/?cite\\b[^>]*>/gi, ""); }'));
+  assert.ok(aiSrc.includes('if(opts.webSearch) return stripCiteTags((data && typeof data.text==="string") ? data.text : "");'));
+  assert.ok(aiSrc.includes('"words (quote a short phrase only when the exact words matter), and put no citation tags or other markup "+'));
 });
 
 /* ---- C. the app ---- */

@@ -132,7 +132,7 @@ test("9 the page: the Frame board button on a beat's card opens the board across
   // Play frames gives each frame its own time
   assert.ok(ui.includes("const t = setTimeout(()=>setAt(i+1), Math.max(300,(f.t2-f.t0)*1000));"));
   assert.ok(!/onUpdate|nbGenerate|proxyGenerate|localStorage/.test(ui), "it draws in the page: no image is made; the only thing it can start is the writing pass, which asks first");
-  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1", "20261127-beats1", "20261127-rooms1", "20261127-pager1", "20261127-title1", "20261127-web1"];
+  const at = n => html.indexOf(n); const keys = ["20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1", "20261127-beats1", "20261127-rooms1", "20261127-pager1", "20261127-title1", "20261127-web1", "20261127-web2"];
   assert.ok(at("app/beat-frames.js?v=") > 0 && at("app/beat-frames.js?v=") < at("app/beat-frames-ui.jsx?v=") && at("app/shot-previs-ui.jsx?v=") > 0, "the rules are on the page before the board that reads them");
   assert.ok(keys.some(k => html.includes('app/beat-frames.js?v=' + k + '"')) && keys.some(k => html.includes('app/beat-frames-ui.jsx?v=' + k + '"')));
 });

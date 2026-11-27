@@ -97,6 +97,11 @@ function researchWebCheck(id){
     others: WRITING_MODELS.filter(x=>writingModelSearchesWeb(x.id) && x.id!==id).map(x=>x.label) };
 }
 window.writingModelSearchesWeb = writingModelSearchesWeb; window.researchWebCheck = researchWebCheck;
+/* CITATION TAGS ARE NOT THE WRITER'S TEXT (2026-11-27). A searching reply written as JSON can carry its citations as
+   raw tags around the words they support; New Story's research showed them inside its fields. They are markup: every
+   searching call's text has them taken out here (the server does the same, and names the pages they point at). */
+function stripCiteTags(text){ return String(text||"").replace(/<\/?cite\b[^>]*>/gi, ""); }
+window.stripCiteTags = stripCiteTags;
 /* THE WRITER'S OWN WORDS, AS MUCH AS A PLANNING CALL READS (2026-11-12, audit C5). "Talk it through" hands the whole
    conversation on as the story's seed, and an imported prose text arrives as one too (up to 6,000 characters). The
    loglines read 7,000 characters of a conversation but 1,200 of anything else, and the research and the synopsis
@@ -407,6 +412,7 @@ if(!window.claude || typeof window.claude.complete !== "function"){
         try{ opts.onMeta({ webSearch:(data && data.webSearch) || { available:false, searches:0 },
           sources: Array.isArray(data && data.sources) ? data.sources : [] }); }catch(e){}
       }
+      if(opts.webSearch) return stripCiteTags((data && typeof data.text==="string") ? data.text : "");
       return (data && typeof data.text==="string") ? data.text : "";
     }
   };
@@ -6245,7 +6251,9 @@ async function aiResearch(logline, seedText, frameworkId, formatId, steer, canon
     "all (the period and place, the "+
     "principals' real roles and their daily work) before writing it, and state as fact only what the pages you read "+
     "support \u2014 leave out a detail you could not confirm rather than guessing. Real people and real events get "+
-    "only what the record shows. Without search, keep to what is widely known.\n"+
+    "only what the record shows. Without search, keep to what is widely known. Write every field in your own "+
+    "words (quote a short phrase only when the exact words matter), and put no citation tags or other markup "+
+    "inside the JSON.\n"+
     "Also invent a short evocative TITLE for the film. Keep every field tight \u2014 no padding.\n\n"+
     'Return ONLY JSON: {"title":"...","research":{"memory":"...","imagination":"...",'+
     '"fact":{"world":"...","roles":[{"who":"...","role":"...","whatHappens":"...","howItFeels":"...","frustrating":"...","lovely":"..."}]}}}';

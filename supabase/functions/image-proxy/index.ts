@@ -115,21 +115,9 @@ import {
   budgetReached, collaboratorUsage, filmCallKind, filmHoldRefusal, filmPaidMetadata, filmPaidMetadataFromHold, loadHoldPayer, loadOwnerAccountRow,
   ownerPlanPaused, ownerShortOfCredits, pollBudget, recordTakeUrl, resolveFilmPayer, writeHoldTake,
 } from "./film-payer.mjs";
-/* The pages a searching Claude reply relied on: every page a text block CITES first (the claims
-   rest on those), then the other results the searches returned; one entry per URL, at most 12,
-   http(s) only. */
-function webSearchSources(blocks: any[]): { url: string; title: string; cited: boolean }[] {
-  const out: { url: string; title: string; cited: boolean }[] = [];
-  const seen = new Set<string>();
-  const add = (url: any, title: any, cited: boolean) => {
-    const u = String(url || "").trim();
-    if (!/^https?:\/\//i.test(u) || seen.has(u) || out.length >= 12) return;
-    seen.add(u); out.push({ url: u, title: String(title || "").trim().slice(0, 200), cited });
-  };
-  for (const b of blocks || []) for (const c of (b && b.type === "text" && Array.isArray(b.citations)) ? b.citations : []) add(c.url, c.title, true);
-  for (const b of blocks || []) if (b && b.type === "web_search_tool_result" && Array.isArray(b.content)) for (const x of b.content) add(x && x.url, x && x.title, false);
-  return out;
-}
+// What a searching reply hands back (2026-11-27): its text without citation tags, and the pages it rests on
+// (the cited ones first). Its own module so the rules are tested as they run.
+import { stripCiteTags, webSearchSources } from "./web-search-reply.mjs";
 import {
   DEFAULT_TEXT_MODELS, accountFrom, billingUnavailable, checkImage, checkText, checkVideo, checkVoice, formatCredits, francesPlanLimit,
   frozenRefusal, modelNotAllowed, refusal, shortOfCredits, writingShortfall,
@@ -1244,9 +1232,11 @@ Deno.serve(async (req) => {
         }
         // …and a searching turn that declined after its pause wrote nothing either
         if (data?.stop_reason === "refusal" && !blocks.some((b: any) => b && b.type === "text" && String(b.text || "").trim())) return declinedReply(data);
-        const sources = webSearchSources(blocks);
+        // the text as written may carry citation tags: they name the pages it rests on, then they come out
+        const written = blocks.filter((b: any) => b && b.type === "text").map((b: any) => b.text || "").join("");
+        const sources = webSearchSources(blocks, written);
         const searches = Number(usage.server_tool_use?.web_search_requests) || 0;
-        return await finishText("anthropic", runModel, { ...data, usage }, blocks.filter((b: any) => b && b.type === "text").map((b: any) => b.text || "").join(""), aAttached > 0,
+        return await finishText("anthropic", runModel, { ...data, usage }, stripCiteTags(written), aAttached > 0,
           { webSearch: { available: true, searches, direct: searchDirect }, sources });
       } catch (e) { return textUnreachable(e); }
     }
