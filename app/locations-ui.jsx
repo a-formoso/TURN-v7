@@ -1502,23 +1502,31 @@ function LocationSpatialPlanEditor({l,scenes,project,onUpdate,readOnly=false,rev
   // ROOMS NOT ON THE FLOOR PLAN (owner 2026-11-16, the whole place first): each can be added to the saved plan, or
   // merged with the room it looks like
   // Shown above the folded floor plan, so it is seen whenever Floor plan is open.
+  /* (2026-11-27, the owner took the box for a fault) It is a list of choices, so it is a plain note: the reasons sit
+     behind the \u24d8, a room listed twice or a part of a room says so, and while a draft waits both buttons wait too
+     (a merge made before the draft is confirmed could keep the card that has no outline). */
+  const outsideHelp="A draft places up to six spaces: the place and five of its rooms. The others are added one at a time. "
+    +"A room that is not on the floor plan cannot be drawn in 3D, given cameras or dressed. "
+    +"Two cards for one room: merge them; nothing is generated. "
+    +"A room of its own: adding it places it on the saved floor plan with one writing call and leaves the rest as saved; you confirm the result.";
   const outsideBox=
       outside.length>0&&React.createElement("div",{className:"loc-step-fixes loc-rooms-outside",role:"note","data-testid":"floor-plan-rooms-outside"},
-        React.createElement("p",{className:"loc-step-fixes-head"},(candidate&&!candidate.addedRoom?"This draft did not place: ":"Not on the floor plan yet: ")+outside.map(r=>r.name).join(", ")+"."),
-        React.createElement("p",{style:{margin:"0 0 8px"}},"A room that is not on the floor plan cannot be drawn in 3D, given cameras or dressed. Adding it places the room in "+(owner.name||"this place")+"\u2019s plan and leaves the rest as saved. Uses writing credits; you confirm the result."
-          +(candidate?" Confirm or discard the draft below first.":"")),
+        React.createElement("p",{className:"loc-step-fixes-head"},(candidate&&!candidate.addedRoom?"Not on this draft: ":"Not on the floor plan yet: ")+outside.map(r=>r.name).join(", ")+". ",
+          React.createElement("span",{className:"loc-note-help",tabIndex:0,role:"note","data-testid":"floor-plan-rooms-outside-help","aria-label":outsideHelp,title:outsideHelp},"\u24d8")),
+        candidate&&React.createElement("p",{className:"loc-rooms-outside-wait","data-testid":"floor-plan-rooms-outside-wait"},"Confirm or discard the draft below first. Then choose for each room here."),
         outside.map(r=>{
-          // the room it is taken for: by its name, or because the placing read it so
-          const read=sameRoom&&sameRoom.id===r.id,twin=read?sameRoom.twin:r.twin;
+          // the room it is taken for: by its name, or because the placing read it so; part: an area of that room
+          const read=sameRoom&&sameRoom.id===r.id,twin=read?sameRoom.twin:r.twin,part=!read&&!!r.part;
+          const wait=candidate?"Confirm or discard the draft first. ":"";
           return React.createElement("div",{key:r.id,className:"loc-step-actions loc-room-outside","data-room-outside":r.id},
-            twin&&React.createElement("span",{className:"loc-layer-note"},r.name+(read?" reads as the same room as ":" looks like the same room as ")+twin.name+"."),
+            twin&&React.createElement("span",{className:"loc-layer-note"},r.name+(read?" reads as the same room as ":part?" looks like a part of ":" looks like the same room as ")+twin.name+"."),
             // one room under two names: merge the cards. A different room after all: add it anyway (owner 2026-11-16)
-            twin&&!readOnly&&typeof onMergeRooms==="function"&&React.createElement("button",{type:"button",className:"art-draftall",disabled:busy,
-              title:"Shows what a merge of the two cards keeps, then asks. Nothing is generated or charged.",
-              onClick:()=>onMergeRooms(r.id,twin.id)},"Same room: merge the two cards\u2026"),
+            twin&&!readOnly&&typeof onMergeRooms==="function"&&React.createElement("button",{type:"button",className:"art-draftall",disabled:busy||!!candidate,
+              title:wait+"Shows what a merge of the two cards keeps, then asks. Nothing is generated or charged.",
+              onClick:()=>onMergeRooms(r.id,twin.id)},part?"Part of that room: merge the two cards\u2026":"Same room: merge the two cards\u2026"),
             !readOnly&&React.createElement("button",{type:"button",className:"art-draftall"+(twin?" ghost":""),disabled:busy||!!candidate,onClick:()=>addRoom(r,twin?twin.name:""),
-              title:(twin?r.name+" is placed as a room of its own, apart from "+twin.name+". ":"")+"One writing call places "+r.name+" on the saved floor plan: its outline, its doors and its fixed objects. Nothing already on the plan changes. You review and confirm it."},
-              React.createElement(Icon.sparkles,{s:14}),placing===r.id?"Placing "+r.name+"\u2026":twin?"A different room: add it anyway":"Add "+r.name+" to the floor plan"));
+              title:wait+(twin?r.name+" is placed as a room of its own, apart from "+twin.name+". ":"")+"One writing call places "+r.name+" on the saved floor plan: its outline, its doors and its fixed objects. Nothing already on the plan changes. You review and confirm it."},
+              React.createElement(Icon.sparkles,{s:14}),placing===r.id?"Placing "+r.name+"\u2026":twin?(part?"A room of its own: add it anyway":"A different room: add it anyway"):"Add "+r.name+" to the floor plan"));
         }));
   return React.createElement(React.Fragment,null,outsideBox,React.createElement("details",{className:"loc-nested-section loc-spatial-plan",open,onToggle:e=>{
     if(e.target===e.currentTarget)setOpen(e.currentTarget.open);

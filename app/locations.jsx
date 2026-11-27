@@ -2209,12 +2209,26 @@ function locationRoomsOutsidePlan(l,locations,plan){
   const p=plan||normalizeLocationSpatialPlan(live.spatialPlan);
   const spaces=((p&&p.coordinates&&p.coordinates.spaces)||[]).filter(s=>s&&(s.footprint||[]).length>=3);
   if(!spaces.length)return [];
-  const family=_locFamily(live,list),place=_locNameKey(live.name);
-  const short=x=>{const k=_locNameKey(x&&x.name);return place&&k.indexOf(place+" ")===0?k.slice(place.length+1):k;};
+  const family=_locFamily(live,list),place=_locNameKey(live.name),placeWords=place?place.split(" "):[];
+  /* (2026-11-27, a police station with nine cards) the place's words in front of a room's name are taken off whether
+     all of them are there ("Ellis House - Hallway") or only the first ("Northgate Cells" in Northgate Police Station),
+     so "Cells" and "Northgate Cells" are seen as one room. Only words from the START of the place's name, in order. */
+  const shortKey=k=>{
+    if(!k||k===place)return "";
+    if(place&&k.indexOf(place+" ")===0)return k.slice(place.length+1);
+    const w=k.split(" ");let i=0;
+    while(i<w.length-1&&i<placeWords.length&&w[i]===placeWords[i])i++;
+    return w.slice(i).join(" ");
+  };
+  const short=x=>shortKey(_locNameKey(x&&x.name));
+  /* A PART OF A ROOM (same day): "Cells - Desk" is the desk in the cells, written the way a slugline names an area of
+     a set. The room it names, when that room is on the plan, is offered as the card to merge it with (part:true). */
+  const hostKey=x=>{const m=String((x&&x.name)||"").match(/^(.+?)(?:\s+[-\u2013\u2014]\s+|\s*[:\/,(]\s*)\S/);return m?shortKey(_locNameKey(m[1])):"";};
   const on=family.filter(m=>m&&m.id!==live.id&&spaces.some(s=>s.id===m.id));
   return family.filter(m=>m&&m.id!==live.id&&!spaces.some(s=>s.id===m.id)).map(m=>{
     const k=short(m),twin=k?on.find(x=>short(x)===k):null;
-    return {id:m.id,name:m.name||"Room",twin:twin?{id:twin.id,name:twin.name||"Room"}:null};
+    const h=twin?"":hostKey(m),host=h?on.find(x=>short(x)===h):null,hit=twin||host;
+    return {id:m.id,name:m.name||"Room",twin:hit?{id:hit.id,name:hit.name||"Room"}:null,...(host?{part:true}:{})};
   });
 }
 /* ONE ROOM ADDED to a saved floor plan (ai.jsx aiPlaceLocationRoom writes the addition): the room's outline with its
