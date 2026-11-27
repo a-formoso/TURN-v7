@@ -9370,7 +9370,8 @@ function ScenePager({ idx, total, title, sub, onPrev, onNext, scenes, onJump, di
         onClick: canJump?()=>setOpen(o=>!o):undefined, title: canJump?"Jump to a scene":undefined,
         role: canJump?"button":undefined, tabIndex: canJump?0:undefined},
       React.createElement("span",{className:"scene-pager-no"},
-        "Scene "+(idx+1)+" of "+total,
+        // the screenplay's own number first when the list knows it (2026-11-27)
+        (scenes && scenes[idx] && scenes[idx].no!=null ? "Scene "+String(scenes[idx].no).padStart(2,"0")+" \u00b7 "+(idx+1)+" of "+total : "Scene "+(idx+1)+" of "+total),
         canJump ? React.createElement(Icon.chevD,{s:10}) : null),
       React.createElement("span",{className:"scene-pager-title"}, title||"Untitled scene"),
       sub ? React.createElement("span",{className:"scene-pager-sub"}, sub) : null,

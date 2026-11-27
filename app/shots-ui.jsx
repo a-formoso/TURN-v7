@@ -2666,12 +2666,17 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
      takes a moment during which nothing used to change. So the press itself writes the new scene's number and name
      into the head and dims the beats that are about to go, the browser shows that, and only then is the scene
      changed (the same words are what the new scene's own head then says). */
+  /* THE SCREENPLAY'S OWN SCENE NUMBER (owner 2026-11-27: "Scene 2 of 9 · Shoes On" beside the screenplay's
+     "Scene 2 · One Payment Left" read as two names for one scene). The pager lists only the scenes that have shots,
+     so its count is not the scene's number: the number comes first, the place in the list after it. */
+  const pagerLabel = (sx, i, total)=> sx && sx.no!=null && sx.no!==""
+    ? "Scene "+String(sx.no).padStart(2,"0")+" \u00b7 "+(i+1)+" of "+total : "Scene "+(i+1)+" of "+total;
   const pagerGo = (to, go)=>(e)=>{
     const total = pager ? pager.total : 0;
     if(!pager || !(to>=0 && to<total) || to===pager.idx){ return; }
     try{ const card = e && e.currentTarget && e.currentTarget.closest(".shot-scene-card");
       const lab = card && card.querySelector(".scene-pager-btn"), name = card && card.querySelector(".shot-scene-title");
-      if(lab && lab.firstChild && lab.firstChild.nodeType===3) lab.firstChild.nodeValue = "Scene "+(to+1)+" of "+total;
+      if(lab && lab.firstChild && lab.firstChild.nodeType===3) lab.firstChild.nodeValue = pagerLabel(pager.scenes[to], to, total);
       if(name && name.firstChild && name.firstChild.nodeType===3) name.firstChild.nodeValue = (pager.scenes[to] && pager.scenes[to].title) || "Untitled scene";
       if(card && card.parentElement) card.parentElement.classList.add("scene-switching"); }catch(_){}
     const run = ()=>go();
@@ -2859,9 +2864,10 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
       _el("div",{className:"shot-scene-meta"},
         // a real button with its menu beside it; Escape closes it (2026-10-09 — a span that only a mouse could open)
         pager && _el("span",{className:"scene-pager-no ssg-jump"},
-          _el("button",{type:"button",className:"scene-pager-btn",title:"Jump to a scene","aria-haspopup":"true","aria-expanded":jumpOpen?"true":"false",
+          _el("button",{type:"button",className:"scene-pager-btn","aria-haspopup":"true","aria-expanded":jumpOpen?"true":"false",
+            title:"Scene "+(scene.no!=null?scene.no:pager.idx+1)+" of the screenplay: number "+(pager.idx+1)+" of the "+pager.total+" scene"+(pager.total===1?"":"s")+" that have shots. Press to jump to a scene.",
             onClick:()=>setJumpOpen(o=>!o), onKeyDown:(e)=>{ if(e.key==="Escape" && jumpOpen){ e.preventDefault(); setJumpOpen(false); } }},
-            "Scene "+(pager.idx+1)+" of "+pager.total, _el(Icon.chevD,{s:10})),
+            pagerLabel(pager.scenes[pager.idx]||scene, pager.idx, pager.total), _el(Icon.chevD,{s:10})),
           jumpOpen && _el("div",{className:"scene-pager-menu",role:"group","aria-label":"Scenes",onClick:(e)=>e.stopPropagation(),
             onKeyDown:(e)=>{ if(e.key==="Escape"){ e.preventDefault(); setJumpOpen(false);
               try{ const b = e.currentTarget.parentNode.querySelector(".scene-pager-btn"); b && b.focus(); }catch(x){} } }},

@@ -1717,9 +1717,12 @@ function StoryboardView({ project, scenes, shots, characters, props, locations, 
             _sbEl("div",{className:"shot-scene-meta"},
               // a real button with its menu beside it; Escape closes it (2026-10-09 — the Shots tab's own fix)
               _sbEl("span",{className:"scene-pager-no ssg-jump"},
-                _sbEl("button",{type:"button",className:"scene-pager-btn",title:"Jump to a scene","aria-haspopup":"true","aria-expanded":jumpOpen?"true":"false",
+                _sbEl("button",{type:"button",className:"scene-pager-btn",title:"The screenplay's scene number, then its place among the scenes that have shots. Press to jump to a scene.","aria-haspopup":"true","aria-expanded":jumpOpen?"true":"false",
                   onClick:()=>setJumpOpen(o=>!o), onKeyDown:(e)=>{ if(e.key==="Escape" && jumpOpen){ e.preventDefault(); e.stopPropagation(); setJumpOpen(false); } }},
-                  "Scene "+(pIdx+1)+" of "+pagesByScene.length,_sbEl(Icon.chevD,{s:10})),
+                  // the screenplay's own number first, then the place among the scenes that have shots (2026-11-27)
+                  (pagesByScene[pIdx]&&pagesByScene[pIdx].scene&&pagesByScene[pIdx].scene.no!=null
+                    ?"Scene "+String(pagesByScene[pIdx].scene.no).padStart(2,"0")+" \u00b7 "+(pIdx+1)+" of "+pagesByScene.length
+                    :"Scene "+(pIdx+1)+" of "+pagesByScene.length),_sbEl(Icon.chevD,{s:10})),
                 jumpOpen&&_sbEl("div",{className:"scene-pager-menu",role:"group","aria-label":"Scenes",onClick:e=>e.stopPropagation(),
                   onKeyDown:(e)=>{ if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); setJumpOpen(false);
                     try{ const b = e.currentTarget.parentNode.querySelector(".scene-pager-btn"); b && b.focus(); }catch(x){} } }},

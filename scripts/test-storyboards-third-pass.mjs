@@ -141,7 +141,7 @@ await test("D2 'Edit' on a panel and 'Edit shots' open that scene in Shots", ()=
 await test("E1 copy and accessibility", ()=>{
   assert.ok(!/Seedance/.test(sb) && !sb.includes('" stale source"') && !sb.includes("re-compose automatically whenever a frame re-renders"));
   assert.ok(sb.includes('w.oldLook ? (w.oldLook+" frame"+(w.oldLook!==1?"s":"")+" made with an earlier look") : "",'));
-  assert.ok(sb.includes('_sbEl("button",{type:"button",className:"scene-pager-btn",title:"Jump to a scene"') && !sb.includes('className:"scene-pager-no ssg-jump",role:"button",tabIndex:0'));
+  assert.ok(sb.includes('_sbEl("button",{type:"button",className:"scene-pager-btn",title:"The screenplay\'s scene number, then its place among the scenes that have shots. Press to jump to a scene."') && sb.includes('?"Scene "+String(pagesByScene[pIdx].scene.no).padStart(2,"0")+" \\u00b7 "+(pIdx+1)+" of "+pagesByScene.length') && !sb.includes('className:"scene-pager-no ssg-jump",role:"button",tabIndex:0'));
   assert.ok(sb.includes('"aria-haspopup":"true","aria-expanded":menuOpen?"true":"false"') && sb.includes('className:"sb-half-view"'));
   assert.ok(sb.includes('"aria-pressed":panelShot===sh?"true":"false"') && sb.includes('"aria-pressed":editRefSel.indexOf(o.id)>=0?"true":"false"'));
   assert.ok(art.includes(".scene-pager-menu,.sheet-tools-dropdown')))) return;") && css.includes(".sb-half-view{"));

@@ -85,7 +85,7 @@ await test("5 the page: the film is drawn in clay through the shot's own camera,
 await test("6 the scene pager answers in the next picture (owner 2026-11-26: \"the next scene button ... is not very responsive\")", () => {
   const shots = read("app/shots-ui.jsx"), css = read("app/styles.css");
   // the press writes the new scene's number and name into the head and dims the beats, lets the browser show it, then changes the scene
-  assert.ok(shots.includes('if(lab && lab.firstChild && lab.firstChild.nodeType===3) lab.firstChild.nodeValue = "Scene "+(to+1)+" of "+total;') && shots.includes('card.parentElement.classList.add("scene-switching");'));
+  assert.ok(shots.includes('if(lab && lab.firstChild && lab.firstChild.nodeType===3) lab.firstChild.nodeValue = pagerLabel(pager.scenes[to], to, total);') && shots.includes('card.parentElement.classList.add("scene-switching");'));
   assert.ok(shots.includes('if(typeof requestAnimationFrame==="function") requestAnimationFrame(()=>setTimeout(run, 0)); else run();'), "the scene changes after the picture that shows the press");
   assert.ok(shots.includes("onClick:pagerGo(pager.idx-1, pager.onPrev),") && shots.includes("onClick:pagerGo(pager.idx+1, pager.onNext),") && shots.includes("pagerGo(i, ()=>pager.onJump(i))(e);"), "Previous, Next and the scene list");
   // the scene's head comes first; its beats (the heavy part) one picture later, also in a tab that is not in front

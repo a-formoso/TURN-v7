@@ -202,7 +202,9 @@ await test("E1 spending and copy: priced scene needs, priced edits, guarded fram
   assert.ok(!app.includes("coverage AI returned nothing usable"));
 });
 await test("E2 accessibility: real buttons for the scene jump, the head pin and the paused thumbnail", ()=>{
-  assert.ok(ui.includes('_el("button",{type:"button",className:"scene-pager-btn",title:"Jump to a scene","aria-haspopup":"true"'));
+  assert.ok(ui.includes('_el("button",{type:"button",className:"scene-pager-btn","aria-haspopup":"true"'));
+  // the pager shows the screenplay's own scene number, then the place among the scenes that have shots (2026-11-27)
+  assert.ok(ui.includes('? "Scene "+String(sx.no).padStart(2,"0")+" \\u00b7 "+(i+1)+" of "+total : "Scene "+(i+1)+" of "+total;') && ui.includes('pagerLabel(pager.scenes[pager.idx]||scene, pager.idx, pager.total)') && ui.includes('that have shots. Press to jump to a scene."'));
   assert.ok(!ui.includes('className:"scene-pager-no ssg-jump",role:"button",tabIndex:0'));
   assert.ok(ui.includes('"aria-pressed": isFirst ? undefined : (isHead ? "true" : "false"),'));
   assert.ok(ui.includes('className:"shot-check-thumb-btn"') && css.includes(".scene-pager-btn{") && css.includes(".shot-check-thumb-btn{"));
