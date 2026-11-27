@@ -123,6 +123,21 @@ await test("B4 citation tags come out of the text, and the pages they name are t
   assert.equal(src.length, 12);
   assert.deepEqual(src.slice(3).map((x) => x.cited), Array(9).fill(false));
   assert.equal(src[3].url, "https://p.example/1");
+  // the rest: a page from each search in turn (page 2, 8 and 20 are on the list already, so the turn moves on)
+  assert.deepEqual(src.slice(3).map((x) => Number(x.url.split("/").pop())), [1, 11, 3, 12, 4, 13, 5, 14, 6]);
+  // with no tags (a reply in the engine's own words), the short list a writer sees still covers every search:
+  // it was the first search's pages only, with none behind the second subject's facts
+  const plain = W.webSearchSources(blocks).map((x) => Number(x.url.split("/").pop()));
+  assert.deepEqual(plain, [1, 11, 2, 12, 3, 13, 4, 14, 5, 15, 6, 16]);
+  assert.equal(plain.slice(0, 8).filter((n) => n > 10).length, 4, "the eight the app shows: four from each search");
+  // three searches of unequal length, a repeated page and a bad address: each search keeps its turn
+  const uneven = [
+    { type: "web_search_tool_result", content: [page(1), page(2), page(3)] },
+    { type: "web_search_tool_result", content: [page(1), { url: "javascript:alert(1)", title: "x" }, page(21)] },
+    { type: "web_search_tool_result", content: [page(31)] },
+  ];
+  assert.deepEqual(W.webSearchSources(uneven).map((x) => Number(x.url.split("/").pop())), [1, 21, 31, 2, 3]);
+  assert.deepEqual(W.webSearchSources([]), []);
   // a tag that names a page the searches did not return adds nothing; with no text the old order stands
   assert.equal(W.webSearchSources(blocks, '<cite index="99-1">x</cite>')[0].url, "https://p.example/1");
   assert.equal(W.webSearchSources(blocks)[0].cited, false);

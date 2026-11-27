@@ -26,7 +26,12 @@ export function citeTagPages(text) {
 
 /* The pages a searching reply relied on: every page a text block CITES first (the claims rest on
    those: structured citations, then the pages the text's own tags name), then the other results
-   the searches returned; one entry per URL, at most 12, http(s) only. */
+   the searches returned; one entry per URL, at most 12, http(s) only.
+
+   The other results are taken a page from EACH SEARCH IN TURN (2026-11-27). A research asks about
+   several things (the place, then each principal's work), and the list the writer sees is short:
+   in the order found it was eight pages from the first search, with none behind the facts about
+   the second character. In turn, every search's subject is on the list. */
 export function webSearchSources(blocks, text = "") {
   const out = [];
   const seen = new Set();
@@ -38,8 +43,24 @@ export function webSearchSources(blocks, text = "") {
   for (const b of blocks || []) for (const c of (b && b.type === "text" && Array.isArray(b.citations)) ? b.citations : []) add(c.url, c.title, true);
   // every page the searches returned, in order: a tag's number counts into this list
   const pages = [];
-  for (const b of blocks || []) if (b && b.type === "web_search_tool_result" && Array.isArray(b.content)) for (const x of b.content) pages.push(x || {});
+  const searches = [];   // each search's own pages, in order (a failed search has none)
+  for (const b of blocks || []) if (b && b.type === "web_search_tool_result" && Array.isArray(b.content)) {
+    const list = b.content.map((x) => x || {});
+    searches.push(list); pages.push(...list);
+  }
   for (const n of citeTagPages(text)) { const p = pages[n - 1]; if (p) add(p.url, p.title, true); }
-  for (const p of pages) add(p.url, p.title, false);
+  // the rest: one page from each search in turn (its next page not on the list yet)
+  const at = searches.map(() => 0);
+  let moved = true;
+  while (moved && out.length < 12) {
+    moved = false;
+    for (let i = 0; i < searches.length && out.length < 12; i++) {
+      while (at[i] < searches[i].length) {
+        const p = searches[i][at[i]++], before = out.length;
+        add(p.url, p.title, false); moved = true;
+        if (out.length > before) break;
+      }
+    }
+  }
   return out;
 }
