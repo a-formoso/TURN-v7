@@ -354,7 +354,10 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
       const calls = s1.calls - spend0.calls;
       const imgs = imageUsedText();
       if(calls>0){ const cr = Math.round((s1.credits - spend0.credits)*100)/100;
-        setTrace(tr=>[...tr,{k:"observe",t:"This run used "+calls+" writing-model call"+(calls===1?"":"s")+" · ≈"+cr+" credit"+(cr===1?"":"s")+(imgs ? ", and made "+imgs : "")+" (estimate — see your account menu for the running total)."}]); }
+        // (2026-11-27) an admin account is never charged: the note says so, with what a paying account would use
+        const used = (typeof window.textSpendUsed==="function") ? window.textSpendUsed(spend0, s1) : "≈"+cr+" credit"+(cr===1?"":"s");
+        const free = used.indexOf("not charged")===0;
+        setTrace(tr=>[...tr,{k:"observe",t:"This run used "+calls+" writing-model call"+(calls===1?"":"s")+" · "+used+(imgs ? ", and made "+imgs : "")+(free ? "." : " (estimate — see your account menu for the running total).")}]); }
       else if(imgs) setTrace(tr=>[...tr,{k:"observe",t:"This run made "+imgs+" and no writing-model calls (estimate — see your account menu for the running total)."}]);
       else setTrace(tr=>[...tr,{k:"observe",t:"This run made no writing-model calls and no images — it cost nothing."}]);
     }
@@ -446,7 +449,7 @@ function AgentRunner({ agent, ctxFactory, onClose, onView, onBack, initialInput,
           let used = "";
           try{ const s0 = spendRef.current, s1 = (typeof window.turnTextSpend==="function") ? window.turnTextSpend() : null;
             const n = s0 && s1 ? s1.calls - s0.calls : 0;
-            if(n>0){ const cr = Math.round((s1.credits - s0.credits)*100)/100; used = " So far it used "+n+" writing call"+(n!==1?"s":"")+" \u00b7 \u2248"+cr+" credit"+(cr===1?"":"s")+"."; } }catch(e){}
+            if(n>0){ const cr = Math.round((s1.credits - s0.credits)*100)/100; used = " So far it used "+n+" writing call"+(n!==1?"s":"")+" \u00b7 "+((typeof window.textSpendUsed==="function") ? window.textSpendUsed(s0, s1) : "\u2248"+cr+" credit"+(cr===1?"":"s"))+"."; } }catch(e){}
           const imgs = imageUsedText(); if(imgs) used += " It made "+imgs+".";
           setTrace(tr=>[...tr,{k:"flag",t:"Stopped by you."+used+(isArt
             ? " A writing call or image already on its way still finishes \u2014 it's charged, and an image is kept; nothing new is started."

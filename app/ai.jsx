@@ -380,7 +380,7 @@ if(!window.claude || typeof window.claude.complete !== "function"){
         if(!(slow && opts.quietTimeout) && typeof window.appToast==="function") window.appToast(msg,"error");
         throw new Error(msg);
       }
-      textSpendAdd(m.id, "writing", data && data.usage && data.usage.credits);
+      textSpendAdd(m.id, "writing", data && data.usage && data.usage.credits, data && data.usage && data.usage.providerCostUsd);
       if(data && data.usage && typeof window.dispatchEvent==="function")
         window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
       try{ window.__lastWritingModel = { id:m.id, label:m.label }; }catch(e){}
@@ -446,9 +446,16 @@ const TEXT_CREDIT_RATES = (window.TURN_PRICING && window.TURN_PRICING.text && wi
   default: 0.30,
 };
 function _textSpendKey(){ return "turn.textspend."+String(window.turnUserEmail||"local").toLowerCase(); }
-function textSpendAdd(modelId, kind, actualCredits){
+/* AN ADMIN'S CALLS ARE NEVER CHARGED (2026-11-27). The server holds nothing for an admin account, so a build's
+   closing note read "\u22480 credits" after 25 writing calls: true, and it looked like a fault. The tally also keeps
+   what those calls cost on a paying account (`unbilled`: the provider cost the server reports for the call, rounded
+   the way the server rounds it), and the run notes say both (textSpendUsed). */
+function textSpendAdd(modelId, kind, actualCredits, providerUsd){
   try{
     const actual = Number(actualCredits);
+    const usd = Number(providerUsd);
+    const unbilled = (window.turnIsAdmin===true && actual===0 && usd>0 && typeof window.turnCreditCost==="function")
+      ? (Number(window.turnCreditCost(usd))||0) : 0;
     const rate = Number.isFinite(actual) ? (actual / (Number(window.CREDIT_SCALE)||1))
       : (kind && TEXT_CREDIT_RATES[kind]!=null) ? TEXT_CREDIT_RATES[kind]
       : (TEXT_CREDIT_RATES[modelId]!=null ? TEXT_CREDIT_RATES[modelId] : TEXT_CREDIT_RATES.default);
@@ -456,6 +463,7 @@ function textSpendAdd(modelId, kind, actualCredits){
     if(!s || typeof s.calls!=="number") s = { calls:0, credits:0, since:new Date().toISOString() };
     s.calls += 1;
     s.credits = Math.round((s.credits + rate*(Number(window.CREDIT_SCALE)||1))*100)/100;
+    if(unbilled>0) s.unbilled = Math.round(((Number(s.unbilled)||0) + unbilled)*100)/100;
     localStorage.setItem(_textSpendKey(), JSON.stringify(s));
     try{ window.dispatchEvent(new CustomEvent("text-spend",{ detail:s })); }catch(e){}
   }catch(e){}
@@ -465,8 +473,18 @@ function turnTextSpend(){
     return (s && typeof s.calls==="number") ? s : { calls:0, credits:0, since:null };
   }catch(e){ return { calls:0, credits:0, since:null }; }
 }
+/* what the calls between two tallies used, in words: "\u224812 credits", or for an admin account that was charged
+   nothing "not charged on an admin account (about 143 credits on a paying account)" */
+function textSpendUsed(s0, s1){
+  const n = (v)=>Number(v)||0;
+  const cr = Math.round((n(s1 && s1.credits) - n(s0 && s0.credits))*100)/100;
+  const un = Math.round(n(s1 && s1.unbilled) - n(s0 && s0.unbilled));
+  if(cr<=0 && un>0) return "not charged on an admin account (about "+un+" credit"+(un===1?"":"s")+" on a paying account)";
+  return "\u2248"+cr+" credit"+(cr===1?"":"s");
+}
 window.turnTextSpend = turnTextSpend;
 window.turnTextSpendAdd = textSpendAdd;
+window.textSpendUsed = textSpendUsed;
 window.TEXT_CREDIT_RATES = TEXT_CREDIT_RATES;
 
 /* FRANCES'S MODEL (billing fixes, owner decisions 2026-09-30): Opus 5.5 — $4 / $20 per 1M tokens
@@ -5051,7 +5069,7 @@ async function aiVisionComplete(messages, images, opts){
     throw new Error(safeError("Couldn't reach the vision model: "+((error&&error.message)||"unknown error")));
   }
   if(data && data.error) throw new Error(safeError(data.error));
-  textSpendAdd(m.id, "vision", data && data.usage && data.usage.credits);
+  textSpendAdd(m.id, "vision", data && data.usage && data.usage.credits, data && data.usage && data.usage.providerCostUsd);
   try{ window.__lastWritingModel = { id:m.id, label:m.label }; }catch(e){}   // what the provenance stamp names
   if(data && data.usage && typeof window.dispatchEvent==="function")
     window.dispatchEvent(new CustomEvent("turn-credits-changed",{ detail:data.usage }));
