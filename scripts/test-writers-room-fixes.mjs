@@ -120,9 +120,22 @@ test("a blank genre never prints 'FILM: Title — .'",()=>{
     assert.equal(kept.beats.driverLabel,"MARA VEY");
     assert.ok(sent.includes("Driver: Mara Vey.")&&sent.includes("The card's value turn is fixed"));
     // the story build may rework its own spine, and a normal three-act scene must turn
-    reply={...beatsReply,openCharge:2,closeCharge:1};
+    reply={...beatsReply,title:"Something Else",openCharge:2,closeCharge:1};
     const built=await box.aiAuthorScene(card,null,cast,{framework:"threeact"});
     assert.ok(built.patch.closeCharge<0);
+    // THE APPROVED TITLE STAYS (owner 2026-11-27): the build may rework the card, never the title it was approved with
+    assert.equal(built.patch.title,"The Offer");
+    assert.ok(sent.includes("The scene's title is settled: return \"title\" exactly as it is given"));
+    // a scene with no title of its own yet takes the one the writing gives it; so does a new, empty scene
+    const untitled=await box.aiAuthorScene({...card,title:"Untitled scene"},null,cast,{framework:"threeact"});
+    assert.equal(untitled.patch.title,"Something Else");
+    assert.ok(!sent.includes("The scene's title is settled"));
+    const fresh=await box.aiAuthorScene({...card,title:"New Scene",summary:""},null,cast,{framework:"threeact"});
+    assert.equal(fresh.patch.title,"Something Else");
+    // the build's own guard says the same: a planned title is never replaced by the writing's
+    assert.ok(agents.includes('const hasPlanned = !!planned && planned!=="new scene" && planned!=="untitled scene";')
+      && agents.includes('if(hasPlanned || !mine || ctx.model.scenes.some((o,k)=>k!==i && o && tk(o.title)===mine)){ authored.patch = { ...authored.patch }; delete authored.patch.title; }'));
+    assert.ok(ai.includes("THE SCENE TITLES YOU APPROVE STAY (2026-11-27)"));
     // a Resolution scene (exempt) may settle; the build does not force a flip
     const res=await box.aiAuthorScene({...card,kind:"resolution"},null,cast,{framework:"threeact"});
     assert.equal(res.patch.closeCharge,1);

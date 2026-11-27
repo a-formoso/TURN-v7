@@ -886,10 +886,13 @@ async function writeScenesSeq(ctx, indices){
           if(authored && authored.beats && (authored.beats.rows||[]).length){
             // A SCENE NEVER TAKES ANOTHER SCENE'S TITLE (2026-11-11, audit B4): writing a scene may rework its
             // card, and two test films came back with a title used twice. The planned title stays instead.
+            // THE APPROVED TITLE STAYS (owner 2026-11-27): a scene that came to the build with a title keeps it,
+            // whatever the writing returns; only a scene with no title yet takes a new one (and never another's).
             if(authored.patch && authored.patch.title!=null){
               const tk = (x)=>String(x||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
-              const mine = tk(authored.patch.title);
-              if(!mine || ctx.model.scenes.some((o,k)=>k!==i && o && tk(o.title)===mine)){ authored.patch = { ...authored.patch }; delete authored.patch.title; }
+              const mine = tk(authored.patch.title), planned = tk(scn.title);
+              const hasPlanned = !!planned && planned!=="new scene" && planned!=="untitled scene";
+              if(hasPlanned || !mine || ctx.model.scenes.some((o,k)=>k!==i && o && tk(o.title)===mine)){ authored.patch = { ...authored.patch }; delete authored.patch.title; }
             }
             scn = {...scn, ...authored.patch}; beats = authored.beats;
             ctx.model.scenes[i] = scn; ctx.model.beats[scn.id] = authored.beats;

@@ -150,7 +150,11 @@ await test("A2 fictional formats: every beat prompt is byte-identical to before 
     // baseline's two beat-authoring prompts first, so this still proves nothing else in them moved
     const sc12 = mkScenes(12);
     const threaded = (x, i)=> i<2 ? x.replace("\nSCENE "+(i+1)+":", box.sceneThreadBrief(sc12[i], sc12, {}, CAST)+"\nSCENE "+(i+1)+":") : x;
-    const now = await beatPrompts(box, P), was = (await beatPrompts(old, P)).map(later).map(threaded);
+    // (2026-11-27, owner: "keep the approved title") the build's own authoring prompt (prompt 0, a titled scene, no
+    // keepCard) is now told the title is settled: that sentence is added to the baseline first
+    const titled = (x, i)=> i===0 ? x.replace("Build the beat structure for this scene from its existing description.",
+      "Build the beat structure for this scene from its existing description. The scene's title is settled: return \"title\" exactly as it is given, and write the scene that title names.") : x;
+    const now = await beatPrompts(box, P), was = (await beatPrompts(old, P)).map(later).map(threaded).map(titled);
     assert.equal(now.length, was.length);
     now.forEach((x,i)=>assert.equal(x, was[i], format+" prompt "+i+" changed"));
     assert.ok(now.every(x=>!/REAL SUBJECTS|BEATS FROM THE RECORD/.test(x)), format+" never sees the documentary rule");

@@ -2191,16 +2191,22 @@ window.beatCountAsk = beatCountAsk;
 /* opts.keepCard — the Writers' Room's own drafting: a scene that already has content is
    the WRITER's card, so its title, slugline, summary, driver and value turn are kept as
    they are and the beats are built to reach them (only an empty objective is filled).
-   Without it (the story build refining its own fresh spine) the model may rework the card. */
+   Without it (the story build refining its own fresh spine) the model may rework the card.
+   THE APPROVED TITLE STAYS (owner 2026-11-27: "keep the approved title"): the build's outline is approved with
+   its scene titles on it, and two of eight came back renamed on a test film. A scene that already has a title keeps
+   it through the build; only a scene with no title yet takes the one the writing gives it. */
 async function aiAuthorScene(scene, prevScene, characters, project, opts){
   if(!aiAvailable()) return null;
   const blank = !scene.summary || /^a new scene/i.test(scene.summary) || scene.title==="New Scene";
   const keep = !!(opts && opts.keepCard) && !blank;
+  const ownTitle = String(scene.title||"").trim();
+  const titled = !blank && !!ownTitle && !/^(new|untitled) scene$/i.test(ownTitle);
   const ask = blank
     ? "This is a NEW, empty scene. Invent a compelling scene that fits this film and follows naturally from the previous scene."
     : keep
       ? "Build the beat structure for this scene from its existing description. The scene card is the WRITER's: return its title, slugline, summary, driver and opening/closing values and charges EXACTLY as given, and design the beats to reach that closing value."
-      : "Build the beat structure for this scene from its existing description.";
+      : "Build the beat structure for this scene from its existing description."
+        +(titled ? " The scene's title is settled: return \"title\" exactly as it is given, and write the scene that title names." : "");
   // use the ACTUAL cast of this film, never sample-story characters
   const cast = (characters && characters.length) ? characters : (((window.TURN_DATA||{}).CHARACTERS)||[]);
   const castList = cast.map(c=>c.id+" ("+c.name+")").join(", ");
@@ -2292,7 +2298,7 @@ async function aiAuthorScene(scene, prevScene, characters, project, opts){
     const axis = (pole(j.valuePos) || pole(j.valueNeg)) ? { pos:pole(j.valuePos), neg:pole(j.valueNeg) }
       : ((typeof sceneValueAxis==="function" && sceneValueAxis(scene)) || null);
     const patch = {
-      title: (j.title||scene.title).toString().slice(0,60),
+      title: titled ? ownTitle : (j.title||scene.title).toString().slice(0,60),
       loc: j.loc || scene.loc,
       summary: j.summary || scene.summary,
       objective: j.objective || scene.objective,
@@ -3946,7 +3952,7 @@ window.museFacts = museFacts;
 })();
 /* SMALL VISIBLE FAULTS (2026-11-11, owner — Writers' Room audit C1, C2, D1, D2, D5, B4) */
 (()=>{ const ns = APP_FEATURES.find(x=>x && String(x.name||"").startsWith("New Story (format"));
-  if(ns) ns.what += " THE WORKING TITLE IS THE FILM'S TITLE: the title shown on the Synopsis step (edit it there if you like) is the title the film is created with \u2014 the build no longer swaps it for a title of its own; leave the box empty and the build titles the film. YOUR SHAPE, SAID BACK: on the Logline step the line under the header reads 'Shaped for this story: \u2026' with the reason while the suggested format and structure are still in place; once you pick something else on the Shape step it reads 'Your shape: \u2026 \u2014 your own pick. The suggestion was \u2026', and the film is built in your shape. THE BUILD'S FIRST CARD speaks each structure's own words: its scene list is labelled Ki / Sh\u014d / Ten / Ketsu for Kish\u014dtenketsu and Departure / Initiation / Return for Hero's Journey (Act I\u2013III for Three-Act), a Kish\u014dtenketsu list counts the scenes that carry their movement the way the Spine does afterwards (not only the ones that reverse), and it says it builds from your synopsis. While scenes are written, a scene never takes a title another scene already has.";
+  if(ns) ns.what += " THE WORKING TITLE IS THE FILM'S TITLE: the title shown on the Synopsis step (edit it there if you like) is the title the film is created with \u2014 the build no longer swaps it for a title of its own; leave the box empty and the build titles the film. THE SCENE TITLES YOU APPROVE STAY (2026-11-27): the build's first card lists every scene by its title; once you approve it, each scene keeps that title while its beats and screenplay are written. Only a scene that has no title yet is given one. YOUR SHAPE, SAID BACK: on the Logline step the line under the header reads 'Shaped for this story: \u2026' with the reason while the suggested format and structure are still in place; once you pick something else on the Shape step it reads 'Your shape: \u2026 \u2014 your own pick. The suggestion was \u2026', and the film is built in your shape. THE BUILD'S FIRST CARD speaks each structure's own words: its scene list is labelled Ki / Sh\u014d / Ten / Ketsu for Kish\u014dtenketsu and Departure / Initiation / Return for Hero's Journey (Act I\u2013III for Three-Act), a Kish\u014dtenketsu list counts the scenes that carry their movement the way the Spine does afterwards (not only the ones that reverse), and it says it builds from your synopsis. While scenes are written, a scene never takes a title another scene already has.";
   const sv = APP_FEATURES.find(x=>x && x.name==="Spine view");
   if(sv) sv.what += " In the scene panel, the line under 'Value at stake' says a scene reverses only when its charge really changes sign; a Kish\u014dtenketsu scene that holds or deepens (\u22122 to \u22122, say) reads 'It plants or deepens without reversing \u2014 this structure allows that; only the ten has to reverse.'";
 })();
