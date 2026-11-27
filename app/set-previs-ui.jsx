@@ -449,6 +449,8 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
   // room that is not on the floor plan is named, with the way to add it
   const api=window.KinolotCloudRender,alive=React.useRef(true);
   const [fitting,setFitting]=React.useState(false),[camNote,setCamNote]=React.useState(""),[camFail,setCamFail]=React.useState("");
+  // did the last fit leave a room without its cameras? (only then is its line a fault, drawn as one)
+  const [camTrouble,setCamTrouble]=React.useState(false);
   React.useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
   if(!list.length)return own;
   let lacking=[],outside=[];
@@ -457,7 +459,7 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
   const writable=()=>!readOnly&&typeof onUpdate==="function"&&(typeof window.turnArtRoomWritable!=="function"||window.turnArtRoomWritable());
   async function setAllCameras(){
     if(fitting||!writable())return;
-    setFitting(true);setCamFail("");setCamNote("");
+    setFitting(true);setCamFail("");setCamNote("");setCamTrouble(false);
     try{
       const all=((window.turnContinuity||{}).locations)||[],now=all.find(x=>x.id===l.id);
       if(!now)throw new Error("The open location changed. Open it again.");
@@ -468,7 +470,7 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
       const same=id=>JSON.stringify((latest.find(x=>x.id===id)||{}).coverageViews||[])===JSON.stringify((all.find(x=>x.id===id)||{}).coverageViews||[]);
       const done=rows.map(r=>r.views&&!same(r.id)?{id:r.id,name:r.name,error:"its cameras changed meanwhile"}:r);
       done.filter(r=>r.views).forEach(r=>onUpdate(r.id,{coverageViews:r.views},{kind:"suggested-cameras"}));
-      if(alive.current)setCamNote(api.placeCamerasText(done)||"Every room already has its cameras.");
+      if(alive.current){setCamTrouble(done.some(r=>r.error));setCamNote(api.placeCamerasText(done)||"Every room already has its cameras.");}
     }catch(e){if(alive.current)setCamFail((e&&e.message)||"The cameras could not be set.");}
     finally{if(alive.current)setFitting(false);}
   }
@@ -482,7 +484,9 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
       chip("all","Whole place","The whole set from above, ceilings off"),
       chip(l.id,l.name||"This place","The place itself, from its four cameras"),
       list.map(r=>chip(r.id,(r.name||"Room")+(got(r.id)?" \u2713":""),(r.name||"This room")+", from its own four cameras"+(got(r.id)?" (it has its image)":"")))),
-    (lacking.length>0||camNote||camFail)&&E("div",{className:"loc-step-fixes previs-place-cameras","data-testid":"previs-place-cameras"},
+    // "Cameras set, free: …" is good news: a plain note. The alert colour is for a room still without cameras
+    // or a fit that failed (owner 2026-11-27: the red box read as an error; they take any red box for one).
+    (lacking.length>0||camNote||camFail)&&E("div",{className:"loc-step-fixes previs-place-cameras"+(!lacking.length&&!camFail&&!camTrouble?" loc-step-plain":""),"data-testid":"previs-place-cameras"},
       lacking.length>0&&E("p",{className:"loc-step-fixes-head"},"No usable cameras yet: "+lacking.map(r=>r.name).join(", ")+"."),
       lacking.length>0&&E("div",{className:"loc-step-actions"},
         !readOnly&&typeof onUpdate==="function"&&E("button",{type:"button",className:"art-draftall",disabled:fitting,"data-testid":"previs-set-all-cameras",onClick:setAllCameras,
@@ -490,7 +494,8 @@ function LocationPrevisPlace({location:l,rooms=[],project,readOnly=false,onUpdat
           fitting?"Finding clear views\u2026":"Set cameras for every room (free)")),
       camNote&&E("p",{className:"loc-layer-note",role:"status"},camNote),
       camFail&&E("p",{className:"loc-spatial-error",role:"alert"},camFail)),
-    outside.length>0&&E("div",{className:"loc-step-fixes","data-testid":"previs-rooms-outside"},
+    // rooms not on the floor plan yet: a choice with its way forward, not a fault (as on the floor plan itself)
+    outside.length>0&&E("div",{className:"loc-step-fixes loc-step-plain","data-testid":"previs-rooms-outside"},
       E("p",{className:"loc-step-fixes-head"},"Not on the floor plan yet: "+outside.map(r=>r.name).join(", ")+"."),
       E("p",{style:{margin:"0 0 8px"}},"A room is drawn here once it stands on "+(l.name||"this place")+"\u2019s floor plan."),
       E("button",{type:"button",className:"art-draftall ghost loc-step-go",onClick:()=>window.goToLocationStep&&window.goToLocationStep(l,2)},"Add it in Floor plan")),

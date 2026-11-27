@@ -12497,6 +12497,9 @@ html[data-theme="light"] .seg-job-dot{box-shadow:0 0 0 2px var(--bg-3)}
 .loc-part-of-place > .art-draftall{width:auto;flex:0 0 auto}
 /* rooms not on the floor plan: choices, not a fault (2026-11-27), so no alert colour */
 .loc-step-fixes.loc-rooms-outside{border-color:var(--line-3);background:var(--bg-2)}
+/* the same plain look for any box that is not a fault: cameras set (good news), rooms still to add (2026-11-27) */
+.loc-step-fixes.loc-step-plain{border-color:var(--line-3);background:var(--bg-2)}
+.loc-step-plain .loc-layer-note{font-size:12px;color:var(--txt-1);padding:0}
 .loc-rooms-outside-wait{margin:0 0 4px;color:var(--txt-2)}
 .loc-note-help{font-size:13px;line-height:1;font-weight:400;color:var(--txt-3);cursor:help}
 .loc-note-help:hover,.loc-note-help:focus-visible{color:var(--txt-0)}
