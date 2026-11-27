@@ -630,6 +630,13 @@ function shotFaceNotes(res, sh){
 function shotSceneHour(scene){
   try{ const p = (scene && scene.loc && typeof window.parseSlugline==="function") ? window.parseSlugline(scene.loc) : null; return (p && p.time) ? shotHourWords(p.time) : ""; }catch(e){ return ""; }
 }
+/* THE PLACE AS THE SCREENPLAY NAMES IT (2026-11-27), from the same slugline ("INT. KITCHEN - NIGHT" → "Kitchen").
+   A scene has a place before the Locations tab has made its card; the slate showed a dash until then, as if the
+   scene had none (seen on a film whose Art Room had not been opened yet). "" when the slugline names no place. */
+function shotScenePlace(scene){
+  try{ const p = (scene && scene.loc && typeof window.parseSlugline==="function") ? window.parseSlugline(scene.loc) : null;
+    return (p && p.place) ? ((typeof tidyPlace==="function") ? tidyPlace(p.place) : String(p.place)) : ""; }catch(e){ return ""; }
+}
 // an hour as it is written in a sentence: "DAWN" and "pre-dawn" → "Dawn", "Pre-Dawn"
 function shotHourWords(t){ return String(t||"").trim().toLowerCase().replace(/(^|[\s-])([a-z])/g,(m,a,b)=>a+b.toUpperCase()); }
 /* THE HOUR A LOCATION REFERENCE IS OF, read from its own label once the place's name is cut off ("Hussain Flat —
@@ -2926,7 +2933,13 @@ function SceneShotGroup({ scene, shots, ctx, characters, propsAvail, beatsMap, p
           // the place and the hour, and the way to its card (owner 2026-11-25: "Shots doesn't point back")
           _el("div",{className:"loc-slate-cell"},
             _el("span",{className:"loc-slate-lab"},"Location"),
-            (()=>{ const hour = shotSceneHour(scene), text = loc ? loc.name+(hour ? " · "+hour : "") : "—";
+            (()=>{ const hour = shotSceneHour(scene);
+              // no card yet: the place as the screenplay names it, and the way to the tab that makes its card
+              const place = loc ? loc.name : shotScenePlace(scene), text = place ? place+(hour ? " · "+hour : "") : "—";
+              if(!loc && place && typeof window.turnOpenLocationCard==="function")
+                return _el("button",{type:"button",className:"ssx-loc-link","data-testid":"scene-location-nocard",
+                    title:"From the screenplay. This place has no card yet: open Locations to make it.",
+                    onClick:()=>window.turnOpenLocationCard("")}, text);
               return (loc && loc.id && typeof window.turnOpenLocationCard==="function")
                 ? _el("button",{type:"button",className:"ssx-loc-link","data-testid":"scene-location-link",title:"Open "+loc.name+" in Locations",
                     onClick:()=>window.turnOpenLocationCard(loc.id)}, text)

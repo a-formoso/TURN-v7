@@ -24,9 +24,30 @@ test("1 the hour of a reference and of a scene, in sentence case", () => {
   assert.equal(c.shotRefHour("Night Market — Required Space Plate", "Night Market"), "", "an hour in the place's own name is not its hour");
 });
 
+test("1b a scene with no location card yet shows its place from the screenplay, and the way to Locations (2026-11-27)", () => {
+  // the pipeline test film: 8 scenes, 55 shots, no location card yet, and a dash in every scene's Location cell
+  const locSrc = read("app/locations.jsx");
+  const lower = locSrc.slice(locSrc.indexOf("const LOC_LOWER_WORDS"), locSrc.indexOf("\n", locSrc.indexOf("const LOC_LOWER_WORDS")));
+  const c = vm.createContext({}); c.window = c;
+  c.parseSlugline = raw => { const m = /^(?:INT|EXT)\.\s*(.+?)\s*-\s*([A-Z -]+)$/.exec(String(raw)); return m ? { place: m[1], time: m[2].trim() } : null; };
+  vm.runInContext([lower, fn(locSrc, "tidyPlace"), fn(shots, "shotScenePlace"), fn(shots, "shotSceneHour"), fn(shots, "shotHourWords")].join("\n"), c);
+  assert.equal(c.shotScenePlace({ loc: "INT. BAKERY - NIGHT" }), "Bakery");
+  assert.equal(c.shotScenePlace({ loc: "EXT. HOUSE OF THE DEAD - DAWN" }), "House of the Dead", "written as a card would name it");
+  assert.equal(c.shotScenePlace({ loc: "INT. TV ROOM - DAY" }), "TV Room");
+  assert.equal(c.shotScenePlace({ loc: "" }), ""); assert.equal(c.shotScenePlace(null), ""); assert.equal(c.shotScenePlace({ loc: "nothing a slugline" }), "");
+  // the cell: the card's name when there is one; else the screenplay's place, a button that opens Locations; a dash only with neither
+  assert.ok(shots.includes('if(!loc && place && typeof window.turnOpenLocationCard==="function")'));
+  assert.ok(shots.includes('"data-testid":"scene-location-nocard",') && shots.includes('title:"From the screenplay. This place has no card yet: open Locations to make it.",')
+    && shots.includes('onClick:()=>window.turnOpenLocationCard("")}, text);'));
+  // opening with no card id opens the Locations tab and looks for nothing
+  assert.ok(app.includes('setRoom("art"); setArtView("locations");') && app.includes("if(!sel) return;"));
+  // Frances knows, with a neutral example
+  assert.ok(ai.includes("THE SCENE'S PLACE (2026-11-27): the line above a scene's shots shows its place and its hour.") && ai.includes("(for example 'Kitchen \\u00b7 Night')"));
+});
+
 test("2 Shots: the header's place is a link with its hour; Uses names the hour; Previs opens the place's set", () => {
   assert.ok(shots.includes('"data-testid":"scene-location-link",title:"Open "+loc.name+" in Locations"') && shots.includes("onClick:()=>window.turnOpenLocationCard(loc.id)}, text)"));
-  assert.ok(shots.includes('const hour = shotSceneHour(scene), text = loc ? loc.name+(hour ? " · "+hour : "") : "—";'));
+  assert.ok(shots.includes('const place = loc ? loc.name : shotScenePlace(scene), text = place ? place+(hour ? " · "+hour : "") : "—";'));
   assert.ok(shots.includes('r.kind==="location" ? nm+" image"+(hour ? " · "+hour : "")'));
   assert.ok(shots.includes('"data-testid":"shot-face-open-set"') && shots.includes('onClick:()=>window.turnOpenLocationCard(drawColour.loc.id)},"Open this place’s set")'));
   assert.ok(css.includes(".ssx-loc-link{") && css.includes(".loc-step-stale{"));
@@ -55,7 +76,7 @@ test("4 a scene's shots can be opened from anywhere in the Art Room; fresh keys;
   assert.ok(shots.includes('const top = ()=>{ const page = document.querySelector(".artroom"); if(page && page.scrollTop) page.scrollTop = 0; };') && shots.includes("top(); setTimeout(top, 120);"));
   assert.ok(shots.indexOf("top(); setTimeout(top, 120);") > shots.indexOf('if(String(f.action||"").indexOf("shot:")===0){'), "only when the hand-off names no shot");
   for (const f of ["app/app.jsx", "app/shots-ui.jsx", "app/location-set-card.js", "app/locations-ui.jsx", "app/styles.css", "app/ai.jsx", "app/script.jsx"])
-    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1", "20261127-beats1", "20261127-rooms1", "20261127-pager1", "20261127-title1", "20261127-web1", "20261127-web2", "20261127-admin1"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
+    assert.ok(["20261125-join1", "20261125-join2", "20261125-join3", "20261125-order1", "20261125-order2", "20261125-top1", "20261125-wide1", "20261125-drag1", "20261125-drag2", "20261125-drag3", "20261125-drag4", "20261125-drag5", "20261125-drag6", "20261125-walls1", "20261125-walls2", "20261125-walls3", "20261125-walls4", "20261125-walls5", "20261126-look1", "20261126-look2", "20261126-board1", "20261126-frames1", "20261126-frames2", "20261126-start1", "20261126-film1", "20261126-film2", "20261127-steps1", "20261127-moments1", "20261127-beats1", "20261127-rooms1", "20261127-pager1", "20261127-title1", "20261127-web1", "20261127-web2", "20261127-admin1", "20261127-place1"].some(k => html.includes(f + "?v=" + k + '"')), f + " has this change's key");
   assert.ok(/SHOTS AND LOCATIONS POINT AT EACH OTHER \(2026-11-25\)/.test(ai) && /marked 'out of date' on the step itself/.test(ai));
   assert.ok(!/Hussain|Liaqat|Pike\b/.test(ai), "no film's own names in what Frances is told");
 });
